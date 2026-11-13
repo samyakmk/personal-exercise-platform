@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "Repform",
+    "slug": "repform",
+    "scheme": "repform",
+    "platforms": ["web", "ios", "android"],
+    "plugins": ["expo-router", "expo-document-picker"],
+    "userInterfaceStyle": "light",
+    "web": { "bundler": "metro", "output": "single" }
+  }
+}
