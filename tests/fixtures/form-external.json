@@ -1,0 +1,1023 @@
+{
+  "sources": {
+    "DOD_103072664-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1602/DOD_103072664/DOD_103072664-1024x576-1769k.mp4"
+    },
+    "DOD_103327454-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1605/DOD_103327454/DOD_103327454-1024x576-1769k.mp4"
+    },
+    "DOD_104245200-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1704/DOD_104245200/DOD_104245200-1024x576-1769k.mp4"
+    },
+    "DOD_104808637-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1709/DOD_104808637/DOD_104808637-1024x576-1769k.mp4"
+    },
+    "DOD_104808713-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1709/DOD_104808713/DOD_104808713-1024x576-1769k.mp4"
+    },
+    "DOD_104811558-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1708/DOD_104811558/DOD_104811558-1024x576-1769k.mp4"
+    },
+    "DOD_104811963-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1708/DOD_104811963/DOD_104811963-1024x576-1769k.mp4"
+    },
+    "DOD_104816876-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1709/DOD_104816876/DOD_104816876-1024x576-1769k.mp4"
+    },
+    "DOD_104816902-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1709/DOD_104816902/DOD_104816902-1024x576-1769k.mp4"
+    },
+    "DOD_104849830-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1709/DOD_104849830/DOD_104849830-1024x576-1769k.mp4"
+    },
+    "DOD_104966789-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1710/DOD_104966789/DOD_104966789-1024x576-1769k.mp4"
+    },
+    "DOD_106174436-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1811/DOD_106174436/DOD_106174436-1024x576-1769k.mp4"
+    },
+    "DOD_106174455-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1811/DOD_106174455/DOD_106174455-1024x576-1769k.mp4"
+    },
+    "DOD_106215324-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1811/DOD_106215324/DOD_106215324-1024x576-1769k.mp4"
+    },
+    "DOD_109529938.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/2303/DOD_109529938/DOD_109529938.mp4"
+    },
+    "DOD_110229417.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/2404/DOD_110229417/DOD_110229417.mp4"
+    },
+    "DOD_110504793.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/2408/DOD_110504793/DOD_110504793.mp4"
+    },
+    "DOD_111883934.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/2608/DOD_111883934/DOD_111883934.mp4"
+    },
+    "DOD_108069288-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/2011/DOD_108069288/DOD_108069288-1024x576-1769k.mp4"
+    },
+    "w19_rgb.mp4": {
+      "download": "https://zenodo.org/api/records/7672767/files/w19_rgb.mp4/content"
+    },
+    "w17_rgb.mp4": {
+      "download": "https://zenodo.org/api/records/7672767/files/w17_rgb.mp4/content"
+    },
+    "subject_016_squat_bad_side.mp4": {
+      "archiveMember": "Dataset Exercise Quality-wise/squat/bad/side/subject_016_squat_bad_side.mp4"
+    },
+    "subject_016_squat_good_side.mp4": {
+      "archiveMember": "Dataset Exercise Quality-wise/squat/good/side/subject_016_squat_good_side.mp4"
+    },
+    "subject_012_squat_good_front.mp4": {
+      "archiveMember": "Dataset Exercise Quality-wise/squat/good/front/subject_012_squat_good_front.mp4"
+    },
+    "subject_016_squat_bad_front.mp4": {
+      "archiveMember": "Dataset Exercise Quality-wise/squat/bad/front/subject_016_squat_bad_front.mp4"
+    },
+    "subject_012_squat_bad_diagonal.mp4": {
+      "archiveMember": "Dataset Exercise Quality-wise/squat/bad/diagonal/subject_012_squat_bad_diagonal.mp4"
+    },
+    "subject_003_bicep_curl_bad_side.mp4": {
+      "archiveMember": "Dataset Exercise Quality-wise/bicep_curl/bad/side/subject_003_bicep_curl_bad_side.mp4"
+    },
+    "subject_003_bicep_good_side.mp4": {
+      "archiveMember": "Dataset Exercise Quality-wise/bicep_curl/good/side/subject_003_bicep_good_side.mp4"
+    },
+    "subject_007_bicep_curl_bad_side.mp4": {
+      "archiveMember": "Dataset Exercise Quality-wise/bicep_curl/bad/side/subject_007_bicep_curl_bad_side.mp4"
+    },
+    "Muscle_Strengthening_at_Home_-_Push-ups.webm": {
+      "download": "https://upload.wikimedia.org/wikipedia/commons/1/18/Muscle_Strengthening_at_Home_-_Push-ups.webm"
+    },
+    "Muscle_Strengthening_at_the_Gym_-_Bicep_Machine.webm": {
+      "download": "https://upload.wikimedia.org/wikipedia/commons/7/7f/Muscle_Strengthening_at_the_Gym_-_Bicep_Machine.webm"
+    },
+    "STQRoYJC83o.mp4": {
+      "source": "https://www.youtube.com/watch?v=STQRoYJC83o",
+      "quality": "1280x720 H.264 video only, YouTube format 136"
+    },
+    "llFTFDwmGcw.mp4": {
+      "source": "https://www.youtube.com/watch?v=llFTFDwmGcw",
+      "quality": "1280x720 H.264 video only, YouTube format 136"
+    }
+  },
+  "cases": [
+    {
+      "id": "hold-07",
+      "group": "plank",
+      "exercise": "forearm-plank",
+      "check": "plank_raised_hips",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/773312/us-navy-plank-cfl-acfl-training-official",
+        "title": "US Navy Plank CFL/ACFL Training",
+        "creator": "Douglas Bedford, Navy Personnel Command",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "217.8–220.5 seconds. Audio removed. Bottom 20% cropped to remove the lower third."
+      },
+      "preparation": {
+        "file": "DOD_108069288-1024x576-1769k.mp4",
+        "start": 217.8,
+        "duration": 2.7,
+        "filter": "crop=iw:ih*0.8:0:0,scale=720:-2,fps=24"
+      }
+    },
+    {
+      "id": "hold-08",
+      "group": "plank",
+      "exercise": "forearm-plank",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/773312/us-navy-plank-cfl-acfl-training-official",
+        "title": "US Navy Plank CFL/ACFL Training",
+        "creator": "Douglas Bedford, Navy Personnel Command",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "173–181 seconds. Audio removed. Bottom 20% cropped to remove the lower third."
+      },
+      "preparation": {
+        "file": "DOD_108069288-1024x576-1769k.mp4",
+        "start": 173,
+        "duration": 8,
+        "filter": "crop=iw:ih*0.8:0:0,scale=720:-2,fps=24"
+      }
+    },
+    {
+      "id": "lunge-02",
+      "group": "lunge",
+      "exercise": "reverse-lunge",
+      "check": null,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/551833/stationary-reverse-lunge",
+        "title": "Stationary Reverse Lunge",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "9.5–24.0 seconds. Audio and original metadata removed."
+      },
+      "mode": "visual",
+      "preparation": {
+        "file": "DOD_104849830-1024x576-1769k.mp4",
+        "start": 9.5,
+        "duration": 14.5,
+        "filter": "scale=720:-2"
+      }
+    },
+    {
+      "id": "lunge-05",
+      "group": "lunge",
+      "exercise": "reverse-lunge",
+      "check": null,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/549334/dumbbell-lunge",
+        "title": "Dumbbell Lunge",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "16.5–31 seconds. Audio and original metadata removed."
+      },
+      "verdict": "different_exercise",
+      "mode": "visual",
+      "preparation": {
+        "file": "DOD_104816902-1024x576-1769k.mp4",
+        "start": 16.5,
+        "duration": 14.5,
+        "filter": "scale=720:-2"
+      }
+    },
+    {
+      "id": "lunge-06",
+      "group": "lunge",
+      "exercise": "reverse-lunge",
+      "check": null,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/558599/split-squat-drops",
+        "title": "Split Squat Drops",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "14.5–23 seconds. Audio and original metadata removed."
+      },
+      "verdict": "different_exercise",
+      "mode": "visual",
+      "preparation": {
+        "file": "DOD_104966789-1024x576-1769k.mp4",
+        "start": 14.5,
+        "duration": 8.5,
+        "filter": "scale=720:-2"
+      }
+    },
+    {
+      "id": "lunge-07",
+      "group": "lunge",
+      "exercise": "reverse-lunge",
+      "check": null,
+      "provenance": {
+        "source": "https://zenodo.org/records/7672767",
+        "title": "MM-Fit",
+        "creator": "David Strömbäck, Sangxia Huang, and Valentin Radu",
+        "license": "CC BY 4.0",
+        "excerpt": "w19_rgb.mp4, 664–676 seconds. Audio and original metadata removed."
+      },
+      "verdict": "different_exercise",
+      "mode": "visual",
+      "preparation": {
+        "file": "w19_rgb.mp4",
+        "start": 664,
+        "duration": 12,
+        "filter": "scale=720:-2"
+      }
+    },
+    {
+      "id": "squat-holdout-04",
+      "group": "squat",
+      "exercise": "bodyweight-squat",
+      "check": "squat_short_depth",
+      "provenance": {
+        "source": "https://data.mendeley.com/datasets/kgbb3yn47p/3",
+        "title": "Fitness Exercise Quality Assessment",
+        "creator": "Duddela Sai Prashanth and colleagues",
+        "license": "CC BY 4.0",
+        "excerpt": "Subject 016, squat/bad/side, source 0–19.95 seconds. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "subject_016_squat_bad_side.mp4",
+        "duration": 19.95,
+        "filter": "scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2"
+      }
+    },
+    {
+      "id": "squat-holdout-05",
+      "group": "squat",
+      "exercise": "bodyweight-squat",
+      "check": null,
+      "provenance": {
+        "source": "https://data.mendeley.com/datasets/kgbb3yn47p/3",
+        "title": "Fitness Exercise Quality Assessment",
+        "creator": "Duddela Sai Prashanth and colleagues",
+        "license": "CC BY 4.0",
+        "excerpt": "Subject 016, squat/good/side, source 0–19.95 seconds. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "subject_016_squat_good_side.mp4",
+        "duration": 19.95,
+        "filter": "scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2"
+      }
+    },
+    {
+      "id": "squat-holdout-07",
+      "group": "squat",
+      "exercise": "goblet-squat",
+      "check": null,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/548733/kettlebell-goblet-squat",
+        "title": "Kettlebell Goblet Squat",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "21–30.75 seconds. Crop 560:576:258:0 removes side graphics. Audio and original metadata removed."
+      },
+      "verdict": "no_clear_issue",
+      "preparation": {
+        "file": "DOD_104811558-1024x576-1769k.mp4",
+        "start": 21,
+        "duration": 9.75,
+        "filter": "crop=560:576:258:0"
+      }
+    },
+    {
+      "id": "squat-holdout-09",
+      "group": "squat",
+      "exercise": "bodyweight-squat",
+      "check": null,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/548443/body-weight-squat",
+        "title": "Body Weight Squat",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "16.75–31.75 seconds. Crop 560:576:258:0 removes side graphics. Audio and original metadata removed."
+      },
+      "verdict": "no_clear_issue",
+      "preparation": {
+        "file": "DOD_104808637-1024x576-1769k.mp4",
+        "start": 16.75,
+        "duration": 15,
+        "filter": "crop=560:576:258:0"
+      }
+    },
+    {
+      "id": "squat-holdout-10",
+      "group": "squat",
+      "exercise": "bodyweight-squat",
+      "check": "squat_short_depth",
+      "provenance": {
+        "source": "https://zenodo.org/records/7672767",
+        "title": "MM-Fit",
+        "creator": "David Strömbäck, Sangxia Huang, and Valentin Radu",
+        "license": "CC BY 4.0",
+        "excerpt": "w19_rgb.mp4, 34–51 seconds. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "w19_rgb.mp4",
+        "start": 34,
+        "duration": 17,
+        "filter": "scale=960:-2"
+      }
+    },
+    {
+      "id": "squat-holdout-11",
+      "group": "squat",
+      "exercise": "bodyweight-squat",
+      "check": null,
+      "provenance": {
+        "source": "https://zenodo.org/records/7672767",
+        "title": "MM-Fit",
+        "creator": "David Strömbäck, Sangxia Huang, and Valentin Radu",
+        "license": "CC BY 4.0",
+        "excerpt": "w17_rgb.mp4, 77–96 seconds. Audio and original metadata removed."
+      },
+      "verdict": "insufficient_visibility",
+      "preparation": {
+        "file": "w17_rgb.mp4",
+        "start": 77,
+        "duration": 19,
+        "filter": "scale=960:-2"
+      }
+    },
+    {
+      "id": "squat-holdout-12",
+      "group": "squat",
+      "exercise": "bodyweight-squat",
+      "check": null,
+      "view": "front",
+      "provenance": {
+        "source": "https://data.mendeley.com/datasets/kgbb3yn47p/3",
+        "title": "Fitness Exercise Quality Assessment",
+        "creator": "Duddela Sai Prashanth and colleagues",
+        "license": "CC BY 4.0",
+        "excerpt": "Subject 012, squat/good/front. Review first 20 seconds. Audio and original metadata removed."
+      },
+      "verdict": "insufficient_visibility",
+      "preparation": {
+        "file": "subject_012_squat_good_front.mp4",
+        "filter": "scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2"
+      }
+    },
+    {
+      "id": "squat-holdout-13",
+      "group": "squat",
+      "exercise": "bodyweight-squat",
+      "check": null,
+      "view": "front",
+      "provenance": {
+        "source": "https://data.mendeley.com/datasets/kgbb3yn47p/3",
+        "title": "Fitness Exercise Quality Assessment",
+        "creator": "Duddela Sai Prashanth and colleagues",
+        "license": "CC BY 4.0",
+        "excerpt": "Subject 016, squat/bad/front. Review first 20 seconds. Audio and original metadata removed."
+      },
+      "verdict": "insufficient_visibility",
+      "preparation": {
+        "file": "subject_016_squat_bad_front.mp4",
+        "filter": "scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2"
+      }
+    },
+    {
+      "id": "squat-holdout-14",
+      "group": "squat",
+      "exercise": "bodyweight-squat",
+      "check": null,
+      "view": "diagonal",
+      "provenance": {
+        "source": "https://data.mendeley.com/datasets/kgbb3yn47p/3",
+        "title": "Fitness Exercise Quality Assessment",
+        "creator": "Duddela Sai Prashanth and colleagues",
+        "license": "CC BY 4.0",
+        "excerpt": "Subject 012, squat/bad/diagonal. Review first 20 seconds. Audio and original metadata removed."
+      },
+      "note": "Depth varies across repetitions. The clip includes clearly deeper descents.",
+      "preparation": {
+        "file": "subject_012_squat_bad_diagonal.mp4",
+        "filter": "scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2"
+      }
+    },
+    {
+      "id": "inc-02",
+      "group": "push-up-variations",
+      "exercise": "push-up",
+      "check": null,
+      "provenance": {
+        "source": "https://commons.wikimedia.org/wiki/File:Muscle_Strengthening_at_Home_-_Push-ups.webm",
+        "title": "Muscle Strengthening at Home – Push-ups",
+        "creator": "U.S. Centers for Disease Control and Prevention",
+        "license": "U.S. public domain",
+        "excerpt": "26.75–33.75 seconds. Crop 320:208:0:16, scale 640:416. Audio and original metadata removed."
+      },
+      "verdict": "different_exercise",
+      "preparation": {
+        "file": "Muscle_Strengthening_at_Home_-_Push-ups.webm",
+        "start": 26.75,
+        "duration": 7,
+        "filter": "crop=320:208:0:16,scale=640:416"
+      }
+    },
+    {
+      "id": "inc-03",
+      "group": "push-up-variations",
+      "exercise": "push-up",
+      "check": null,
+      "provenance": {
+        "source": "https://commons.wikimedia.org/wiki/File:Muscle_Strengthening_at_Home_-_Push-ups.webm",
+        "title": "Muscle Strengthening at Home – Push-ups",
+        "creator": "U.S. Centers for Disease Control and Prevention",
+        "license": "U.S. public domain",
+        "excerpt": "48.75–63.25 seconds. Crop 320:208:0:16, scale 640:416. Audio and original metadata removed."
+      },
+      "verdict": "different_exercise",
+      "preparation": {
+        "file": "Muscle_Strengthening_at_Home_-_Push-ups.webm",
+        "start": 48.75,
+        "duration": 14.5,
+        "filter": "crop=320:208:0:16,scale=640:416"
+      }
+    },
+    {
+      "id": "inc-04",
+      "group": "push-up-variations",
+      "exercise": "push-up",
+      "check": null,
+      "provenance": {
+        "source": "https://commons.wikimedia.org/wiki/File:Muscle_Strengthening_at_Home_-_Push-ups.webm",
+        "title": "Muscle Strengthening at Home – Push-ups",
+        "creator": "U.S. Centers for Disease Control and Prevention",
+        "license": "U.S. public domain",
+        "excerpt": "67–71 seconds. Crop 320:208:0:16, scale 640:416. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "Muscle_Strengthening_at_Home_-_Push-ups.webm",
+        "start": 67,
+        "duration": 4,
+        "filter": "crop=320:208:0:16,scale=640:416"
+      }
+    },
+    {
+      "id": "external-press-01",
+      "group": "press-variations",
+      "exercise": "dumbbell-shoulder-press",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/636933/dumbbell-shoulder-press",
+        "title": "Dumbbell Shoulder Press",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "0.75–14.5 seconds, crop 344:286:350:6 and scale 688:572 isolates the front camera and excludes source graphics. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "DOD_106174455-1024x576-1769k.mp4",
+        "start": 0.75,
+        "duration": 13.75,
+        "filter": "crop=344:286:350:6,scale=688:572"
+      }
+    },
+    {
+      "id": "external-press-03",
+      "group": "press-variations",
+      "exercise": "dumbbell-shoulder-press",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/549332/dumbbell-lunge-overhead-press",
+        "title": "Dumbbell Lunge to Overhead Press",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "17–36 seconds, crop 612:570:142:0 excludes source graphics. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "DOD_104816876-1024x576-1769k.mp4",
+        "start": 17,
+        "duration": 19,
+        "filter": "crop=612:570:142:0"
+      }
+    },
+    {
+      "id": "upper-01",
+      "exercise": "dumbbell-rdl",
+      "group": "deadlift-variations",
+      "mode": "visual",
+      "check": null,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/548459/dumbbell-romanian-deadlift",
+        "title": "Dumbbell Romanian Deadlift",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain",
+        "excerpt": "19.50–35.25 seconds, crop 520:556:246:0. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "DOD_104808713-1024x576-1769k.mp4",
+        "start": 19.5,
+        "duration": 15.75,
+        "filter": "crop=520:556:246:0"
+      }
+    },
+    {
+      "id": "upper-02",
+      "exercise": "dumbbell-rdl",
+      "group": "deadlift-variations",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/548820/sandbag-single-leg-deadlift",
+        "title": "Sandbag Single Leg Deadlift",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain",
+        "excerpt": "23–40 seconds, crop 550:556:178:0. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "DOD_104811963-1024x576-1769k.mp4",
+        "start": 23,
+        "duration": 17,
+        "filter": "crop=550:556:178:0"
+      }
+    },
+    {
+      "id": "upper-08",
+      "exercise": "dumbbell-curl",
+      "group": "curl-variations",
+      "mode": "visual",
+      "check": null,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/636923/dumbbell-curl",
+        "title": "Dumbbell Curl",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain",
+        "excerpt": "2.25–9 seconds, crop 344:282:346:294 and scale 688:564. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "DOD_106174436-1024x576-1769k.mp4",
+        "start": 2.25,
+        "duration": 6.75,
+        "filter": "crop=344:282:346:294,scale=688:564"
+      }
+    },
+    {
+      "id": "upper-05",
+      "exercise": "dumbbell-curl",
+      "group": "curl-variations",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://commons.wikimedia.org/wiki/File:Muscle_Strengthening_at_the_Gym_-_Bicep_Machine.webm",
+        "title": "Muscle Strengthening at the Gym – Bicep Machine",
+        "creator": "U.S. Centers for Disease Control and Prevention",
+        "license": "U.S. public domain",
+        "excerpt": "19–30.50 seconds, crop 320:214:0:13 and scale 640:428. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "Muscle_Strengthening_at_the_Gym_-_Bicep_Machine.webm",
+        "start": 19,
+        "duration": 11.5,
+        "filter": "crop=320:214:0:13,scale=640:428"
+      }
+    },
+    {
+      "id": "upper-06",
+      "exercise": "dumbbell-curl",
+      "group": "curl-variations",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://commons.wikimedia.org/wiki/File:Muscle_Strengthening_at_the_Gym_-_Bicep_Machine.webm",
+        "title": "Muscle Strengthening at the Gym – Bicep Machine",
+        "creator": "U.S. Centers for Disease Control and Prevention",
+        "license": "U.S. public domain",
+        "excerpt": "31.65–37.15 seconds, crop 320:214:0:13 and scale 640:428. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "Muscle_Strengthening_at_the_Gym_-_Bicep_Machine.webm",
+        "start": 31.65,
+        "duration": 5.5,
+        "filter": "crop=320:214:0:13,scale=640:428"
+      }
+    },
+    {
+      "id": "upper-13",
+      "exercise": "dumbbell-curl",
+      "group": "curl-variations",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/549332/dumbbell-lunge-overhead-press",
+        "title": "Dumbbell Lunge to Overhead Press",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain",
+        "excerpt": "16.25–32 seconds, crop 640:556:144:0. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "DOD_104816876-1024x576-1769k.mp4",
+        "start": 16.25,
+        "duration": 15.75,
+        "filter": "crop=640:556:144:0"
+      }
+    },
+    {
+      "id": "upper-14",
+      "exercise": "dumbbell-rdl",
+      "group": "deadlift-variations",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/517518/dumbbell-single-leg-deadlift",
+        "title": "Dumbbell Single Leg Deadlift",
+        "creator": "Cpl. Amber Jennings, U.S. Marine Corps",
+        "license": "U.S. public domain",
+        "excerpt": "21.25–39.50 seconds, crop 574:556:200:0. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "DOD_104245200-1024x576-1769k.mp4",
+        "start": 21.25,
+        "duration": 18.25,
+        "filter": "crop=574:556:200:0"
+      }
+    },
+    {
+      "id": "md-03",
+      "exercise": "dumbbell-curl",
+      "group": "curl-rocking",
+      "check": "curl_torso_rocking",
+      "provenance": {
+        "source": "https://data.mendeley.com/datasets/kgbb3yn47p/3",
+        "title": "Fitness Exercise Quality Assessment",
+        "creator": "Duddela Sai Prashanth and colleagues",
+        "license": "CC BY 4.0",
+        "excerpt": "Subject 003, bicep_curl/bad/side. 0–19.95 seconds, fit within 720 by 720. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "subject_003_bicep_curl_bad_side.mp4",
+        "duration": 19.95,
+        "filter": "scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2"
+      }
+    },
+    {
+      "id": "md-control-01",
+      "exercise": "dumbbell-curl",
+      "group": "curl-rocking",
+      "check": null,
+      "provenance": {
+        "source": "https://data.mendeley.com/datasets/kgbb3yn47p/3",
+        "title": "Fitness Exercise Quality Assessment",
+        "creator": "Duddela Sai Prashanth and colleagues",
+        "license": "CC BY 4.0",
+        "excerpt": "Subject 003, bicep_curl/good/side. 0–19.95 seconds, fit within 720 by 720. Audio and original metadata removed."
+      },
+      "preparation": {
+        "file": "subject_003_bicep_good_side.mp4",
+        "duration": 19.95,
+        "filter": "scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2"
+      }
+    },
+    {
+      "id": "md-fresh-03",
+      "exercise": "dumbbell-curl",
+      "group": "curl-rocking",
+      "exploratory": true,
+      "provenance": {
+        "source": "https://data.mendeley.com/datasets/kgbb3yn47p/3",
+        "title": "Fitness Exercise Quality Assessment",
+        "creator": "Duddela Sai Prashanth and colleagues",
+        "license": "CC BY 4.0",
+        "excerpt": "Subject 007, bicep_curl/bad/side. 0–19.95 seconds, fit within 720 by 720. Audio and original metadata removed."
+      },
+      "note": "Mild shoulder and torso movement during lifting. Side tracks disagree on some tilted positions.",
+      "preparation": {
+        "file": "subject_007_bicep_curl_bad_side.mp4",
+        "duration": 19.95,
+        "filter": "scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2"
+      }
+    },
+    {
+      "id": "pull-01",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "visual",
+      "check": null,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/877400/pft-prep-perfect-pull-ups",
+        "title": "PFT Prep: Perfect Pull Ups",
+        "creator": "Sgt. Symira Bostic, U.S. Marine Corps",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "7–13.75 seconds, crop=800:990:306:0,scale=768:712,setsar=1. Audio and original metadata removed."
+      },
+      "note": "One complete rep with visible arm extension and top position.",
+      "preparation": {
+        "file": "DOD_109529938.mp4",
+        "start": 7,
+        "duration": 6.75,
+        "filter": "crop=800:990:306:0,scale=768:712,setsar=1"
+      }
+    },
+    {
+      "id": "pull-02",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "measured",
+      "check": "pull_up_short_bottom",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/918770/talon-fit-games-pull-up-competition",
+        "title": "Talon Fit Games Pull Up Competition",
+        "creator": "Sgt. Vincent Levelev, U.S. Army",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "67–77.5 seconds, scale=960:-2. Audio and original metadata removed."
+      },
+      "note": "Repeated bent-elbow reversals on the reliably visible arm. Chin and legs are outside the view.",
+      "preparation": {
+        "file": "DOD_110229417.mp4",
+        "start": 67,
+        "duration": 10.5,
+        "filter": "scale=960:-2"
+      }
+    },
+    {
+      "id": "pull-03",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "measured",
+      "check": "pull_up_repeated_swing",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/465137/do-pull-up",
+        "title": "How To: Do a Pull Up",
+        "creator": "Sgt. Carson Gramley, U.S. Marine Corps",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "39.57–42.68 seconds, crop=700:576:280:0. Audio and original metadata removed."
+      },
+      "note": "Repeated leg swing. The instructional title card is outside the excerpt.",
+      "preparation": {
+        "file": "DOD_103327454-1024x576-1769k.mp4",
+        "start": 39.57,
+        "duration": 3.11,
+        "filter": "crop=700:576:280:0"
+      }
+    },
+    {
+      "id": "pull-04",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/640272/trx-inverted-row",
+        "title": "TRX Inverted Row",
+        "creator": "CPT Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "6.5–19.5 seconds, crop=374:280:342:8,scale=748:560. Audio and original metadata removed."
+      },
+      "note": "Feet remain planted during the strap-supported row.",
+      "preparation": {
+        "file": "DOD_106215324-1024x576-1769k.mp4",
+        "start": 6.5,
+        "duration": 13,
+        "filter": "crop=374:280:342:8,scale=748:560"
+      }
+    },
+    {
+      "id": "pull-05",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "visual",
+      "check": null,
+      "verdict": "insufficient_visibility",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/877400/pft-prep-perfect-pull-ups",
+        "title": "PFT Prep: Perfect Pull Ups",
+        "creator": "Sgt. Symira Bostic, U.S. Marine Corps",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "8–9.45 seconds, crop=800:990:306:0,scale=768:712,setsar=1. Audio and original metadata removed."
+      },
+      "note": "Excerpt ends during the first ascent.",
+      "preparation": {
+        "file": "DOD_109529938.mp4",
+        "start": 8,
+        "duration": 1.45,
+        "filter": "crop=800:990:306:0,scale=768:712,setsar=1"
+      }
+    },
+    {
+      "id": "pull-06",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "visual",
+      "check": null,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/877400/pft-prep-perfect-pull-ups",
+        "title": "PFT Prep: Perfect Pull Ups",
+        "creator": "Sgt. Symira Bostic, U.S. Marine Corps",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "50.65–56.95 seconds, crop=860:1040:200:0,scale=824:746,setsar=1. Audio and original metadata removed."
+      },
+      "note": "Two clean upper-body repetitions. Feet are outside the view.",
+      "preparation": {
+        "file": "DOD_109529938.mp4",
+        "start": 50.65,
+        "duration": 6.3,
+        "filter": "crop=860:1040:200:0,scale=824:746,setsar=1"
+      }
+    },
+    {
+      "id": "pull-07",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/877400/pft-prep-perfect-pull-ups",
+        "title": "PFT Prep: Perfect Pull Ups",
+        "creator": "Sgt. Symira Bostic, U.S. Marine Corps",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "39.5–46.5 seconds, crop=840:1060:160:0,scale=824:780,setsar=1. Audio and original metadata removed."
+      },
+      "note": "Partner supports the feet during the pulls.",
+      "preparation": {
+        "file": "DOD_109529938.mp4",
+        "start": 39.5,
+        "duration": 7,
+        "filter": "crop=840:1060:160:0,scale=824:780,setsar=1"
+      }
+    },
+    {
+      "id": "pull-08",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "visual",
+      "check": null,
+      "verdict": "insufficient_visibility",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/451607/marine-shares-her-pull-up-program",
+        "title": "Marine shares her pull-up program",
+        "creator": "Aria Herrera, Defense Media Activity – Marines",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "100–104.25 seconds, scale=960:-2. Audio and original metadata removed."
+      },
+      "note": "Holds a bent-arm position without a complete repetition.",
+      "preparation": {
+        "file": "DOD_103072664-1024x576-1769k.mp4",
+        "start": 100,
+        "duration": 4.25,
+        "filter": "scale=960:-2"
+      }
+    },
+    {
+      "id": "pull-09",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "visual",
+      "check": null,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/1017606/get-fit-proper-pull-up-technique-marine-corps-air-station-iwakuni-japan-2026-b-roll",
+        "title": "Iwakuni pull-up B-roll",
+        "creator": "Andrew Knight and Saul Hernandez, AFN Iwakuni",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "26.55–36.8 seconds, crop=930:1080:470:0,scale=620:720. Audio and original metadata removed."
+      },
+      "note": "Visible arms extend at low points. The head is cropped during the peaks.",
+      "preparation": {
+        "file": "DOD_111883934.mp4",
+        "start": 26.55,
+        "duration": 10.25,
+        "filter": "crop=930:1080:470:0,scale=620:720"
+      }
+    },
+    {
+      "id": "pull-10",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "visual",
+      "exploratory": true,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/933838/b-roll-rs-hou-attends-american-fitness-expo",
+        "title": "American Fitness Expo B-roll",
+        "creator": "Sgt. Ryan H. Pulliam, U.S. Marine Corps",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "96–104.4 seconds, scale=480:854,setsar=1. Audio and original metadata removed."
+      },
+      "note": "Chin remains below the bar at several peaks. Chin height is outside the local pose rubric.",
+      "preparation": {
+        "file": "DOD_110504793.mp4",
+        "start": 96,
+        "duration": 8.4,
+        "filter": "scale=480:854,setsar=1"
+      }
+    },
+    {
+      "id": "pull-11",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "visual",
+      "exploratory": true,
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/933838/b-roll-rs-hou-attends-american-fitness-expo",
+        "title": "American Fitness Expo B-roll",
+        "creator": "Sgt. Ryan H. Pulliam, U.S. Marine Corps",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "104.6–113.65 seconds, scale=480:854,setsar=1. Audio and original metadata removed."
+      },
+      "note": "Moderate visible underextension in one arm. Perspective limits comparison across both arms.",
+      "preparation": {
+        "file": "DOD_110504793.mp4",
+        "start": 104.6,
+        "duration": 9.05,
+        "filter": "scale=480:854,setsar=1"
+      }
+    },
+    {
+      "id": "pull-15",
+      "group": "pull-up",
+      "exercise": "pull-up",
+      "mode": "visual",
+      "check": null,
+      "verdict": "insufficient_visibility",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/877400/pft-prep-perfect-pull-ups",
+        "title": "PFT Prep: Perfect Pull Ups",
+        "creator": "Sgt. Symira Bostic, U.S. Marine Corps",
+        "license": "U.S. public domain via DVIDS",
+        "excerpt": "7–13.75 seconds, crop=800:818:306:172,scale=768:590,setsar=1. Audio and original metadata removed."
+      },
+      "note": "Same recording as pull-01 with the hands and bar cropped.",
+      "preparation": {
+        "file": "DOD_109529938.mp4",
+        "start": 7,
+        "duration": 6.75,
+        "filter": "crop=800:818:306:172,scale=768:590,setsar=1"
+      }
+    },
+    {
+      "id": "row-01",
+      "group": "row",
+      "exercise": "dumbbell-row",
+      "mode": "measured",
+      "check": "dumbbell_row_trunk_turn",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=STQRoYJC83o",
+        "title": "How to PROPERLY Dumbbell Row | 3 Dumbbell Row Variations for Muscle Gain",
+        "creator": "Colossus Fitness",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "19.7–27.8 s of original video. Cropped and muted."
+      },
+      "preparation": {
+        "file": "STQRoYJC83o.mp4",
+        "start": 19.7,
+        "duration": 8.1,
+        "filter": "crop=1028:720:0:0,scale=800:-2"
+      },
+      "note": "Actual one-arm bench-supported dumbbell rows. The working shoulder and ribcage repeatedly roll up and outward during the pull and return on the way down, with the supporting hand planted. Grade manually for keeping the chest more square to the floor and avoiding substantial torso twist. Do not infer spinal loading, far shoulder angle, or shortened bottom range; the weight sometimes goes beyond the bottom of frame.",
+      "verdict": "observations"
+    },
+    {
+      "id": "row-02",
+      "group": "row",
+      "exercise": "dumbbell-row",
+      "mode": "measured",
+      "check": null,
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=STQRoYJC83o",
+        "title": "How to PROPERLY Dumbbell Row | 3 Dumbbell Row Variations for Muscle Gain",
+        "creator": "Colossus Fitness",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "189.55–199.75 s of original video. Cropped and muted."
+      },
+      "preparation": {
+        "file": "STQRoYJC83o.mp4",
+        "start": 189.55,
+        "duration": 10.2,
+        "filter": "crop=1028:720:130:0,scale=800:-2"
+      },
+      "note": "Bench-supported single-arm dumbbell rows with stable trunk and clear working elbow movement. Camera is on the working side. Small natural shoulder motion is visible. No correction expected.",
+      "verdict": "no_clear_issue"
+    },
+    {
+      "id": "row-03",
+      "group": "row",
+      "exercise": "dumbbell-row",
+      "mode": "measured",
+      "check": null,
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=llFTFDwmGcw",
+        "title": "How to PROPERLY Incline Dumbbell Row (CHEST SUPPORTED ROW DONE RIGHT)",
+        "creator": "Colossus Fitness",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "70.3–80.35 s of original video. Cropped and muted."
+      },
+      "preparation": {
+        "file": "llFTFDwmGcw.mp4",
+        "start": 70.3,
+        "duration": 10.05,
+        "filter": "crop=1028:624:118:0,scale=800:-2"
+      },
+      "note": "Chest stays on an incline bench and both arms visibly row dumbbells together. This is a distinct bilateral chest-supported row, incompatible with the selected single-arm row.",
+      "verdict": "different_exercise"
+    }
+  ]
+}

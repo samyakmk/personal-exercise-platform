@@ -3,6 +3,9 @@ import { createRepformServer } from '../server/index.mjs';
 
 const apiPort = Number(process.env.REPFORM_API_PORT ?? 4173);
 const webPort = Number(process.env.REPFORM_WEB_PORT ?? 8081);
+const expoEnv = Object.fromEntries(Object.keys(process.env)
+  .filter((name) => name !== 'CHATGPT_API_KEY')
+  .map((name) => [name, process.env[name]]));
 const server = createRepformServer({ webOrigin: `http://localhost:${webPort}` });
 
 server.listen(apiPort, '127.0.0.1', () => {
@@ -11,7 +14,8 @@ server.listen(apiPort, '127.0.0.1', () => {
   ], {
     stdio: 'inherit',
     env: {
-      ...process.env,
+      ...expoEnv,
+      EXPO_NO_DOTENV: '1',
       BROWSER: 'none',
       EXPO_PUBLIC_API_ORIGIN: `http://localhost:${apiPort}`,
     },

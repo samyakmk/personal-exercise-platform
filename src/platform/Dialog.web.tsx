@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { color } from '../theme';
 
-export function Dialog({ children, label, onClose }: { children: ReactNode; label: string; onClose: () => void }) {
+export function Dialog({ children, label, onClose, wide }: { children: ReactNode; label: string; onClose: () => void; wide?: boolean }) {
   const element = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -12,10 +12,22 @@ export function Dialog({ children, label, onClose }: { children: ReactNode; labe
     return () => {
       if (dialog?.open) dialog.close();
       requestAnimationFrame(() => {
-        if (!document.querySelector('dialog[open]') && opener instanceof HTMLElement && opener.isConnected) opener.focus();
+        if (document.querySelector('dialog[open]')) return;
+        if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) {
+          opener.focus();
+        } else if (document.activeElement === document.body || document.activeElement === null) {
+          document.getElementById('repform-main')?.focus({ preventScroll: true });
+        }
       });
     };
   }, []);
+
+  useEffect(() => {
+    const dialog = element.current;
+    if (dialog?.open && !dialog.contains(document.activeElement)) {
+      dialog.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
+    }
+  }, [label]);
 
   return (
     <dialog
@@ -25,8 +37,8 @@ export function Dialog({ children, label, onClose }: { children: ReactNode; labe
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
       className="repform-dialog"
       style={{
-        padding: 0, width: 'min(600px, calc(100% - 26px))', maxHeight: 'calc(100dvh - 32px)', overflow: 'auto',
-        border: `1px solid ${color.line}`, borderRadius: 18, background: color.white, color: color.text,
+        padding: 0, width: `min(${wide ? 1050 : 600}px, calc(100% - 26px))`, maxHeight: 'calc(100dvh - 32px)', overflow: 'auto',
+        border: `1px solid ${color.line}`, borderRadius: 18, background: color.surface, color: color.text,
       }}
     >
       {children}

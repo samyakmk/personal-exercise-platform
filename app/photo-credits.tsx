@@ -12,7 +12,7 @@ export default function PhotoCredits() {
         {photoCredits.map(({ subject, author, source, rights }) => (
           <View key={subject} style={{ gap: 3 }}>
             <Link href={source} target="_blank" rel="noopener noreferrer">
-              <Copy size={15} weight="bold" tone={color.green} style={{ textDecorationLine: 'underline' }}>{subject}</Copy>
+              <Copy size={15} weight="bold" tone={color.plum} style={{ textDecorationLine: 'underline' }}>{subject}</Copy>
             </Link>
             <Copy size={13}>{author}</Copy>
             <Copy size={12} tone={color.muted}>{rights}</Copy>

@@ -1,71 +1,97 @@
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { Link, usePathname } from 'expo-router';
-import { ChevronRight, CalendarDays, Dumbbell, House, Plus, Video, Zap } from 'lucide-react-native';
+import { Link, usePathname, useRouter } from 'expo-router';
+import { CalendarDays, ChartNoAxesColumnIncreasing, Dumbbell, House, LockKeyhole, Plus, ScanLine } from 'lucide-react-native';
 import { Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useTrainingNavigation } from '../navigation';
+import { SkipLink } from '../platform/SkipLink';
 import { color } from '../theme';
+import { useVideoUpload } from '../videoUpload';
 import { useWorkspace } from '../workspace';
 import { Button, Copy, Loading, Notice } from './ui';
 
 const pages = [
   { path: '/', label: 'Overview', icon: House },
-  { path: '/explore', label: 'Exercises', icon: Dumbbell },
   { path: '/workouts', label: 'Workouts', icon: CalendarDays },
-  { path: '/form-review', label: 'Form Review', icon: Video },
+  { path: '/explore', label: 'Exercises', icon: Dumbbell },
+  { path: '/progress', label: 'Progress', icon: ChartNoAxesColumnIncreasing },
+  { path: '/form-review', label: 'Form Review', icon: ScanLine },
 ] as const;
 
 export function Shell({ children }: { children: ReactNode }) {
-  const width = useWindowDimensions().width;
-  const desktop = width >= 960;
+  const { width } = useWindowDimensions();
+  const compact = width < 820;
+  const small = width < 560;
+  const inset = width >= 1440 ? 44 : width >= 900 ? 32 : small ? 14 : 24;
   const pathname = usePathname();
+  const router = useRouter();
+  const pageName = pathname === '/photo-credits' ? 'Photo credits' : pages.find((page) => page.path === pathname)?.label ?? 'Overview';
   const training = useTrainingNavigation();
   const scroll = useRef<ScrollView>(null);
-  useEffect(() => scroll.current?.scrollTo({ y: 0, animated: false }), [pathname]);
   const { data, error, reload, notice } = useWorkspace();
+  const upload = useVideoUpload();
+  const shown = useRef(false);
 
-  const nav = pages.map(({ path, label, icon: Icon }) => {
-    const active = path === pathname;
-    return (
-      <Link key={path} href={path} asChild>
-        <Pressable
-          accessibilityRole="link"
-          accessibilityState={{ selected: active }}
-          style={StyleSheet.flatten([styles.navItem, !desktop && styles.navSmall, active && { backgroundColor: '#e9f3d6' }])}
-        >
-          <Icon size={desktop ? 18 : 17} color={active ? '#314a25' : color.muted} strokeWidth={active ? 2.25 : 1.8} />
-          <Copy size={desktop ? 13 : 11} weight={active ? 'bold' : 'medium'} tone={active ? '#263e20' : color.muted}>{label}</Copy>
-        </Pressable>
-      </Link>
-    );
-  });
+  useEffect(() => {
+    scroll.current?.scrollTo({ y: 0, animated: false });
+    if (Platform.OS !== 'web') return;
+    document.title = pageName + ' · Repform';
+    if (shown.current && !document.querySelector('dialog[open]')) {
+      document.getElementById('repform-main')?.focus({ preventScroll: true });
+    }
+    shown.current = true;
+  }, [pathname, pageName]);
 
   return (
-    <View style={[styles.shell, desktop && { flexDirection: 'row' }]}>
-      {desktop && <View role="navigation" accessibilityLabel="Primary" style={styles.side}>
-        <Brand />
-        <View style={styles.navList}>{nav}</View>
-        <View style={styles.sideBottom}>
-          <View style={styles.avatar}><Dumbbell size={15} color={color.green} /></View>
-          <View style={{ flex: 1 }}>
-            <Copy size={12} weight="bold">My workspace</Copy>
-            <Copy size={11} tone={color.muted}>Demo data</Copy>
+    <View style={styles.shell}>
+      <SkipLink />
+      <View role="navigation" accessibilityLabel="Primary" style={[styles.side, compact && styles.sideCompact, small && styles.sideSmall]}>
+        <Brand compact={compact} />
+        <View style={styles.navList}>
+          {pages.map(({ path, label, icon: Icon }) => {
+            const active = path === pathname;
+            const tone = active ? color.plum : color.muted;
+            return <Link key={path} href={path} asChild>
+              <Pressable accessibilityRole="link" accessibilityLabel={label}
+                accessibilityState={Platform.OS === 'web' ? undefined : { selected: active }}
+                aria-current={Platform.OS === 'web' && active ? 'page' : undefined}
+                dataSet={compact && Platform.OS === 'web' ? { railLabel: label } : undefined}
+                style={StyleSheet.flatten([styles.navItem, compact && styles.navCompact, active && styles.navActive])}>
+                {active && <View aria-hidden style={styles.navMarker} />}
+                <Icon aria-hidden size={19} color={tone} strokeWidth={active ? 2.1 : 1.75} />
+                {!compact && <Copy size={13} weight={active ? 'semibold' : 'medium'} tone={tone}>{label}</Copy>}
+              </Pressable>
+            </Link>;
+          })}
+        </View>
+        {!compact && <View style={styles.sideBottom}>
+          <LockKeyhole aria-hidden size={14} color={color.muted} />
+          <Copy size={12} tone={color.muted}>Private workspace</Copy>
+        </View>}
+      </View>
+
+      <View style={styles.content}>
+        <View role="banner" style={styles.top}>
+          <View style={[styles.topContent, { paddingHorizontal: inset }]}>
+            <Copy size={13} weight="semibold" tone={color.muted}>{pageName}</Copy>
+            {pathname !== '/workouts' && <Button icon={Plus} kind="dark" compact style={{ alignSelf: 'center' }}
+              onPress={() => training.open({ type: 'schedule' })}>New workout</Button>}
           </View>
         </View>
-      </View>}
-      <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-        <View style={[styles.top, { paddingHorizontal: desktop ? 32 : 16 }]}>
-          {desktop ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Copy size={13} tone={color.muted}>Workspace</Copy>
-            <ChevronRight size={12} color="#79857a" />
-            <Copy size={13} weight="semibold">{pathname === '/photo-credits' ? 'Photo credits' : pages.find((page) => page.path === pathname)?.label ?? 'Overview'}</Copy>
-          </View> : <Brand />}
-          <Button icon={Plus} kind="dark" compact style={{ alignSelf: 'center' }} onPress={() => training.open({ type: 'schedule' })}>New workout</Button>
-        </View>
-        {!desktop && <View role="navigation" accessibilityLabel="Primary" style={styles.topNav}>{nav}</View>}
-        <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
-          <View role="main" style={[styles.main, { paddingHorizontal: desktop ? 32 : width < 480 ? 14 : 22 }]}>
+        <ScrollView ref={scroll} style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <View role="main" nativeID="repform-main" tabIndex={-1}
+            style={[styles.main, { paddingHorizontal: inset, paddingTop: small ? 24 : 34 }]}>
             {notice !== '' && <View style={styles.status}><Notice>{notice}</Notice></View>}
+            {data && error && <View style={styles.status}>
+              <Notice error action={<Button compact onPress={reload}>Refresh workspace</Button>}>
+                Showing your last loaded workspace. The latest changes could not be fetched.
+              </Notice>
+            </View>}
+            {pathname !== '/form-review' && (upload.progress !== null || upload.uploadFailed) && <View style={styles.status}>
+              <Notice error={upload.progress === null} action={<Button kind="quiet" compact onPress={() => router.navigate('/form-review')}>Open Form Review</Button>}>
+                {upload.progress === null ? 'The video upload needs attention.' : 'Video upload in progress.'}
+              </Notice>
+            </View>}
             {data ? children : error
               ? <Notice error action={<Button compact onPress={reload}>Retry</Button>}>{error}</Notice>
               : <Loading label="Loading your workspace…" />}
@@ -76,31 +102,40 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-function Brand() {
+function Brand({ compact }: { compact: boolean }) {
   return <Link href="/" asChild>
-    <Pressable accessibilityRole="link" accessibilityLabel="Repform home" style={styles.brand}>
-      <View style={styles.brandMark}><Zap size={20} color={color.forest} fill={color.forest} strokeWidth={1.7} /></View>
-      <Copy weight="extra" size={21} style={{ letterSpacing: -1.25 }}>repform<TextDot /></Copy>
+    <Pressable accessibilityRole="link" accessibilityLabel="Repform. Home" style={StyleSheet.flatten([styles.brand, compact && { justifyContent: 'center' }])}>
+      <View aria-hidden style={styles.brandMark}>
+        <View style={[styles.markStroke, { height: 13 }]} />
+        <View style={[styles.markStroke, { height: 20 }]} />
+        <View style={[styles.markStroke, { height: 27 }]} />
+      </View>
+      {!compact && <Copy weight="extra" size={23} style={{ letterSpacing: -1.4 }}>repform<Copy weight="extra" tone={color.plum} size={23}>.</Copy></Copy>}
     </Pressable>
   </Link>;
 }
 
-function TextDot() {
-  return <Copy size={21} weight="extra" tone="#66872b">.</Copy>;
-}
-
 const styles = StyleSheet.create({
-  shell: { flex: 1, minHeight: 0, backgroundColor: color.canvas },
-  side: { width: 220, borderRightWidth: 1, borderColor: color.line, backgroundColor: '#fafbf7', paddingHorizontal: 16, paddingTop: 20, gap: 29 },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 9, alignSelf: 'flex-start' },
-  brandMark: { width: 34, height: 34, borderRadius: 9, backgroundColor: color.lime, alignItems: 'center', justifyContent: 'center' },
+  shell: { flex: 1, minHeight: 0, backgroundColor: color.canvas, flexDirection: 'row' },
+  side: { width: 204, borderRightWidth: 1, borderColor: color.line, backgroundColor: color.rail, paddingHorizontal: 14, paddingTop: 20, gap: 34, zIndex: 2 },
+  sideCompact: { width: 68, paddingHorizontal: 8 },
+  sideSmall: { width: 52, paddingHorizontal: 5, paddingTop: 13, gap: 24 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 3 },
+  brandMark: { width: 35, height: 35, borderRadius: 10, backgroundColor: color.ink, gap: 3, flexDirection: 'row',
+    alignItems: 'center', justifyContent: 'center' },
+  markStroke: { width: 3, borderRadius: 3, backgroundColor: color.accent, transform: [{ rotate: '20deg' }] },
   navList: { gap: 5 },
-  navItem: { minHeight: 44, paddingHorizontal: 11, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 11 },
-  navSmall: { flex: 1, paddingHorizontal: 4, justifyContent: 'center', gap: 5 },
-  topNav: { flexDirection: 'row', backgroundColor: '#fafbf7', borderBottomWidth: 1, borderColor: color.line, paddingHorizontal: 10, paddingBottom: 6, gap: 3 },
-  top: { height: 67, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fafbf7', borderBottomWidth: 1, borderColor: color.line },
-  sideBottom: { marginTop: 'auto', marginBottom: 17, borderTopWidth: 1, borderColor: color.line, paddingTop: 14, flexDirection: 'row', alignItems: 'center', gap: 9 },
-  avatar: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 9, backgroundColor: '#e8efdc' },
-  main: { width: '100%', maxWidth: 1460, alignSelf: 'center', paddingTop: 25, paddingBottom: 40, ...(Platform.OS === 'web' ? { minHeight: '100%' } : {}) },
+  navItem: { minHeight: 43, paddingHorizontal: 11, borderRadius: 7, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  navCompact: { paddingHorizontal: 0, justifyContent: 'center' },
+  navActive: { backgroundColor: color.tint },
+  navMarker: { position: 'absolute', left: 0, top: 12, bottom: 12, width: 2, borderRadius: 2, backgroundColor: color.plum },
+  sideBottom: { marginTop: 'auto', marginBottom: 20, borderTopWidth: 1, borderColor: color.line, paddingTop: 14,
+    paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  content: { flex: 1, minWidth: 0, minHeight: 0 },
+  top: { height: 61, justifyContent: 'center', backgroundColor: color.canvas, borderBottomWidth: 1, borderColor: color.line },
+  topContent: { width: '100%', maxWidth: 1380, alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  scroll: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
+  main: { width: '100%', maxWidth: 1380, alignSelf: 'center', paddingBottom: 44, minHeight: '100%' },
   status: { marginBottom: 12 },
 });

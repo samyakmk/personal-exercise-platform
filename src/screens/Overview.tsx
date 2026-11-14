@@ -1,177 +1,237 @@
 import { Link, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
-import {
-  ArrowRight, ArrowUpRight, CalendarDays, Check, ChevronRight, Clock3, Dumbbell, Plus, Video,
-} from 'lucide-react-native';
-import type { LucideIcon } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { Image, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { ArrowRight, ArrowUpRight, CalendarDays, Check, ChevronDown, ChevronRight, Dumbbell, Play, Plus, ScanLine } from 'lucide-react-native';
 import { exercisePhotos, hero } from '../assets';
-import { addDays, asDate, dateKey, formatDay, formatTime, workoutDay } from '../dates';
-import { ExerciseCard } from '../components/ExerciseCard';
+import { api } from '../api';
+import { addDays, compareWorkoutTime, formatDay, formatTime, workoutDay, workoutTime } from '../dates';
 import { ExerciseSheet } from '../components/ExerciseSheet';
-import { Button, Copy, Display, Panel, SectionTitle } from '../components/ui';
+import { Button, Copy, Display, Notice, Panel, SectionTitle, Tag } from '../components/ui';
 import { useTrainingNavigation } from '../navigation';
+import { readTrainingSession } from '../platform/trainingSession';
 import { color } from '../theme';
-import type { Exercise } from '../types';
+import { completedWorkouts, isSavedTrainingLog, movementSummary } from '../trainingProgress';
+import type { Exercise, TrainingSession } from '../types';
+import { useLocalClock } from '../useLocalClock';
 import { useWorkspace } from '../workspace';
 
 export function Overview() {
-  const { data } = useWorkspace();
+  const { data, mutate, announce } = useWorkspace();
   const router = useRouter();
   const training = useTrainingNavigation();
-  const width = useWindowDimensions().width;
-  const wide = width >= 1120;
+  const { width } = useWindowDimensions();
+  const split = width >= 1050;
+  const showPhoto = width >= 740;
+  const now = useLocalClock();
   const [selected, setSelected] = useState<Exercise | null>(null);
+  const [details, setDetails] = useState<string | null>(null);
+  const [loadingExamples, setLoadingExamples] = useState(false);
+  const [exampleError, setExampleError] = useState('');
+  const [session, setSession] = useState<TrainingSession | null>(null);
+  const workspaceKey = data?.workspaceKey;
+  useEffect(() => { setSession(workspaceKey ? readTrainingSession(workspaceKey) : null); }, [workspaceKey]);
   if (!data) return null;
 
-  const today = dateKey();
-  const next = data.workouts.find((item) => item.status === 'planned' && item.date >= today);
-  const completed = data.workouts.filter((item) => item.status === 'completed' && item.date <= today);
-  const lastSeven = completed.filter((item) => item.date >= addDays(today, -6));
-  const activeDates = new Set(lastSeven.map((workout) => workout.date));
-  const exerciseCount = new Set(completed.flatMap((item) => item.exercises.map((exercise) => exercise.exerciseId))).size;
-  const nextExercises = next?.exercises.flatMap((item) => {
-    const exercise = data.catalog.find((entry) => entry.id === item.exerciseId);
-    return exercise ? [{ ...item, exercise }] : [];
+  const current = workoutTime(now);
+  const today = current.date;
+  const next = data.workouts.find((item) => item.status === 'planned' && compareWorkoutTime(item, current) >= 0);
+  const overdue = data.workouts.filter((item) => item.status === 'planned' && compareWorkoutTime(item, current) < 0).length;
+  const paused = session && !data.workouts.some((workout) => isSavedTrainingLog(session, workout)) ? session : null;
+  const plan = paused?.plan ?? next;
+  const movements = plan?.exercises.flatMap((movement) => {
+    const exercise = data.catalog.find(({ id }) => id === movement.exerciseId);
+    return exercise ? [{ exercise, movement }] : [];
   }) ?? [];
+  const detailKey = plan?.id ?? 'empty';
+  const open = details === detailKey;
+  const completed = completedWorkouts(data.workouts, current);
+  const lastSeven = completed.filter(({ date }) => date >= addDays(today, -6));
+  const byDate = new Map<string, number>();
+  for (const { date } of lastSeven) byDate.set(date, (byDate.get(date) ?? 0) + 1);
+  const featured = [...data.catalog].sort((a, b) => Number(data.bookmarks.includes(b.id)) - Number(data.bookmarks.includes(a.id))).slice(0, 3);
 
-  return (
-    <View style={{ gap: 22 }}>
-      <View style={styles.intro}>
-        <View style={{ gap: 5, flexShrink: 1, maxWidth: '100%' }}>
-          <Display accessibilityRole="header" size={width < 480 ? 44 : 50}>Training overview</Display>
-          <Copy tone={color.muted}>Plan your workouts, practice your form, and see your progress.</Copy>
-        </View>
-        <View style={styles.datePill}>
-          <CalendarDays size={15} color={color.green} />
-          <Copy size={12} weight="semibold" tone={color.green}>{formatDay(today, { weekday: 'long', month: 'long', day: 'numeric' })}</Copy>
-        </View>
+  async function loadExamples() {
+    setLoadingExamples(true);
+    setExampleError('');
+    try {
+      await mutate(api.addExampleWorkouts);
+      announce('Sample workouts added.');
+    } catch (error) {
+      setExampleError((error as Error).message);
+    } finally {
+      setLoadingExamples(false);
+    }
+  }
+
+  return <View style={styles.page}>
+    <View style={styles.intro}>
+      <View style={{ gap: 4, flexShrink: 1 }}>
+        <Display accessibilityRole="header" aria-level={1} size={width < 570 ? 46 : 66}>Training overview</Display>
+        <Copy tone={color.muted} size={14}>Your next workout and recent training.</Copy>
       </View>
+      <Copy size={12} weight="medium" tone={color.muted}>
+        {formatDay(today, { weekday: 'long', month: 'long', day: 'numeric' })}
+      </Copy>
+    </View>
 
-      <View style={[styles.hero, { minHeight: width < 600 ? 257 : 276 }]}>
-        <Image source={hero} resizeMode="cover" style={[StyleSheet.absoluteFill, { width: '100%' }, width < 600 ? { height: '100%', opacity: 0.45 } : { aspectRatio: 2.81, bottom: undefined }]} />
-        <View style={{ gap: 12, maxWidth: 410 }}>
-          <Display size={width < 600 ? 54 : 69} tone={color.white} style={{ letterSpacing: -0.8, lineHeight: width < 600 ? 50 : 61 }}>
-            Find your{ '\n' }<Copy size={width < 600 ? 54 : 69} tone={color.lime} weight="display" style={{ lineHeight: width < 600 ? 50 : 61 }}>next exercise.</Copy>
-          </Display>
-          <Copy tone="#e1e9dd" size={14}>Filter by target muscles and available equipment.</Copy>
-          <Button kind="primary" end={ArrowRight} onPress={() => router.push('/explore')}>Explore exercises</Button>
-        </View>
-      </View>
-
-      <View style={[styles.metrics, width < 520 && { gap: 6 }]}>
-        <Metric icon={Dumbbell} label="Workouts logged" value={completed.length} narrow={width < 520} />
-        <Metric icon={CalendarDays} label="Sessions in 7 days" value={lastSeven.length} narrow={width < 520} />
-        <Metric icon={Check} label="Exercises practiced" value={exerciseCount} narrow={width < 520} />
-      </View>
-
-      <View style={[styles.split, wide && { flexDirection: 'row', alignItems: 'stretch' }]}>
-        <Panel style={[styles.schedule, wide && { flex: 1.55 }]}>
-          <SectionTitle title="Next workout" action={<Button kind="quiet" end={ArrowRight} compact onPress={() => router.push('/workouts')}>View schedule</Button>} />
-          {next ? <>
-            <View style={styles.nextHeading}>
-              <View style={styles.dateBlock}>
-                <Copy size={10} weight="bold" tone={color.green}>{formatDay(next.date, { month: 'short' }).toUpperCase()}</Copy>
-                <Copy size={20} weight="extra" style={{ lineHeight: 23 }}>{asDate(next.date).getDate()}</Copy>
-              </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Copy size={16} weight="bold" style={{ letterSpacing: -0.35 }}>{next.name}</Copy>
-                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 5 }}>
-                  <Clock3 size={13} color={color.muted} />
-                  <Copy tone={color.muted} size={12}>{workoutDay(next.date)} · {formatTime(next.time)} · {nextExercises.length} exercises</Copy>
-                </View>
-              </View>
-            </View>
-            <View>
-              {nextExercises.map(({ exercise, sets, reps }) => (
-                <Pressable key={exercise.id} onPress={() => setSelected(exercise)} accessibilityRole="button" accessibilityLabel={`Open ${exercise.name}`}
-                  style={({ hovered }) => [styles.movement, hovered && { backgroundColor: color.canvas }]}>
-                  <Image source={exercisePhotos[exercise.id]} style={styles.thumb} />
-                  <Copy size={13} weight="semibold" style={{ flex: 1 }}>{exercise.name}</Copy>
-                  <Copy size={12} tone={color.muted}>{sets} × {reps}{exercise.unit === 'seconds' ? 's' : ''}</Copy>
-                  <ChevronRight size={15} color={color.green} />
-                </Pressable>
-              ))}
-            </View>
-            <Button kind="outline" end={ArrowRight} compact onPress={() => training.open({ type: 'edit', workoutId: next.id })}>Open workout</Button>
-          </> : <>
-            <Copy tone={color.muted}>You have no upcoming workouts.</Copy>
-            <Button icon={Plus} kind="primary" onPress={() => training.open({ type: 'schedule' })}>Schedule a workout</Button>
+    <View style={[styles.split, split && { flexDirection: 'row', alignItems: 'flex-start' }]}>
+      <View style={[styles.primary, split && { flex: 1.85 }]}>
+        <View style={styles.feature}>
+          {showPhoto && <>
+            <Image aria-hidden source={hero} resizeMode="cover" style={styles.photo} />
+            {Platform.OS === 'web' && <div aria-hidden className="repform-feature-shade" />}
           </>}
-        </Panel>
+          <View style={[styles.featureBody, showPhoto && { width: '64%' }]}>
+            <View style={styles.eyebrow}>
+              {paused ? <Play aria-hidden size={15} color={color.accent} /> : <CalendarDays aria-hidden size={15} color={color.accent} />}
+              <Copy accessibilityRole="header" aria-level={2} size={12} weight="semibold" tone={color.onInk}>
+                {paused ? 'Current session' : 'Next workout'}
+              </Copy>
+            </View>
+            <Display size={width < 570 ? 39 : 50} tone={color.surface}>{plan?.name ?? 'Plan your next workout'}</Display>
+            <Copy size={13} tone={color.onInk}>{paused ? 'Paused in this tab' : next
+              ? `${workoutDay(next.date, today)} · ${formatTime(next.time)} · ${movements.length} ${movements.length === 1 ? 'exercise' : 'exercises'}`
+              : 'Choose exercises and set a time to train.'}</Copy>
+            {plan?.example && <Tag style={{ backgroundColor: color.inkHover }} tone={color.onInk}>Sample workout</Tag>}
+            <View style={styles.featureActions}>
+              {paused ? <Button kind="primary" icon={Play} onPress={() => training.open({ type: 'resume' })}>Resume session</Button>
+                : next ? <Button kind="primary" icon={Play} onPress={() => training.open({ type: 'train', workoutId: next.id })}>Start session</Button>
+                  : <Button kind="primary" icon={Plus} onPress={() => training.open({ type: 'schedule' })}>Schedule a workout</Button>}
+            </View>
+          </View>
+        </View>
 
-        <View style={[styles.split, wide && { flex: 1 }]}>
-          <Panel style={styles.week}>
-            <SectionTitle title="Last 7 days" />
-            <View style={styles.days}>
+        <View style={styles.featureFooter}>
+          {plan && <Button kind="quiet" compact end={ChevronDown} aria-expanded={open} onPress={() => setDetails(open ? null : detailKey)}>
+            {open ? 'Hide workout details' : 'Workout details'}
+          </Button>}
+          {!plan && <Button kind="quiet" compact icon={Check} onPress={() => training.open({ type: 'log' })}>Log a workout</Button>}
+          <Button kind="quiet" compact end={ArrowRight} onPress={() => router.push('/workouts')}>View schedule</Button>
+        </View>
+        {plan && open && <View style={styles.details}>
+          {movements.map(({ exercise, movement }) => <Pressable key={exercise.id} accessibilityRole="button"
+            onPress={() => setSelected(exercise)} style={({ hovered }) => [styles.movement, hovered && { backgroundColor: color.soft }]}>
+            <Image aria-hidden source={exercisePhotos[exercise.id]} style={styles.thumb} />
+            <Copy size={13} weight="semibold" style={{ flex: 1 }}>{exercise.name}</Copy>
+            <Copy size={12} tone={color.muted} style={{ flexShrink: 1, textAlign: 'right' }}>{movementSummary(exercise, movement)}</Copy>
+            <ChevronRight aria-hidden size={15} color={color.plum} />
+          </Pressable>)}
+          {next && !paused && <View style={styles.detailActions}>
+            <Button compact icon={Check} onPress={() => training.open({ type: 'log-plan', workoutId: next.id })}>Log this workout</Button>
+            <Button compact onPress={() => training.open({ type: 'edit', workoutId: next.id })}>Edit schedule</Button>
+          </View>}
+        </View>}
+      </View>
+
+      <View style={[styles.secondary, split && { flex: 1 }]}>
+        <Panel style={styles.week}>
+          <SectionTitle title="Last 7 days" />
+          {completed.length > 0 ? <>
+            <View style={styles.count}>
+              <Display size={57}>{lastSeven.length}</Display>
+              <Copy size={13} tone={color.muted}>{lastSeven.length === 1 ? 'workout' : 'workouts'} completed</Copy>
+            </View>
+            <View role="list" accessibilityLabel="Training over the last seven days" style={styles.days}>
               {Array.from({ length: 7 }, (_, index) => {
                 const day = addDays(today, index - 6);
-                const active = activeDates.has(day);
-                return <View key={day} accessible accessibilityLabel={`${formatDay(day)}: ${active ? 'workout logged' : 'no workout'}`} style={{ flex: 1, alignItems: 'center', gap: 6 }}>
-                  <Copy size={10} tone={color.muted}>{formatDay(day, { weekday: 'short' }).slice(0, 2)}</Copy>
-                  <View style={[styles.day, active && { backgroundColor: color.lime }, day === today && styles.today]}>
-                    {active ? <Check color={color.forest} size={15} strokeWidth={2.6} /> : <Copy size={13} weight="bold" tone={color.muted}>·</Copy>}
+                const count = byDate.get(day) ?? 0;
+                return <View key={day} role="listitem"
+                  accessibilityLabel={`${formatDay(day)}, ${count ? `${count} ${count === 1 ? 'workout' : 'workouts'} logged` : 'no workout'}`}
+                  style={styles.dayColumn}>
+                  <View aria-hidden style={[styles.day, count > 0 && styles.dayActive, day === today && styles.today]}>
+                    {count > 0 ? <Check size={14} color={color.surface} strokeWidth={2.5} /> : <View style={styles.dayDot} />}
                   </View>
+                  <Copy aria-hidden size={10} tone={color.muted}>{formatDay(day, { weekday: 'short' }).slice(0, 2)}</Copy>
                 </View>;
               })}
             </View>
-            <Copy size={12} tone={color.muted}>{lastSeven.length} {lastSeven.length === 1 ? 'workout' : 'workouts'} completed</Copy>
-          </Panel>
-          <Pressable accessibilityRole="link" onPress={() => router.push('/form-review')}
-            style={({ hovered }) => [styles.review, { backgroundColor: hovered ? color.forestHover : color.forest }]}>
-            <View style={styles.reviewIcon}><Video color={color.lime} size={21} /></View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Copy weight="bold" size={15} tone={color.white}>Review your form</Copy>
-              <Copy size={12} tone="#d0dccf">Upload a clip of your exercise.</Copy>
+          </> : <Copy size={13} tone={color.muted}>Log a workout to see your training activity here.</Copy>}
+          <View style={styles.weekFooter}>
+            <View>
+              <Copy size={12} weight="semibold">{completed.length}</Copy>
+              <Copy size={11} tone={color.muted}>Workouts logged</Copy>
             </View>
-            <ArrowUpRight size={19} color={color.lime} />
+            <Button kind="quiet" compact end={ArrowRight} onPress={() => router.push('/progress')}>View progress</Button>
+          </View>
+        </Panel>
+        <Link href="/form-review" asChild>
+          <Pressable accessibilityRole="link" style={styles.review}>
+            <View aria-hidden style={styles.reviewIcon}><ScanLine color={color.plum} size={21} /></View>
+            <View style={{ flex: 1, gap: 1 }}>
+              <Copy weight="semibold" size={14}>Review your form</Copy>
+              <Copy size={12} tone={color.muted}>Upload a training clip</Copy>
+            </View>
+            <ArrowUpRight aria-hidden size={18} color={color.plum} />
           </Pressable>
-        </View>
+        </Link>
       </View>
+    </View>
 
-      <View style={{ gap: 10 }}>
-        <SectionTitle title="Exercise library" action={<Button end={ArrowRight} kind="quiet" compact onPress={() => router.push('/explore')}>Browse library</Button>} />
-        <View style={{ flexDirection: width >= 670 ? 'row' : 'column', gap: 12 }}>
-          {data.catalog.slice(0, 3).map((exercise) => (
-            <View key={exercise.id} style={{ flex: 1, minWidth: 0 }}><ExerciseCard exercise={exercise} onPress={() => setSelected(exercise)} /></View>
-          ))}
-        </View>
+    {overdue > 0 && <View style={styles.overdue}>
+      <Copy size={12} tone={color.muted}>{overdue === 1 ? '1 past workout is still on your schedule.' : `${overdue} past workouts are still on your schedule.`}</Copy>
+    </View>}
+
+    <View style={styles.library}>
+      <SectionTitle title="Exercise library" action={<Button end={ArrowRight} kind="quiet" compact onPress={() => router.push('/explore')}>Explore exercises</Button>} />
+      <View style={[styles.featured, width >= 780 && { flexDirection: 'row' }]}>
+        {featured.map((exercise) => <Pressable key={exercise.id} accessibilityRole="button" onPress={() => setSelected(exercise)}
+          style={({ hovered }) => [styles.exercise, hovered && { backgroundColor: color.soft }]}>
+          <Image aria-hidden source={exercisePhotos[exercise.id]} style={styles.exerciseImage} resizeMode="cover" />
+          <View style={{ flex: 1, gap: 1 }}>
+            <Copy size={13} weight="semibold">{exercise.name}</Copy>
+            <Copy size={11} tone={color.muted}>{exercise.muscles[0]} · {exercise.equipment.join(' + ') || 'Bodyweight'}</Copy>
+          </View>
+          <ArrowUpRight aria-hidden size={16} color={color.plum} />
+        </Pressable>)}
       </View>
-      <Link href="/photo-credits" style={{ alignSelf: 'flex-start' }}>
-        <Copy size={12} tone={color.green} style={{ textDecorationLine: 'underline' }}>Photo credits</Copy>
+    </View>
+
+    <View style={styles.utility}>
+      {data.workouts.length === 0 && <Button compact kind="quiet" disabled={loadingExamples} onPress={loadExamples}>
+        {loadingExamples ? 'Adding samples…' : 'Load sample workouts'}
+      </Button>}
+      <Link href="/photo-credits" style={{ alignSelf: 'center' }}>
+        <Copy size={12} tone={color.muted} style={{ textDecorationLine: 'underline' }}>Photo credits</Copy>
       </Link>
-      {selected && <ExerciseSheet exercise={selected} onClose={() => setSelected(null)} />}
     </View>
-  );
-}
-
-function Metric({ icon: Icon, label, value, narrow }: { icon: LucideIcon; label: string; value: number; narrow: boolean }) {
-  return <Panel style={[styles.metric, narrow && { flexDirection: 'column', alignItems: 'flex-start', padding: 10, gap: 5 }]}>
-    <View style={[styles.metricIcon, narrow && { width: 30, height: 30 }]}><Icon color={color.green} size={narrow ? 16 : 21} /></View>
-    <View style={{ flexShrink: 1 }}>
-      <Copy weight="extra" size={narrow ? 21 : 25} style={{ letterSpacing: -0.9, lineHeight: 29 }}>{value}</Copy>
-      <Copy size={narrow ? 10 : 12} tone={color.muted} weight="medium">{label}</Copy>
-    </View>
-  </Panel>;
+    {exampleError && <Notice error>{exampleError}</Notice>}
+    {selected && <ExerciseSheet exercise={selected} onClose={() => setSelected(null)} />}
+  </View>;
 }
 
 const styles = StyleSheet.create({
-  intro: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 11 },
-  datePill: { flexDirection: 'row', alignItems: 'center', gap: 7, borderWidth: 1, borderColor: color.line, backgroundColor: color.white, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8 },
-  hero: { paddingHorizontal: 29, paddingVertical: 25, justifyContent: 'center', borderRadius: 17, overflow: 'hidden', backgroundColor: color.forest },
-  metrics: { flexDirection: 'row', gap: 13 },
-  metric: { flex: 1, minWidth: 0, minHeight: 83, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13 },
-  metricIcon: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: color.limeSoft },
-  split: { gap: 13, minWidth: 0 },
-  schedule: { padding: 15, gap: 11 },
-  nextHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dateBlock: { width: 44, height: 44, borderRadius: 8, backgroundColor: color.limeSoft, alignItems: 'center', justifyContent: 'center' },
-  movement: { flexDirection: 'row', alignItems: 'center', minHeight: 39, gap: 8, borderTopWidth: 1, borderColor: color.line, paddingHorizontal: 2 },
+  page: { gap: 24 },
+  intro: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 },
+  split: { gap: 20 },
+  primary: { minWidth: 0, backgroundColor: color.surface, borderRadius: 14, borderColor: color.line, borderWidth: 1, overflow: 'hidden' },
+  feature: { position: 'relative', minHeight: 260, justifyContent: 'center', backgroundColor: color.ink },
+  featureBody: { gap: 11, padding: 27, minWidth: 0 },
+  eyebrow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  featureActions: { marginTop: 5, alignItems: 'flex-start' },
+  photo: { position: 'absolute', right: 0, top: 0, bottom: 0, height: '100%', width: '39%', opacity: 0.88 },
+  featureFooter: { paddingHorizontal: 15, paddingVertical: 9, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 4 },
+  details: { paddingHorizontal: 16, paddingBottom: 14, gap: 5 },
+  movement: { flexDirection: 'row', alignItems: 'center', minHeight: 40, gap: 8, borderTopWidth: 1, borderColor: color.line, paddingHorizontal: 2 },
   thumb: { width: 34, height: 26, borderRadius: 4, backgroundColor: color.soft },
-  week: { padding: 15, gap: 13, flex: 1, justifyContent: 'space-between' },
+  detailActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingTop: 5 },
+  secondary: { gap: 12, minWidth: 0 },
+  week: { padding: 17, gap: 11 },
+  count: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
   days: { flexDirection: 'row', gap: 3 },
-  day: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: color.soft },
-  today: { borderWidth: 1, borderColor: '#90a47b' },
-  review: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 14, minHeight: 77, borderRadius: 14 },
-  reviewIcon: { width: 41, height: 41, borderRadius: 10, backgroundColor: '#35452a', alignItems: 'center', justifyContent: 'center' },
+  dayColumn: { alignItems: 'center', gap: 5, flex: 1, minWidth: 0 },
+  day: { width: '100%', maxWidth: 34, height: 29, borderRadius: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: color.soft },
+  dayActive: { backgroundColor: color.plum },
+  dayDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: color.faint },
+  today: { borderWidth: 1, borderColor: color.plum },
+  weekFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 7, borderTopWidth: 1, borderColor: color.line, paddingTop: 7 },
+  overdue: { marginTop: -10 },
+  review: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, minHeight: 66, borderWidth: 1,
+    borderColor: color.line, borderRadius: 10, backgroundColor: color.tint },
+  reviewIcon: { width: 36, height: 36, borderRadius: 7, backgroundColor: color.surface, alignItems: 'center', justifyContent: 'center' },
+  library: { gap: 10, borderTopWidth: 1, borderColor: color.line, paddingTop: 10 },
+  featured: { gap: 8 },
+  exercise: { flexDirection: 'row', flex: 1, minWidth: 0, alignItems: 'center', gap: 9, padding: 8, minHeight: 62,
+    borderWidth: 1, borderColor: color.line, borderRadius: 10, backgroundColor: color.surface },
+  exerciseImage: { width: 55, height: 43, borderRadius: 6, backgroundColor: color.soft },
+  utility: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, minHeight: 35 },
 });

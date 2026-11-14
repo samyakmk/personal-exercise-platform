@@ -6,10 +6,15 @@ import { Loading } from '../src/components/ui';
 import { TrainingNavigation } from '../src/navigation';
 import { color } from '../src/theme';
 import { WorkspaceProvider } from '../src/workspace';
+import { VideoUploadProvider } from '../src/videoUpload';
 
 export default function RootLayout() {
+  return <WorkspaceProvider><WorkspaceLayout /></WorkspaceProvider>;
+}
+
+function WorkspaceLayout() {
   const [loaded, error] = useFonts({
-    BarlowBold: require('../assets/fonts/BarlowCondensed-Bold.ttf'),
+    InstrumentSerif: require('../assets/fonts/InstrumentSerif-Regular.ttf'),
     InterRegular: require('../assets/fonts/Inter-Regular.ttf'),
     InterMedium: require('../assets/fonts/Inter-Medium.ttf'),
     InterSemiBold: require('../assets/fonts/Inter-SemiBold.ttf'),
@@ -18,7 +23,7 @@ export default function RootLayout() {
   });
   if (!loaded && !error) return <View style={styles.loading}><Loading label="Loading Repform…" /></View>;
 
-  return <WorkspaceProvider><TrainingNavigation><Shell><Slot /></Shell></TrainingNavigation></WorkspaceProvider>;
+  return <TrainingNavigation><VideoUploadProvider><Shell><Slot /></Shell></VideoUploadProvider></TrainingNavigation>;
 }
 
 const styles = StyleSheet.create({

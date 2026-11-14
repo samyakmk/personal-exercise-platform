@@ -1,4 +1,4 @@
-export const equipment = ['Dumbbells', 'Bench'];
+export const equipment = ['Dumbbells', 'Bench', 'Pull-up bar'];
 export const muscles = ['Legs', 'Glutes', 'Chest', 'Back', 'Shoulders', 'Arms', 'Core'];
 
 export const catalog = [
@@ -43,7 +43,18 @@ export const catalog = [
     cues: [
       'Place your hands slightly wider than your shoulders and step into a high plank.',
       'Bend your elbows and lower your chest toward the floor while keeping your hips in line with your shoulders.',
-      'Push the floor away to return to a high plank. Use a sturdy raised surface if you need an easier variation.',
+      'Push the floor away to return to a high plank.',
+    ],
+  },
+  {
+    id: 'incline-push-up', name: 'Incline Push-Up', muscles: ['Chest', 'Shoulders', 'Arms', 'Core'],
+    equipment: ['Bench'], level: 'Beginner', unit: 'reps',
+    description: 'An easier push-up with your hands elevated on a stable bench or similar surface.',
+    demonstration: { videoId: 'yAbg3_pJKvw', creator: 'PureGym' },
+    cues: [
+      'Place both hands on a sturdy bench or raised surface and step back into a straight body line.',
+      'Lower your chest toward the surface while keeping your shoulders, hips, and heels in line.',
+      'Press back up with control. Use a higher surface if you need a lighter variation.',
     ],
   },
   {
@@ -68,17 +79,114 @@ export const catalog = [
       'Breathe steadily throughout the hold. End the set when you can no longer maintain the position.',
     ],
   },
+  {
+    id: 'bodyweight-squat', name: 'Bodyweight Squat', muscles: ['Legs', 'Glutes', 'Core'],
+    equipment: [], level: 'Beginner', unit: 'reps',
+    description: 'A squat you can practice anywhere using your own body weight.',
+    demonstration: { videoId: 'l83R5PblSMA', creator: 'PureGym' },
+    cues: [
+      'Stand with your feet at a comfortable width and extend your arms for balance.',
+      'Bend your knees and hips together. Keep your whole foot on the floor as you lower.',
+      'Stop at a depth you can control, then press through both feet to stand.',
+    ],
+  },
+  {
+    id: 'glute-bridge', name: 'Glute Bridge', muscles: ['Glutes', 'Legs', 'Core'],
+    equipment: [], level: 'Beginner', unit: 'reps',
+    description: 'A floor exercise that works the glutes through hip extension.',
+    demonstration: { videoId: 'tqp5XQPpTxY', creator: 'PureGym' },
+    cues: [
+      'Lie on your back with knees bent, feet flat, and arms resting by your sides.',
+      'Press through your feet and lift your hips until your shoulders, hips, and knees form a line.',
+      'Briefly hold the top, then lower with control.',
+    ],
+  },
+  {
+    id: 'dumbbell-curl', name: 'Single-Arm Dumbbell Curl', muscles: ['Arms'],
+    equipment: ['Dumbbells'], level: 'Beginner', unit: 'reps',
+    description: 'A standing curl that trains the biceps one arm at a time.',
+    demonstration: { videoId: 'Zl1eiQN5Dxs', creator: 'PureGym' },
+    cues: [
+      'Stand tall with one dumbbell by your side and your palm facing forward.',
+      'Keep your upper arm close to your torso as you bend the elbow to lift the weight.',
+      'Lower the dumbbell with control, then repeat on the other side.',
+    ],
+  },
+  {
+    id: 'dumbbell-shoulder-press', name: 'Standing Dumbbell Shoulder Press', muscles: ['Shoulders', 'Arms'],
+    equipment: ['Dumbbells'], level: 'Beginner', unit: 'reps',
+    description: 'An overhead press that trains your shoulders and triceps without a bench.',
+    demonstration: { videoId: 'aI2hGzsAMXs', creator: 'PureGym' },
+    cues: [
+      'Stand with both feet planted and hold the dumbbells at shoulder height.',
+      'Keep your ribs over your pelvis as you press the weights overhead.',
+      'Bring the dumbbells back to shoulder height under control.',
+    ],
+  },
+  {
+    id: 'dumbbell-rdl', name: 'Dumbbell Romanian Deadlift', muscles: ['Glutes', 'Legs', 'Back'],
+    equipment: ['Dumbbells'], level: 'Beginner', unit: 'reps',
+    description: 'A hip hinge for the glutes and hamstrings that uses two dumbbells.',
+    demonstration: { videoId: 'zU-f6DMCdAI', creator: 'PureGym' },
+    cues: [
+      'Stand tall with a dumbbell in each hand in front of your thighs and a slight bend in your knees.',
+      'Send your hips back and let the dumbbells travel close to your legs.',
+      'Pause when you reach a comfortable stretch in the hamstrings, then bring your hips forward to stand.',
+    ],
+  },
+  {
+    id: 'bird-dog', name: 'Bird Dog', muscles: ['Core', 'Back', 'Glutes'],
+    equipment: [], level: 'Beginner', unit: 'reps',
+    description: 'A balance exercise on hands and knees that challenges trunk stability.',
+    demonstration: { videoId: 'egKWoMZ6cXM', creator: 'E3 Rehab Exercise Library' },
+    cues: [
+      'Start on your hands and knees with your hands below your shoulders and knees below your hips.',
+      'Reach one arm forward and the opposite leg back while keeping your hips facing the floor.',
+      'Return both limbs to the starting position with control, then switch sides.',
+    ],
+  },
+  {
+    id: 'dead-bug', name: 'Dead Bug', muscles: ['Core'],
+    equipment: [], level: 'Beginner', unit: 'reps',
+    description: 'A floor exercise that practices keeping your trunk steady as your arms and legs move.',
+    demonstration: { videoId: 'BZYaCzbP09M', creator: 'E3 Rehab Exercise Library' },
+    cues: [
+      'Lie on your back, reach toward the ceiling, and raise your knees over your hips with your knees bent.',
+      'Lower one arm behind you and extend the opposite leg as far as you can while keeping your torso steady.',
+      'Bring your arm and leg back to the start, then switch sides.',
+    ],
+  },
+  {
+    id: 'pull-up', name: 'Pull-Up', muscles: ['Back', 'Arms', 'Shoulders'],
+    equipment: ['Pull-up bar'], level: 'Intermediate', unit: 'reps',
+    description: 'An upper-body pull using an overhand grip on a fixed bar.',
+    demonstration: { videoId: 'PHdHnZcbsB8', creator: 'PureGym' },
+    cues: [
+      'Take an overhand grip on a secure pull-up bar with your hands slightly wider than your shoulders.',
+      'From the hang, pull your elbows down until your chin reaches the bar without swinging.',
+      'Lower with control until your elbows are straight, then repeat.',
+    ],
+  },
 ];
 
 export const exercisesById = new Map(catalog.map((exercise) => [exercise.id, exercise]));
 
-export function recommend({ targets, available, query, recent }) {
-  const search = query.trim().toLowerCase();
+function words(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+}
+
+const searchable = new Map(catalog.map((item) => [item.id, words([
+  item.name, item.description, ...item.muscles, ...item.equipment, ...(item.equipment.length ? [] : ['Bodyweight', 'No equipment']),
+].join(' '))]));
+
+export function recommend({ targets, available, query, recent, level }) {
+  const terms = words(query);
   return catalog
     .filter((item) => (
       (!targets.length || item.muscles.some((muscle) => targets.includes(muscle))) &&
       (available === null || item.equipment.every((item) => available.includes(item))) &&
-      (!search || [item.name, ...item.muscles, ...item.equipment, ...(item.equipment.length ? [] : ['Bodyweight'])].join(' ').toLowerCase().includes(search))
+      (!level || item.level === level) &&
+      terms.every((term) => searchable.get(item.id).some((word) => word.startsWith(term) || term === word + 's'))
     ))
     .map((exercise, index) => ({
       exercise,

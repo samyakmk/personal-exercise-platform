@@ -5,7 +5,7 @@ import type { SelectedVideo } from '../types';
 
 export function VideoPicker({ onSelect, disabled }: { onSelect: (file: SelectedVideo) => void; disabled?: boolean }) {
   async function choose() {
-    const result = await DocumentPicker.getDocumentAsync({ type: ['video/mp4', 'video/webm'] });
+    const result = await DocumentPicker.getDocumentAsync({ type: ['video/mp4', 'video/webm', 'video/quicktime'] });
     if (result.canceled) return;
     const item = result.assets[0];
     onSelect({

@@ -30,6 +30,12 @@ export const photoCredits = [
     rights: 'U.S. public domain · Photograph',
   },
   {
+    subject: 'Incline Push-Up',
+    author: 'Lance Cpl. Stephanie Ingersoll, U.S. Marine Corps',
+    source: 'https://commons.wikimedia.org/wiki/File:USMC-080829-M-3360I-002.jpg',
+    rights: 'U.S. public domain · Photograph',
+  },
+  {
     subject: 'Reverse Lunge',
     author: 'Capt. Matthew Holfinger, U.S. Marine Corps',
     source: 'https://www.dvidshub.net/video/551833/stationary-reverse-lunge',
@@ -40,5 +46,53 @@ export const photoCredits = [
     author: 'Staff Sgt. Randall Moose, U.S. Air Force',
     source: 'https://www.dvidshub.net/video/825280/forearm-plank',
     rights: 'U.S. public domain · Video frame',
+  },
+  {
+    subject: 'Bodyweight Squat',
+    author: 'Tech. Sgt. Jeffrey Grossi, U.S. Air Force',
+    source: 'https://www.dvidshub.net/image/7247375/morning-with-murph',
+    rights: 'U.S. public domain · Photograph',
+  },
+  {
+    subject: 'Glute Bridge',
+    author: 'Petty Officer 2nd Class Robert Price, AFN Sasebo',
+    source: 'https://www.dvidshub.net/video/757660/one-minute-glute-bridge-challenge',
+    rights: 'U.S. public domain · Cropped frame of the floor demonstration',
+  },
+  {
+    subject: 'Single-Arm Dumbbell Curl',
+    author: 'Airman 1st Class Lauren Parsons, U.S. Air Force',
+    source: 'https://www.dvidshub.net/image/3004104/airman-medals-lackland-classic-utilizes-bod-pod-track-progress',
+    rights: 'U.S. public domain · Photograph',
+  },
+  {
+    subject: 'Standing Dumbbell Shoulder Press',
+    author: 'Capt. Matthew Holfinger, U.S. Marine Corps',
+    source: 'https://www.dvidshub.net/video/636933/dumbbell-shoulder-press',
+    rights: 'U.S. public domain · Frame of the seated variation',
+  },
+  {
+    subject: 'Dumbbell Romanian Deadlift',
+    author: 'Capt. Matthew Holfinger, U.S. Marine Corps',
+    source: 'https://www.dvidshub.net/video/548459/dumbbell-romanian-deadlift',
+    rights: 'U.S. public domain · Video frame',
+  },
+  {
+    subject: 'Bird Dog',
+    author: 'Airman 1st Class Zoie Cox, U.S. Air Force',
+    source: 'https://www.dvidshub.net/image/6028988/fit-through-end-accs-new-prenatal-postpartum-guidance',
+    rights: 'U.S. public domain · Photograph',
+  },
+  {
+    subject: 'Dead Bug',
+    author: 'Stephenie Tatum, U.S. Army',
+    source: 'https://www.dvidshub.net/image/1942620/step-fort-bragg-soldiers-civilians-learn-benefits-chirunning',
+    rights: 'U.S. public domain · Photograph',
+  },
+  {
+    subject: 'Pull-Up',
+    author: 'Sgt. Melissa Marnell, U.S. Marine Corps',
+    source: 'https://www.dvidshub.net/image/2952960/fitness-course-shapes-new-perspective-training',
+    rights: 'U.S. public domain · Photograph',
   },
 ] as const;

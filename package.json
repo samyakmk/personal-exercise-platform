@@ -7,12 +7,15 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "node scripts/dev.mjs",
-    "build": "expo export --platform web",
-    "start": "node server/index.mjs",
+    "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
+    "build": "node --import ./scripts/expo-env.mjs node_modules/expo/bin/cli export --platform web",
+    "start": "node --env-file-if-exists=.env server/index.mjs",
     "typecheck": "tsc --noEmit",
-    "test:api": "node --test tests/api.test.mjs",
-    "test:web": "playwright test"
+    "test:api": "node --test tests/*.test.mjs",
+    "test:web": "playwright test",
+    "eval:form": "node --env-file-if-exists=.env scripts/evaluate-form.mjs",
+    "prepare:form": "node scripts/prepare-form-clips.mjs",
+    "setup:pose": "node scripts/setup-pose.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
@@ -24,7 +27,9 @@
     "expo-linking": "~57.0.12",
     "expo-router": "~57.0.26",
     "expo-video": "~57.0.5",
+    "jpeg-js": "0.4.4",
     "lucide-react-native": "^0.577.0",
+    "onnxruntime-node": "1.31.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",

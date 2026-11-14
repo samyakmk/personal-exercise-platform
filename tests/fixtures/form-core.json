@@ -1,0 +1,726 @@
+{
+  "sources": {
+    "DOD_107871769-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/2006/DOD_107871769/DOD_107871769-1024x576-1769k.mp4"
+    },
+    "DOD_106190630-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1811/DOD_106190630/DOD_106190630-1024x576-1769k.mp4"
+    },
+    "DOD_106211187-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1811/DOD_106211187/DOD_106211187-1024x576-1769k.mp4"
+    },
+    "DOD_106215262-1024x576-1769k.mp4": {
+      "download": "https://d34w7g4gy10iej.cloudfront.net/video/1811/DOD_106215262/DOD_106215262-1024x576-1769k.mp4"
+    },
+    "lyster-720.mp4": {
+      "source": "https://www.youtube.com/watch?v=nKwkRQVJdgM",
+      "quality": "1280x720 H.264 video only, YouTube format 136, official Lyster Army Health Clinic upload"
+    },
+    "reach-hq.mp4": {
+      "source": "https://www.youtube.com/watch?v=SMsS2Qswq0o",
+      "quality": "1280x720 H.264 video only, YouTube format 136",
+      "creator": "REACH Rehab + Chiropractic Performance Center",
+      "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)"
+    },
+    "biN8oIV1umA.mp4": {
+      "source": "https://www.youtube.com/watch?v=biN8oIV1umA",
+      "quality": "1280x720 H.264 video only, YouTube format 136",
+      "creator": "Colossus Fitness (Coach Kyle)",
+      "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)"
+    },
+    "lqnuY3wiBzA.mp4": {
+      "source": "https://www.youtube.com/watch?v=lqnuY3wiBzA",
+      "quality": "1280x720 H.264 video only, YouTube format 136",
+      "creator": "Colossus Fitness (Coach Kyle)",
+      "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)"
+    },
+    "army-LHlZxvSMLXU.mp4": {
+      "source": "https://www.youtube.com/watch?v=LHlZxvSMLXU",
+      "quality": "1920x1080 H.264 video only, YouTube format 137, official U.S. Army Holistic Health and Fitness upload"
+    },
+    "army-Lm3vN7xq8B4.mp4": {
+      "source": "https://www.youtube.com/watch?v=Lm3vN7xq8B4",
+      "quality": "1920x1080 H.264 video only, YouTube format 137, official U.S. Army Holistic Health and Fitness upload"
+    },
+    "UeRNF44Nvcc.mp4": {
+      "source": "https://www.youtube.com/watch?v=UeRNF44Nvcc",
+      "quality": "854x480 H.264 video only, YouTube format 135",
+      "creator": "Lance Goyke",
+      "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)"
+    },
+    "TzzWVnHZGB0.mp4": {
+      "source": "https://www.youtube.com/watch?v=TzzWVnHZGB0",
+      "quality": "640x360 H.264 video only, YouTube format 134",
+      "creator": "Bootcamp Ideas",
+      "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)"
+    },
+    "zSifa2Yyn10.mp4": {
+      "source": "https://www.youtube.com/watch?v=zSifa2Yyn10",
+      "quality": "640x360 H.264 video only, YouTube format 134",
+      "creator": "Spire Injury Clinic",
+      "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)"
+    },
+    "proSinbw_64.mp4": {
+      "source": "https://www.youtube.com/watch?v=proSinbw_64",
+      "quality": "1280x720 H.264 video only, YouTube format 136",
+      "creator": "Get Strong with Emily",
+      "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)"
+    },
+    "NSLBP.mp4": {
+      "source": "https://www.mdpi.com/2411-5142/10/3/326#sec5",
+      "archive": "https://mdpi-res.com/d_attachment/jfmk/jfmk-10-00326/article_deploy/jfmk-10-00326-s001.zip",
+      "member": "NSLBP.mp4",
+      "quality": "Original 1280x720 H.264 author supplement"
+    },
+    "GTPS.mp4": {
+      "source": "https://www.mdpi.com/2411-5142/10/3/326#sec5",
+      "archive": "https://mdpi-res.com/d_attachment/jfmk/jfmk-10-00326/article_deploy/jfmk-10-00326-s001.zip",
+      "member": "GTPS.mp4",
+      "quality": "Original 1280x720 H.264 author supplement"
+    },
+    "7vTnfE6oiXk.mp4": {
+      "source": "https://www.youtube.com/watch?v=7vTnfE6oiXk",
+      "quality": "Original uploader 1280x720 H.264 video-only YouTube format 136"
+    }
+  },
+  "cases": [
+    {
+      "id": "core-01",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/757660/one-minute-glute-bridge-challenge",
+        "title": "One Minute Glute Bridge Challenge",
+        "creator": "Petty Officer 2nd Class Robert Price, AFN Sasebo. Demonstrator Kelly Stratoti.",
+        "license": "DVIDS marks source public domain and flags restricted portions. This excerpt retains only the government-recorded demonstration footage, excluding the soundtrack and all graphics.",
+        "excerpt": "33.25–46.25 s of original video, cropped or scaled and muted"
+      },
+      "preparation": {
+        "file": "DOD_107871769-1024x576-1769k.mp4",
+        "start": 33.25,
+        "duration": 13,
+        "filter": "crop=552:186:220:245,scale=640:-2"
+      },
+      "note": "Bilateral bridge repetitions. Both heels stay in place and shoulders stay on mat. Hips repeatedly approach the shoulder-to-knee line. Toes are elevated while heels remain supported."
+    },
+    {
+      "id": "core-02",
+      "group": "bird",
+      "exercise": "bird-dog",
+      "mode": "measured",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=LHlZxvSMLXU",
+        "title": "Four for the Core, Exercise 4: Quadraplex",
+        "creator": "U.S. Army Holistic Health and Fitness",
+        "license": "U.S. government work, public domain in the United States",
+        "excerpt": "27–33.5 s of original video, cropped or scaled and muted"
+      },
+      "preparation": {
+        "file": "army-LHlZxvSMLXU.mp4",
+        "start": 27,
+        "duration": 6.5,
+        "filter": "crop=1260:730:332:165,scale=768:-2"
+      },
+      "note": "Official U.S. Army demonstration. Opposite hand and leg lift and hold. Torso holds stable after reaching and the two supporting limbs remain planted. This is a legitimate held rep."
+    },
+    {
+      "id": "core-03",
+      "group": "bird",
+      "exercise": "bird-dog",
+      "mode": "measured",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/638171/fire-hydrants",
+        "title": "Fire Hydrants",
+        "creator": "Capt. Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "Public domain, DVIDS Public Use Notice applies",
+        "excerpt": "1–9 s of original video, cropped or scaled and muted"
+      },
+      "preparation": {
+        "file": "DOD_106190630-1024x576-1769k.mp4",
+        "start": 1,
+        "duration": 8,
+        "filter": "crop=510:276:267:296,scale=640:-2"
+      },
+      "note": "A flexed knee lifts outward repeatedly while both hands remain planted. This is a fire hydrant."
+    },
+    {
+      "id": "core-04",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/639942/flutter-kicks",
+        "title": "Flutter Kicks",
+        "creator": "Capt. Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "Public domain, DVIDS Public Use Notice applies",
+        "excerpt": "1–8.5 s of original video, cropped or scaled and muted"
+      },
+      "preparation": {
+        "file": "DOD_106211187-1024x576-1769k.mp4",
+        "start": 1,
+        "duration": 7.5,
+        "filter": "crop=510:276:267:296,scale=640:-2"
+      },
+      "note": "Both arms stay at the hips and straight legs alternate continuously. The head and shoulders rise and hold during the kicks. This is a clear flutter-kick series."
+    },
+    {
+      "id": "core-05",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "visual",
+      "check": null,
+      "exploratory": true,
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=Lm3vN7xq8B4",
+        "title": "Four for the Core, Exercise 3: Back Bridge",
+        "creator": "U.S. Army Holistic Health and Fitness",
+        "license": "U.S. government work, public domain in the United States",
+        "excerpt": "43.5–53 s of original video, cropped or scaled and muted"
+      },
+      "preparation": {
+        "file": "army-Lm3vN7xq8B4.mp4",
+        "start": 43.5,
+        "duration": 9.5,
+        "filter": "crop=1350:850:290:110,scale=768:-2"
+      },
+      "note": "Official U.S. Army demonstration. A deliberate alternating single-leg bridge hold with extended knees and switches. Stable pelvis and shoulders are visible. Exploratory variation under the bilateral catalog selection."
+    },
+    {
+      "id": "core-06",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/640261/toe-touches",
+        "title": "Toe Touches",
+        "creator": "Capt. Matthew Holfinger, U.S. Marine Corps Training and Education Command",
+        "license": "Public domain, DVIDS Public Use Notice applies",
+        "excerpt": "3–9.5 s of original video, cropped or scaled and muted"
+      },
+      "preparation": {
+        "file": "DOD_106215262-1024x576-1769k.mp4",
+        "start": 3,
+        "duration": 6.5,
+        "filter": "crop=510:276:267:296,scale=640:-2"
+      },
+      "note": "Both legs stay elevated together as both hands reach simultaneously and shoulders lift. This is a bilateral toe-touch crunch."
+    },
+    {
+      "id": "core-07",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=nKwkRQVJdgM",
+        "title": "Spine Resiliency Back Class",
+        "creator": "Lyster Army Health Clinic, U.S. Army",
+        "license": "U.S. government work, public domain in the United States",
+        "excerpt": "549.8–558.1 s of the original video, cropped and muted, corner graphics masked"
+      },
+      "preparation": {
+        "file": "lyster-720.mp4",
+        "start": 549.8,
+        "duration": 8.3,
+        "filter": "drawbox=x=42:y=63:w=166:h=147:color=0x63605f:t=fill,drawbox=x=0:y=547:w=398:h=131:color=0x63605f:t=fill,crop=1174:532:106:108,scale=880:-2"
+      },
+      "note": "At 549.8–558.1 s of the original two opposing arm/leg reaches alternate. The knees stay bent during the reaches and head and trunk remain steady. Corner graphics were masked in the preprocessed source."
+    },
+    {
+      "id": "core-08",
+      "group": "bird",
+      "exercise": "bird-dog",
+      "mode": "measured",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=nKwkRQVJdgM",
+        "title": "Spine Resiliency Back Class",
+        "creator": "Lyster Army Health Clinic, U.S. Army",
+        "license": "U.S. government work, public domain in the United States",
+        "excerpt": "499.0–507.8 s of the original video, cropped and muted, corner graphics masked"
+      },
+      "preparation": {
+        "file": "lyster-720.mp4",
+        "start": 499,
+        "duration": 8.8,
+        "filter": "drawbox=x=42:y=63:w=166:h=147:color=0x63605f:t=fill,drawbox=x=0:y=547:w=398:h=131:color=0x63605f:t=fill,crop=1128:502:144:166,scale=880:-2"
+      },
+      "note": "At 499.0–507.8 s of the original three opposing arm/leg reaches alternate. The reaching hand and heel stay somewhat below torso height, the support limbs are stable, and the visible trunk does not show a pronounced compensation. Corner graphics were masked in the preprocessed source."
+    },
+    {
+      "id": "core-09",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=nKwkRQVJdgM",
+        "title": "Spine Resiliency Back Class",
+        "creator": "Lyster Army Health Clinic, U.S. Army",
+        "license": "U.S. government work, public domain in the United States",
+        "excerpt": "416.2–421.2 s of original video, cropped or scaled and muted"
+      },
+      "preparation": {
+        "file": "lyster-720.mp4",
+        "start": 416.2,
+        "duration": 5,
+        "filter": "crop=986:462:268:208,scale=840:-2"
+      },
+      "note": "A controlled bilateral rep with both feet supported. Shoulders remain in contact with the mat, and the hips rise and return under control. Hands resting on torso are compatible."
+    },
+    {
+      "id": "core-10",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "verdict": "insufficient_visibility",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=nKwkRQVJdgM",
+        "title": "Spine Resiliency Back Class",
+        "creator": "Lyster Army Health Clinic, U.S. Army",
+        "license": "U.S. government work, public domain in the United States",
+        "excerpt": "549.8–558.1 s of the original video, cropped and muted, corner graphics masked"
+      },
+      "preparation": {
+        "file": "lyster-720.mp4",
+        "start": 549.8,
+        "duration": 8.3,
+        "filter": "drawbox=x=42:y=63:w=166:h=147:color=0x63605f:t=fill,drawbox=x=0:y=547:w=398:h=131:color=0x63605f:t=fill,crop=474:472:102:102,scale=560:-2"
+      },
+      "note": "At 549.8–558.1 s of the original the same controlled dead-bug reps are deliberately framed to exclude the pelvis and all leg movement. The arm reach is visible and the pairing and body stability cannot be graded. Corner graphics were masked in the preprocessed source."
+    },
+    {
+      "id": "core-11",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": "glute_bridge_trunk_shift",
+      "verdict": "observations",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=SMsS2Qswq0o",
+        "title": "Glute Bridge Causing Lower Back Pain?",
+        "creator": "REACH Rehab + Chiropractic Performance Center",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "44.2–52.5 s of original video. Cropped to the movement, muted, with instructional overlays excluded."
+      },
+      "preparation": {
+        "file": "reach-hq.mp4",
+        "start": 44.2,
+        "duration": 8.3,
+        "filter": "crop=1160:532:70:78,scale=880:-2"
+      },
+      "note": "At roughly 45.1 and 49.5–52.1 s in the source, hips keep rising past the neutral shoulder-to-knee line while the trunk visibly arches. Upper back stays supported. Grade for repeated overextension at top or a practical cue to stop at the straight body line. Do not grade generic lift-higher, pain, activation, or unsupported shoulders as correct."
+    },
+    {
+      "id": "core-12",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=SMsS2Qswq0o",
+        "title": "Glute Bridge Causing Lower Back Pain?",
+        "creator": "REACH Rehab + Chiropractic Performance Center",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "30.5–36.1 s of original video. Cropped to the movement, muted, with instructional overlays excluded."
+      },
+      "preparation": {
+        "file": "reach-hq.mp4",
+        "start": 30.5,
+        "duration": 5.6,
+        "filter": "crop=1160:532:70:78,scale=880:-2"
+      },
+      "note": "Same performer, view and mat. Bilateral glute bridge rises and holds near straight shoulder-to-knee alignment with stable support, then remains held. A controlled hold is compatible."
+    },
+    {
+      "id": "core-13",
+      "group": "bird",
+      "exercise": "bird-dog",
+      "mode": "measured",
+      "check": "bird_dog_pelvis_rotation",
+      "verdict": "observations",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=biN8oIV1umA",
+        "title": "How to PROPERLY Perform Bird Dogs (Step-by-Step)",
+        "creator": "Colossus Fitness (Coach Kyle)",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "53–58.9 s of original video. Cropped to the movement, muted, with instructional overlays excluded."
+      },
+      "preparation": {
+        "file": "biN8oIV1umA.mp4",
+        "start": 53,
+        "duration": 5.9,
+        "filter": "drawbox=x=0:y=0:w=184:h=176:color=0x555451:t=fill,drawbox=x=0:y=605:w=718:h=80:color=0x555451:t=fill,crop=1260:612:10:72,scale=880:-2"
+      },
+      "note": "Same quadruped opposite-limb reach pattern as bird dog. Across two extension directions, trunk visibly rotates (chest/shoulders turn toward then away from the camera) and pelvis shifts, versus a steady reach. Grade a cue to keep shoulders and hips square during the reach."
+    },
+    {
+      "id": "core-14",
+      "group": "bird",
+      "exercise": "bird-dog",
+      "mode": "measured",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=biN8oIV1umA",
+        "title": "How to PROPERLY Perform Bird Dogs (Step-by-Step)",
+        "creator": "Colossus Fitness (Coach Kyle)",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "20.6–32 s of original video. Cropped to the movement, muted, with instructional overlays excluded."
+      },
+      "preparation": {
+        "file": "biN8oIV1umA.mp4",
+        "start": 20.6,
+        "duration": 11.4,
+        "filter": "drawbox=x=0:y=0:w=184:h=176:color=0x555451:t=fill,drawbox=x=0:y=605:w=718:h=80:color=0x555451:t=fill,crop=1260:612:10:72,scale=880:-2"
+      },
+      "note": "Same performer and outdoor setting, with a wider framing. Holds a single long reach on opposing limbs, returns to quadruped, and may glance toward camera; trunk does not swing side-to-side during the reach."
+    },
+    {
+      "id": "core-15",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=lqnuY3wiBzA",
+        "title": "How to PROPERLY Do Deadbugs (STOP MAKING THESE MISTAKES!)",
+        "creator": "Colossus Fitness (Coach Kyle)",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "54.1–66.9 s of original video. Cropped to the movement, muted, with instructional overlays excluded."
+      },
+      "preparation": {
+        "file": "lqnuY3wiBzA.mp4",
+        "start": 54.1,
+        "duration": 12.8,
+        "filter": "crop=1232:564:24:40,scale=880:-2"
+      },
+      "note": "Same performer and view as 16. Alternating opposing limbs reach slowly, pause, and return. Head and torso stay supported."
+    },
+    {
+      "id": "core-16",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "exploratory": true,
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=lqnuY3wiBzA",
+        "title": "How to PROPERLY Do Deadbugs (STOP MAKING THESE MISTAKES!)",
+        "creator": "Colossus Fitness (Coach Kyle)",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "161–169.25 s of original video. Cropped to the movement, muted, with instructional overlays excluded."
+      },
+      "preparation": {
+        "file": "lqnuY3wiBzA.mp4",
+        "start": 161,
+        "duration": 8.25,
+        "filter": "crop=1232:564:24:40,scale=880:-2"
+      },
+      "note": "Alternating opposing reaches occur much quicker than 15. Several quick direction changes and lightly bouncing opposite knees are visible. Exploratory tempo case. Timing alone is context-dependent, and the footage does not establish an actual lower-back gap."
+    },
+    {
+      "id": "core-17",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": "glute_bridge_trunk_shift",
+      "verdict": "observations",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=UeRNF44Nvcc",
+        "title": "Fix your glute bridge! Back tightness from 3 major mistakes",
+        "creator": "Lance Goyke",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "527–533 s of original video, cropped and muted"
+      },
+      "preparation": {
+        "file": "UeRNF44Nvcc.mp4",
+        "start": 527,
+        "duration": 6,
+        "filter": "crop=564:308:147:147,scale=840:-2"
+      },
+      "note": "Independent clinic-style white-background side-oblique clip. The first lift is brief. During the second lift the trunk visibly tips into increased extension with a change in pelvis angle near the top, then returns to the mat. The lumbar contour is less distinct than core-11, so treat this as a secondary positive."
+    },
+    {
+      "id": "core-18",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=UeRNF44Nvcc",
+        "title": "Fix your glute bridge! Back tightness from 3 major mistakes",
+        "creator": "Lance Goyke",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "233–239 s of original video, cropped and muted"
+      },
+      "preparation": {
+        "file": "UeRNF44Nvcc.mp4",
+        "start": 233,
+        "duration": 6,
+        "filter": "crop=564:308:147:147,scale=840:-2"
+      },
+      "note": "Same camera and performer as core-17. Controlled floor bridge lift into a stable hold with feet and upper back supported. The presenter gestures to the side or places hands near the thighs. No clear repeated shift or pronounced excess top arch."
+    },
+    {
+      "id": "core-19",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "exploratory": true,
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=TzzWVnHZGB0",
+        "title": "Same Side Dead Bug",
+        "creator": "Bootcamp Ideas",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "0.55–13.3 s of original video, cropped and muted"
+      },
+      "preparation": {
+        "file": "TzzWVnHZGB0.mp4",
+        "start": 0.55,
+        "duration": 12.75,
+        "filter": "crop=410:204:175:145,scale=740:-2"
+      },
+      "note": "Same-side dead bug deliberately performed as a progression. The near-side blue sleeve and near-side leg move together, while the far hand presses the far knee. Both limbs repeatedly return. In this benchmark the standard dead bug is selected. A useful review can describe the visible same-side variation and opposite-limb standard, without judging the variation as inherently bad."
+    },
+    {
+      "id": "core-20",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=zSifa2Yyn10",
+        "title": "Dead Bugs exercise for core strength",
+        "creator": "Spire Injury Clinic",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "30.4–43.6 s of original video, cropped and muted"
+      },
+      "preparation": {
+        "file": "zSifa2Yyn10.mp4",
+        "start": 30.4,
+        "duration": 13.2,
+        "filter": "crop=620:284:10:39,scale=800:-2"
+      },
+      "note": "Separate clean camera setting and demonstrator. Opposing reach pairs alternate at measured pace, torso and head supported, independent of the bench/demo source."
+    },
+    {
+      "id": "core-21",
+      "group": "bird",
+      "exercise": "bird-dog",
+      "mode": "measured",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=proSinbw_64",
+        "title": "How to do a Bird Dog Alternating Sides",
+        "creator": "Get Strong with Emily",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "22.3–32.8 s of original video, cropped and muted"
+      },
+      "preparation": {
+        "file": "proSinbw_64.mp4",
+        "start": 22.3,
+        "duration": 10.5,
+        "filter": "scale=880:-2"
+      },
+      "note": "Independent high oblique view of a single held rep. Rests on one hand and opposite knee and reaches horizontally with stable torso. Fingers approach frame edge but limb pairing, hips and both supports are visible."
+    },
+    {
+      "id": "core-22",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": null,
+      "provenance": {
+        "source": "https://www.mdpi.com/2411-5142/10/3/326#sec5",
+        "title": "The Role of Home-Based Exercise in Managing Common Musculoskeletal Disorders, Supplementary Video S4 (NSLBP)",
+        "creator": "Vívian Santos Xavier Silva, Rodrigo José Battibugli Rivera, Eunice Fragoso Martins, Marco Carlos Uchida, and Jean Marcos de Souza",
+        "license": "Creative Commons Attribution 4.0 International, original author-filmed Supplementary Videos S3 and S4",
+        "excerpt": "52.85–59.63 s of original video. Cropped to the movement and muted."
+      },
+      "preparation": {
+        "file": "NSLBP.mp4",
+        "start": 52.85,
+        "duration": 6.78,
+        "filter": "crop=404:354:438:220,scale=640:-2"
+      },
+      "note": "Oblique view of two bilateral raises with shoulders and both feet supported on a flat mattress. Visible control is clean; lumbar contact is poorly seen. A conservative camera-angle abstention is reasonable.",
+      "exploratory": true
+    },
+    {
+      "id": "core-23",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": null,
+      "provenance": {
+        "source": "https://www.mdpi.com/2411-5142/10/3/326#sec5",
+        "title": "The Role of Home-Based Exercise in Managing Common Musculoskeletal Disorders, Supplementary Video S4 (NSLBP)",
+        "creator": "Vívian Santos Xavier Silva, Rodrigo José Battibugli Rivera, Eunice Fragoso Martins, Marco Carlos Uchida, and Jean Marcos de Souza",
+        "license": "Creative Commons Attribution 4.0 International, original author-filmed Supplementary Videos S3 and S4",
+        "excerpt": "24.55–31.95 s of original video. Cropped to the movement and muted."
+      },
+      "preparation": {
+        "file": "NSLBP.mp4",
+        "start": 24.55,
+        "duration": 7.4,
+        "filter": "crop=404:275:438:235,scale=640:-2"
+      },
+      "note": "Bilateral bridge with intentional overhead arm movement. Hips and knees remain visible through two lifts, with shoulders supported. Keep as a negative control for arbitrary torso-arch cues; shoulder motion can change estimated shoulder center.",
+      "exploratory": true
+    },
+    {
+      "id": "core-24",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": null,
+      "provenance": {
+        "source": "https://www.mdpi.com/2411-5142/10/3/326#sec5",
+        "title": "The Role of Home-Based Exercise in Managing Common Musculoskeletal Disorders, Supplementary Video S3 (GTPS)",
+        "creator": "Vívian Santos Xavier Silva, Rodrigo José Battibugli Rivera, Eunice Fragoso Martins, Marco Carlos Uchida, and Jean Marcos de Souza",
+        "license": "Creative Commons Attribution 4.0 International, original author-filmed Supplementary Videos S3 and S4",
+        "excerpt": "32.5–40.6 s of original video. Cropped to the movement and muted."
+      },
+      "preparation": {
+        "file": "GTPS.mp4",
+        "start": 32.5,
+        "duration": 8.1,
+        "filter": "crop=404:340:438:155,scale=640:-2"
+      },
+      "note": "Single-leg bridge variation, with one foot constantly held off the surface and the planted foot supporting the lift. The unsupported ankle stays above the other knee.",
+      "verdict": "different_exercise"
+    },
+    {
+      "id": "core-25",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "provenance": {
+        "source": "https://www.mdpi.com/2411-5142/10/3/326#sec5",
+        "title": "The Role of Home-Based Exercise in Managing Common Musculoskeletal Disorders, Supplementary Video S4 (NSLBP)",
+        "creator": "Vívian Santos Xavier Silva, Rodrigo José Battibugli Rivera, Eunice Fragoso Martins, Marco Carlos Uchida, and Jean Marcos de Souza",
+        "license": "Creative Commons Attribution 4.0 International, original author-filmed Supplementary Videos S3 and S4",
+        "excerpt": "17.55–23 s of original video. Cropped to the movement and muted."
+      },
+      "preparation": {
+        "file": "NSLBP.mp4",
+        "start": 17.55,
+        "duration": 5.45,
+        "filter": "crop=1280:576:0:4,scale=800:-2"
+      },
+      "note": "Both knees travel inward together, and both hands reach to hold the shins. The visible hold matches a double knee-to-chest stretch.",
+      "verdict": "different_exercise"
+    },
+    {
+      "id": "core-26",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": null,
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=7vTnfE6oiXk",
+        "title": "How to Progress a Glute Bridge from 2 to 1 Leg | Tim Keeley | Physio REHAB",
+        "creator": "Tim Keeley, Physio REHAB",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "199.95–208.7 s of original video. Cropped or scaled and muted."
+      },
+      "preparation": {
+        "file": "7vTnfE6oiXk.mp4",
+        "start": 199.95,
+        "duration": 8.75,
+        "filter": "crop=1220:660:30:15,scale=800:-2"
+      },
+      "note": "Controlled high floor bridge hold then return. Feet and shoulders supported, slight rib changes compatible with breathing."
+    },
+    {
+      "id": "core-27",
+      "group": "bridge",
+      "exercise": "glute-bridge",
+      "mode": "measured",
+      "check": null,
+      "provenance": {
+        "source": "https://www.youtube.com/watch?v=7vTnfE6oiXk",
+        "title": "How to Progress a Glute Bridge from 2 to 1 Leg | Tim Keeley | Physio REHAB",
+        "creator": "Tim Keeley, Physio REHAB",
+        "license": "Creative Commons Attribution 3.0 Unported (YouTube Creative Commons Attribution license)",
+        "excerpt": "465.6–475.2 s of original video. Cropped or scaled and muted."
+      },
+      "preparation": {
+        "file": "7vTnfE6oiXk.mp4",
+        "start": 465.6,
+        "duration": 9.6,
+        "filter": "crop=1250:700:16:4,scale=800:-2"
+      },
+      "note": "Bilateral shoulder-on-floor bridge with both heels on a bench. This is a clearly identifiable feet-elevated bridge. Scoring is exploratory if elevated feet are treated as a compatible variant.",
+      "exploratory": true
+    },
+    {
+      "id": "core-28",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.mdpi.com/2411-5142/10/3/326#sec5",
+        "title": "The Role of Home-Based Exercise in Managing Common Musculoskeletal Disorders, Supplementary Video S4 (NSLBP)",
+        "creator": "Vívian Santos Xavier Silva, Rodrigo José Battibugli Rivera, Eunice Fragoso Martins, Marco Carlos Uchida, and Jean Marcos de Souza",
+        "license": "Creative Commons Attribution 4.0 International, original author-filmed Supplementary Videos S3 and S4",
+        "excerpt": "9.98–15.13 s of original video. Cropped or scaled and muted."
+      },
+      "preparation": {
+        "file": "NSLBP.mp4",
+        "start": 9.98,
+        "duration": 5.15,
+        "filter": "crop=1280:588:0:4,scale=800:-2"
+      },
+      "note": "Both flexed knees fall laterally toward the same side and both arms stay open on the support surface. Supine spinal rotation stretch."
+    },
+    {
+      "id": "core-29",
+      "group": "deadbug",
+      "exercise": "dead-bug",
+      "mode": "visual",
+      "check": null,
+      "verdict": "different_exercise",
+      "provenance": {
+        "source": "https://www.mdpi.com/2411-5142/10/3/326#sec5",
+        "title": "The Role of Home-Based Exercise in Managing Common Musculoskeletal Disorders, Supplementary Video S4 (NSLBP)",
+        "creator": "Vívian Santos Xavier Silva, Rodrigo José Battibugli Rivera, Eunice Fragoso Martins, Marco Carlos Uchida, and Jean Marcos de Souza",
+        "license": "Creative Commons Attribution 4.0 International, original author-filmed Supplementary Videos S3 and S4",
+        "excerpt": "112.03–117.33 s of original video. Cropped or scaled and muted."
+      },
+      "preparation": {
+        "file": "NSLBP.mp4",
+        "start": 112.03,
+        "duration": 5.3,
+        "filter": "crop=404:506:438:84,scale=640:-2"
+      },
+      "note": "Single straight leg raises toward vertical repeatedly while the other leg remains extended and lying on the bed. Neither arm reaches."
+    }
+  ]
+}

@@ -1,40 +1,37 @@
 import { Image, Pressable, StyleSheet, View } from 'react-native';
-import { ArrowUpRight, Play } from 'lucide-react-native';
+import { ArrowUpRight, Bookmark } from 'lucide-react-native';
 import { exercisePhotos } from '../assets';
 import { color } from '../theme';
 import type { Exercise } from '../types';
-import { Copy, Tag } from './ui';
+import { Copy, VisuallyHidden } from './ui';
 
-export function ExerciseCard({ exercise, onPress }: { exercise: Exercise; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Watch ${exercise.name} demonstration`}
-      onPress={onPress}
-      style={({ hovered }) => [styles.card, hovered && { borderColor: '#92a67b' }]}
-    >
-      <View style={styles.picture}>
-        <Image source={exercisePhotos[exercise.id]} resizeMode="cover" style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]} />
-        <View style={styles.play}><Play color={color.white} size={17} fill={color.white} /></View>
+export function ExerciseCard({ exercise, saved, onPress }: { exercise: Exercise; saved?: boolean; onPress: () => void }) {
+  const equipment = exercise.equipment.join(' + ') || 'Bodyweight';
+  return <Pressable accessibilityRole="button" onPress={onPress}
+    style={({ hovered, pressed }) => [
+      styles.card, (hovered || pressed) && { borderColor: color.plum, backgroundColor: color.soft },
+    ]}>
+    <View style={styles.picture}>
+      <Image aria-hidden source={exercisePhotos[exercise.id]} resizeMode="cover"
+        style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]} />
+      {saved && <View aria-hidden style={styles.saved}><Bookmark size={14} color={color.ink} fill={color.ink} /></View>}
+    </View>
+    <View style={styles.body}>
+      <View style={styles.title}>
+        <Copy size={15} weight="bold" style={{ flex: 1, letterSpacing: -0.35 }}>{exercise.name}</Copy>
+        <ArrowUpRight aria-hidden size={17} color={color.plum} />
       </View>
-      <View style={styles.body}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 4, alignItems: 'flex-start' }}>
-          <Copy size={15} weight="bold" style={{ flex: 1, letterSpacing: -0.35 }}>{exercise.name}</Copy>
-          <ArrowUpRight size={16} color={color.green} />
-        </View>
-        <Copy size={12} tone={color.muted}>{exercise.equipment.length ? exercise.equipment.join(' · ') : 'Bodyweight'}</Copy>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
-          <Tag>{exercise.muscles[0]}</Tag>
-          <Tag style={{ backgroundColor: '#f2f3ee' }}>{exercise.level}</Tag>
-        </View>
-      </View>
-    </Pressable>
-  );
+      <Copy size={12} tone={color.muted}>{exercise.muscles[0]} · {equipment}</Copy>
+      {saved && <VisuallyHidden>Saved exercise</VisuallyHidden>}
+    </View>
+  </Pressable>;
 }
 
 const styles = StyleSheet.create({
-  card: { borderColor: color.line, borderWidth: 1, borderRadius: 14, overflow: 'hidden', backgroundColor: color.white },
-  picture: { aspectRatio: 1.95, overflow: 'hidden', backgroundColor: color.forest },
-  play: { position: 'absolute', bottom: 10, right: 10, width: 34, height: 34, borderRadius: 18, backgroundColor: '#16241fd9', borderWidth: 1, borderColor: '#ffffff80', alignItems: 'center', justifyContent: 'center' },
-  body: { padding: 12, gap: 5 },
+  card: { flex: 1, borderColor: color.line, borderWidth: 1, borderRadius: 11, overflow: 'hidden', backgroundColor: color.surface },
+  picture: { aspectRatio: 1.98, overflow: 'hidden', backgroundColor: color.ink },
+  saved: { position: 'absolute', top: 9, right: 9, width: 29, height: 29, borderRadius: 6,
+    backgroundColor: color.surface, alignItems: 'center', justifyContent: 'center' },
+  body: { padding: 12, gap: 4 },
+  title: { flexDirection: 'row', justifyContent: 'space-between', gap: 5, alignItems: 'flex-start' },
 });

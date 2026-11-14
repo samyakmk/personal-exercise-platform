@@ -4,7 +4,11 @@ import type { ReactNode } from 'react';
 
 type Intent =
   | { type: 'schedule' }
+  | { type: 'log'; exerciseId?: string }
   | { type: 'edit'; workoutId: string }
+  | { type: 'log-plan'; workoutId: string }
+  | { type: 'train'; workoutId: string }
+  | { type: 'resume' }
   | { type: 'add'; exerciseId: string }
   | { type: 'review'; exerciseId: string };
 

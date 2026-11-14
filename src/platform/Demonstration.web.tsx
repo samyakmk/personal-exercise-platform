@@ -11,16 +11,16 @@ export function Demonstration({ exercise }: { exercise: Exercise }) {
     <iframe
       title={exercise.name + ' demonstration'}
       src={`https://www.youtube-nocookie.com/embed/${id}?rel=0&playsinline=1`}
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      allow="autoplay; encrypted-media; picture-in-picture"
       allowFullScreen
       referrerPolicy="strict-origin-when-cross-origin"
-      style={{ width: '100%', aspectRatio: '16 / 9', minHeight: 200, border: 0, borderRadius: 10, background: color.forest }}
+      style={{ width: '100%', aspectRatio: '16 / 9', minHeight: 200, border: 0, borderRadius: 10, background: color.ink }}
     />
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
       <Copy size={12} tone={color.muted}>{creator}</Copy>
       <a href={`https://www.youtube.com/watch?v=${id}`} target="_blank" rel="noreferrer"
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: font.semibold, fontSize: 12, color: color.green }}>
-        Watch on YouTube <ExternalLink size={13} color={color.green} />
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: font.semibold, fontSize: 12, color: color.plum }}>
+        Watch on YouTube <ExternalLink size={13} color={color.plum} />
       </a>
     </View>
   </View>;
