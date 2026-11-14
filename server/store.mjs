@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { closeSync, mkdirSync, openSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { trainingBackupFormat } from '../shared/training-backup.mjs';
 
 const chunkSize = 256 * 1024;
 const reviewHistoryLimit = 10;
@@ -478,7 +479,7 @@ export function createStore(path) {
     trainingBackup(workspace, { from, before, maxBytes, maxWorkouts }) {
       db.exec('BEGIN');
       try {
-        const settings = { format: 'repform-training', version: 1,
+        const settings = { format: trainingBackupFormat, version: 1,
           equipment: JSON.parse(statements.getEquipment.get(workspace).equipment), bookmarks: bookmarks(workspace) };
         const parts = [JSON.stringify(settings).slice(0, -1) + ',"workouts":['];
         let length = Buffer.byteLength(parts[0]) + 2;

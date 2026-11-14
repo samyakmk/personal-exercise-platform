@@ -21,7 +21,7 @@ test('each external manifest has valid local preparations and documented sources
 });
 
 test('clip preparation validates recipes and replaces existing output only after encoding', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'repform-prep-'));
+  const root = await mkdtemp(join(tmpdir(), 'liftmorrow-prep-'));
   try {
     const sources = join(root, 'sources');
     const clips = join(root, 'clips');

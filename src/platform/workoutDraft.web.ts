@@ -1,4 +1,5 @@
 import type { WorkoutDraft } from '../components/WorkoutEditor';
+import { readSessionValue, removeSessionValue } from './sessionStorageMigration.web';
 
 type DraftEntry = WorkoutDraft['entries'][number];
 
@@ -14,15 +15,17 @@ function isEntry(entry: DraftEntry | null) {
       && entry.details.every((detail) => detail && typeof detail.id === 'string' && hasSetFields(detail)));
 }
 
-function key(workspace: string) {
-  return 'repform-workout-draft:' + workspace;
+function suffix(workspace: string, kind: 'workout' | 'session') {
+  return `${kind}-draft:` + workspace;
 }
 
-export function readWorkoutDraft(workspace: string): WorkoutDraft | null {
+export function readWorkoutDraft(workspace: string, kind: 'workout' | 'session' = 'workout'): WorkoutDraft | null {
   try {
-    const draft = JSON.parse(sessionStorage.getItem(key(workspace)) ?? 'null') as WorkoutDraft | null;
+    const storageSuffix = suffix(workspace, kind);
+    const draft = JSON.parse(readSessionValue('liftmorrow-' + storageSuffix, storageSuffix) ?? 'null') as WorkoutDraft | null;
     if (!draft || ![draft.id, draft.name, draft.day, draft.time].every((value) => typeof value === 'string')
       || !['planned', 'completed'].includes(draft.status) || !Array.isArray(draft.entries)
+      || (draft.revision !== undefined && (!Number.isSafeInteger(draft.revision) || draft.revision < 1))
       || !draft.entries.every(isEntry) || (draft.notes !== undefined && typeof draft.notes !== 'string')
       || (draft.repeatWeeks !== undefined && (!Number.isInteger(draft.repeatWeeks) || draft.repeatWeeks < 1 || draft.repeatWeeks > 12))) return null;
     return draft;
@@ -31,10 +34,13 @@ export function readWorkoutDraft(workspace: string): WorkoutDraft | null {
   }
 }
 
-export function writeWorkoutDraft(workspace: string, draft: WorkoutDraft) {
-  try { sessionStorage.setItem(key(workspace), JSON.stringify(draft)); } catch {}
+export function writeWorkoutDraft(workspace: string, draft: WorkoutDraft, kind: 'workout' | 'session' = 'workout') {
+  try { sessionStorage.setItem('liftmorrow-' + suffix(workspace, kind), JSON.stringify(draft)); } catch {}
 }
 
-export function removeWorkoutDraft(workspace: string) {
-  try { sessionStorage.removeItem(key(workspace)); } catch {}
+export function removeWorkoutDraft(workspace: string, kind: 'workout' | 'session' = 'workout') {
+  try {
+    const storageSuffix = suffix(workspace, kind);
+    removeSessionValue('liftmorrow-' + storageSuffix, storageSuffix);
+  } catch {}
 }

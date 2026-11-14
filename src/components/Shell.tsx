@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Link, usePathname, useRouter } from 'expo-router';
-import { CalendarDays, ChartNoAxesColumnIncreasing, Dumbbell, House, LockKeyhole, Plus, ScanLine } from 'lucide-react-native';
+import { CalendarDays, ChartNoAxesColumnIncreasing, ClipboardList, Dumbbell, House, LockKeyhole, Plus, ScanLine } from 'lucide-react-native';
 import { Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useTrainingNavigation } from '../navigation';
 import { SkipLink } from '../platform/SkipLink';
@@ -12,6 +12,7 @@ import { Button, Copy, Loading, Notice } from './ui';
 
 const pages = [
   { path: '/', label: 'Overview', icon: House },
+  { path: '/sessions', label: 'Sessions', icon: ClipboardList },
   { path: '/workouts', label: 'Workouts', icon: CalendarDays },
   { path: '/explore', label: 'Exercises', icon: Dumbbell },
   { path: '/progress', label: 'Progress', icon: ChartNoAxesColumnIncreasing },
@@ -35,9 +36,9 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     scroll.current?.scrollTo({ y: 0, animated: false });
     if (Platform.OS !== 'web') return;
-    document.title = pageName + ' · Repform';
+    document.title = pageName + ' · Liftmorrow';
     if (shown.current && !document.querySelector('dialog[open]')) {
-      document.getElementById('repform-main')?.focus({ preventScroll: true });
+      document.getElementById('liftmorrow-main')?.focus({ preventScroll: true });
     }
     shown.current = true;
   }, [pathname, pageName]);
@@ -74,12 +75,12 @@ export function Shell({ children }: { children: ReactNode }) {
         <View role="banner" style={styles.top}>
           <View style={[styles.topContent, { paddingHorizontal: inset }]}>
             <Copy size={13} weight="semibold" tone={color.muted}>{pageName}</Copy>
-            {pathname !== '/workouts' && <Button icon={Plus} kind="dark" compact style={{ alignSelf: 'center' }}
+            {pathname !== '/workouts' && pathname !== '/sessions' && <Button icon={Plus} kind="dark" compact style={{ alignSelf: 'center' }}
               onPress={() => training.open({ type: 'schedule' })}>New workout</Button>}
           </View>
         </View>
         <ScrollView ref={scroll} style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <View role="main" nativeID="repform-main" tabIndex={-1}
+          <View role="main" nativeID="liftmorrow-main" tabIndex={-1}
             style={[styles.main, { paddingHorizontal: inset, paddingTop: small ? 24 : 34 }]}>
             {notice !== '' && <View style={styles.status}><Notice>{notice}</Notice></View>}
             {data && error && <View style={styles.status}>
@@ -104,13 +105,13 @@ export function Shell({ children }: { children: ReactNode }) {
 
 function Brand({ compact }: { compact: boolean }) {
   return <Link href="/" asChild>
-    <Pressable accessibilityRole="link" accessibilityLabel="Repform. Home" style={StyleSheet.flatten([styles.brand, compact && { justifyContent: 'center' }])}>
+    <Pressable accessibilityRole="link" accessibilityLabel="Liftmorrow. Home" style={StyleSheet.flatten([styles.brand, compact && { justifyContent: 'center' }])}>
       <View aria-hidden style={styles.brandMark}>
         <View style={[styles.markStroke, { height: 13 }]} />
         <View style={[styles.markStroke, { height: 20 }]} />
         <View style={[styles.markStroke, { height: 27 }]} />
       </View>
-      {!compact && <Copy weight="extra" size={23} style={{ letterSpacing: -1.4 }}>repform<Copy weight="extra" tone={color.plum} size={23}>.</Copy></Copy>}
+      {!compact && <Copy weight="extra" size={23} style={{ letterSpacing: -1.4 }}>liftmorrow<Copy weight="extra" tone={color.plum} size={23}>.</Copy></Copy>}
     </Pressable>
   </Link>;
 }

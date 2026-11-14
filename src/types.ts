@@ -1,25 +1,37 @@
+export type ExerciseDemonstration = {
+  videoId: string;
+  creator: string;
+  provider?: 'youtube' | 'vimeo';
+  source?: string;
+  thumbnailUrl?: string;
+};
+
 export type Exercise = {
   id: string;
   name: string;
   muscles: string[];
   equipment: string[];
-  level: 'Beginner' | 'Intermediate';
+  level: 'Beginner' | 'Intermediate' | 'Advanced';
   unit: 'reps' | 'seconds';
   description: string;
   cues: string[];
-  demonstration: { videoId: string; creator: string };
+  category: string;
+  primaryMuscles?: string[];
+  secondaryMuscles?: string[];
+  demonstration?: ExerciseDemonstration;
+  loadType?: 'per-dumbbell' | 'weight';
 };
 
 export type WorkoutStatus = 'planned' | 'completed';
 
-export type DumbbellLoad = { value: number; unit: 'kg' | 'lb' };
-export type ExerciseSet = { reps: number; load?: DumbbellLoad };
+export type ExerciseLoad = { value: number; unit: 'kg' | 'lb' };
+export type ExerciseSet = { reps?: number; load?: ExerciseLoad };
 
 export type Movement = {
   exerciseId: string;
   sets: number;
-  reps: number;
-  load?: DumbbellLoad;
+  reps?: number;
+  load?: ExerciseLoad;
   setDetails?: ExerciseSet[];
 };
 
@@ -35,12 +47,15 @@ export type Workout = {
   exercises: Movement[];
 };
 
-export type TrainingSetDraft = { setNumber: number; reps: string; load: string; unit: DumbbellLoad['unit'] };
+export type TrainingSetDraft = { setNumber: number; reps: string; load: string; unit: ExerciseLoad['unit'] };
 
 export type TrainingSession = {
   plan: Workout;
   logId: string;
   startedAt: number;
+  adHoc?: true;
+  logTime?: Pick<Workout, 'date' | 'time'>;
+  suggestedExercise?: string;
   sets: Record<string, ExerciseSet[]>;
   notes: string;
   restDeadline?: number | null;
@@ -96,11 +111,21 @@ export type Workspace = Snapshot & {
   catalog: Exercise[];
   muscles: string[];
   equipmentOptions: string[];
+  exerciseCategories?: string[];
   aiAvailable: boolean;
   reviewVersion: number;
 };
 
 export type EquipmentMode = 'all' | 'saved' | 'bodyweight';
+
+export type ExerciseFilters = {
+  targets: string[];
+  mode: EquipmentMode;
+  query: string;
+  level: Exercise['level'] | null;
+  category: string | null;
+  withVideo: boolean;
+};
 
 export type SelectedVideo = {
   name: string;

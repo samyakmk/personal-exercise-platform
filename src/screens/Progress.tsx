@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Button, Copy, Display, Empty, PageTitle, Panel, SectionTitle } from '../components/ui';
 import { formatDay, formatTime, workoutTime } from '../dates';
 import { useTrainingNavigation } from '../navigation';
-import { SelectField } from '../platform/fields';
+import { ExercisePicker } from '../platform/ExercisePicker';
 import { color } from '../theme';
 import { completedWorkouts, exerciseLogs, exerciseTrend, heaviestLoad, movementSummary, performedSetSummary, weeklyActivity } from '../trainingProgress';
 import type { ExerciseTrend } from '../trainingProgress';
@@ -28,14 +28,13 @@ export function Progress() {
   const requestedId = options.find(({ value }) => value === requested)?.value;
   const loggedIds = new Set(workouts.flatMap(({ exercises }) => exercises.map(({ exerciseId }) => exerciseId)));
   const orderedOptions = [...options].sort((a, b) => Number(loggedIds.has(b.value)) - Number(loggedIds.has(a.value)))
-    .map(({ value, label }) => ({ value, label: loggedIds.has(value) ? `${label} · Logged` : label }));
-  const initialId = requestedId ?? workouts[0]?.exercises[0]?.exerciseId ?? options[0]?.value;
+    .map(({ value, label }) => ({ value, label, detail: loggedIds.has(value) ? 'Logged' : undefined }));
+  const initialId = requestedId ?? workouts.find(({ exercises }) => exercises.length)?.exercises[0].exerciseId ?? options[0]?.value;
   const exercise = data.catalog.find(({ id }) => id === initialId);
-  const start = () => training.open({ type: 'log' });
 
   return <View style={styles.page}>
     <PageTitle title="Training progress" summary="See how often you train and look back at each exercise."
-      action={<Button kind="primary" icon={Plus} onPress={start}>Log workout</Button>} />
+      action={<Button kind="primary" icon={Plus} onPress={() => training.open({ type: 'new-session' })}>New session</Button>} />
     {!workouts.length && !requestedId ? <Empty icon={ChartNoAxesColumnIncreasing} title="Your first workout goes here"
       message="Log a completed workout to see your weekly activity and exercise history."
       /> : <View style={[styles.progressLayout, split && styles.progressSplit]}>
@@ -44,7 +43,7 @@ export function Progress() {
       </View>}
       {exercise && <View style={[styles.exerciseColumn, split && { flex: 1.65 }]}>
         <View style={styles.picker}>
-          <SelectField label="Exercise history" value={exercise.id} options={orderedOptions}
+          <ExercisePicker label="Exercise history" value={exercise.id} options={orderedOptions}
             onChange={(id) => router.setParams({ exercise: id })} />
         </View>
         <ExerciseHistory key={exercise.id} exercise={exercise} workouts={workouts} />
@@ -107,7 +106,8 @@ function ExerciseHistory({ exercise, workouts }: { exercise: Exercise; workouts:
     {logs.length ? <>
       <View style={styles.facts}>
         <Fact label="Latest session" value={movementSummary(exercise, logs[0].movement)} />
-        {load && <Fact label="Heaviest logged dumbbell" value={`${load.value} ${load.unit}`} />}
+        {load && <Fact label={exercise.loadType === 'per-dumbbell' ? 'Heaviest logged dumbbell' : 'Heaviest logged weight'}
+          value={`${load.value} ${load.unit}`} />}
       </View>
       {trend.points.length >= 2 && <TrendChart {...trend} />}
       <View role="list" accessibilityLabel={`${exercise.name} sessions`}>
@@ -121,7 +121,7 @@ function ExerciseHistory({ exercise, workouts }: { exercise: Exercise; workouts:
                 <Copy size={12} tone={color.muted}>{formatDay(workout.date, { month: 'short', day: 'numeric', year: 'numeric' })} · {formatTime(workout.time)}</Copy>
               </View>
               <Copy size={13} style={styles.movement}>{movementSummary(exercise, movement)}</Copy>
-              {movement.setDetails && <Button kind="quiet" compact end={open ? ChevronUp : ChevronDown} aria-expanded={open}
+              {Boolean(movement.setDetails?.length) && <Button kind="quiet" compact end={open ? ChevronUp : ChevronDown} aria-expanded={open}
                 accessibilityLabel={`${open ? 'Hide' : 'Show'} sets · ${workout.name}`}
                 onPress={() => setExpanded(open ? null : workout.id)}>{open ? 'Hide sets' : 'Show sets'}</Button>}
               <Button kind="quiet" compact end={ArrowRight} accessibilityLabel={`Open workout · ${workout.name}`}

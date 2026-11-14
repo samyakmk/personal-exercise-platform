@@ -1,15 +1,16 @@
 import { useRef, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, Dumbbell, Minus, Plus, RotateCcw, Timer, Video } from 'lucide-react-native';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { RequestError } from '../api';
 import { Demonstration } from '../platform/Demonstration';
+import { ExercisePicker } from '../platform/ExercisePicker';
 import { color } from '../theme';
 import { movementSummary, performedSetSummary, trainingLog } from '../trainingProgress';
 import type { Exercise, ExerciseSet, TrainingSession as Session, TrainingSetDraft, Workout } from '../types';
 import { useRestTimer } from '../useRestTimer';
 import { RestTimer } from './RestTimer';
 import { Sheet } from './Sheet';
-import { Button, Chip, Copy, IconButton, Input, Notice } from './ui';
+import { Button, Chip, Copy, IconButton, Input, Notice, SectionTitle } from './ui';
 import { validWeight, WeightFields } from './WeightFields';
 
 type Props = {
@@ -32,24 +33,45 @@ export function TrainingSession({ session, catalog, recentMovements, planCurrent
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [error, setError] = useState('');
+  const [adding, setAdding] = useState(!movements.length);
+  const [choice, setChoice] = useState(session.suggestedExercise ?? '');
+  const split = useWindowDimensions().width >= 1000;
   const saving = useRef(false);
   const current = movements[position];
-  const exercise = catalog.find(({ id }) => id === current.exerciseId);
-  const name = exercise?.name ?? current.exerciseId;
-  const performed = session.sets[current.exerciseId] ?? [];
-  const recent = recentMovements.get(current.exerciseId);
-  const showDemonstration = demonstrating === current.exerciseId;
+  const exerciseId = current?.exerciseId ?? '';
+  const exercise = catalog.find(({ id }) => id === exerciseId);
+  const name = exercise?.name ?? exerciseId;
+  const performed = session.sets[exerciseId] ?? [];
+  const recent = recentMovements.get(exerciseId);
+  const showDemonstration = demonstrating === exerciseId;
+  const liveLog = Boolean(session.logTime);
   const total = movements.reduce((count, { sets }) => count + sets, 0);
   const logged = Object.values(session.sets).reduce((count, sets) => count + sets.length, 0);
+  const canFinish = liveLog || logged > 0;
   const plannedDone = movements.reduce((count, { exerciseId, sets }) => count + Math.min(sets, session.sets[exerciseId]?.length ?? 0), 0);
   const separateLog = !planCurrent || conflict;
+  const available = catalog.filter(({ id }) => !movements.some(({ exerciseId }) => exerciseId === id));
+
+  function addExercise() {
+    const exercise = available.find(({ id }) => id === choice);
+    if (!exercise) return;
+    const movement = { exerciseId: exercise.id, sets: 3, reps: exercise.unit === 'seconds' ? 30 : 10 };
+    onChange({ ...session, activeExercise: exercise.id, suggestedExercise: undefined,
+      plan: { ...session.plan, exercises: [...movements, movement] } });
+    setDemonstrating(null);
+    setAdding(false);
+    setChoice('');
+  }
+
+  const restTimer = <RestTimer deadline={session.restDeadline ?? null}
+    onDeadlineChange={(restDeadline) => onChange({ ...session, restDeadline })} />;
 
   function updateSets(sets: ExerciseSet[]) {
     const setDrafts = { ...session.setDrafts };
-    delete setDrafts[current.exerciseId];
-    onChange({ ...session, activeExercise: current.exerciseId, setDrafts,
-      hold: session.hold?.exerciseId === current.exerciseId ? undefined : session.hold,
-      sets: { ...session.sets, [current.exerciseId]: sets } });
+    delete setDrafts[exerciseId];
+    onChange({ ...session, activeExercise: exerciseId, setDrafts,
+      hold: session.hold?.exerciseId === exerciseId ? undefined : session.hold,
+      sets: { ...session.sets, [exerciseId]: sets } });
   }
 
   function moveTo(index: number) {
@@ -58,7 +80,7 @@ export function TrainingSession({ session, catalog, recentMovements, planCurrent
   }
 
   async function save() {
-    if (saving.current || !logged) return;
+    if (saving.current || !canFinish) return;
     saving.current = true;
     setError('');
     setBusy(true);
@@ -73,94 +95,109 @@ export function TrainingSession({ session, catalog, recentMovements, planCurrent
     }
   }
 
-  return <Sheet title={session.plan.name} detail={finish ? 'Review what you recorded before saving.' : 'Record each set as you finish it.'}
-    onClose={() => { if (!saving.current) onClose(); }}>
+  return <Sheet title={session.plan.name} detail={finish ? 'Review what you recorded before saving.'
+    : current ? 'Record each set as you finish it.' : 'Add an exercise to start recording sets.'}
+    wide={!finish && split} onClose={() => { if (!saving.current) onClose(); }}>
     {finish ? <>
-      {plannedDone < total && <Notice>{`${total - plannedDone} planned ${total - plannedDone === 1 ? 'set was' : 'sets were'} left open. Your log will include the ${logged} ${logged === 1 ? 'set' : 'sets'} you recorded.`}</Notice>}
-      {separateLog && <Notice>The original workout changed. Save these sets as a separate workout log.</Notice>}
+      {!liveLog && plannedDone < total && <Notice>{`${total - plannedDone} planned ${total - plannedDone === 1 ? 'set was' : 'sets were'} left open. Your log will include the ${logged} ${logged === 1 ? 'set' : 'sets'} you recorded.`}</Notice>}
+      {separateLog && !session.adHoc && <Notice>The original workout changed. Save these sets as a separate workout log.</Notice>}
       <View style={{ gap: 6 }}>
         {movements.map(({ exerciseId, sets }) => <View key={exerciseId} style={styles.summaryRow}>
           <Copy weight="semibold" size={13}>{catalog.find(({ id }) => id === exerciseId)?.name ?? exerciseId}</Copy>
-          <Copy size={12} tone={color.muted}>{`${session.sets[exerciseId]?.length ?? 0} recorded · ${sets} planned`}</Copy>
+          <Copy size={12} tone={color.muted}>{`${session.sets[exerciseId]?.length ?? 0} recorded${liveLog ? '' : ` · ${sets} planned`}`}</Copy>
         </View>)}
       </View>
-      <Input label="Workout notes" value={session.notes} onChangeText={(notes) => onChange({ ...session, notes })}
+      <Input label={session.adHoc ? 'Session notes' : 'Workout notes'} value={session.notes} onChangeText={(notes) => onChange({ ...session, notes })}
         placeholder="Optional · What went well or what to change next time" multiline numberOfLines={3} maxLength={1200}
         style={{ minHeight: 76, paddingVertical: 8, textAlignVertical: 'top' }} />
       {error && <Notice error>{error}</Notice>}
       <View style={styles.actions}>
-        <Button icon={Check} kind="primary" disabled={busy || !logged} onPress={() => void save()}>
-          {busy ? 'Saving…' : separateLog ? 'Save separate log' : 'Save workout log'}
+        <Button icon={Check} kind="primary" disabled={busy || !canFinish} onPress={() => void save()}>
+          {busy ? 'Saving…' : session.adHoc ? 'Save session' : separateLog ? 'Save separate log' : 'Save workout log'}
         </Button>
         <Button icon={ChevronLeft} disabled={busy} onPress={() => setFinish(false)}>Back to session</Button>
       </View>
     </> : <>
-      <View style={{ gap: 7 }}>
+      {!!movements.length && <View style={{ gap: 7 }}>
         <View style={styles.sessionProgress}>
           <Copy size={13} weight="semibold" tone={color.plum}>{`Exercise ${position + 1} of ${movements.length}`}</Copy>
-          <Copy size={13} tone={color.muted} role="status" accessibilityLiveRegion="polite">{`${plannedDone} of ${total} planned sets recorded`}</Copy>
+          <Copy size={13} tone={color.muted} role="status" accessibilityLiveRegion="polite">{liveLog ? `${logged} ${logged === 1 ? 'set' : 'sets'} recorded` : `${plannedDone} of ${total} planned sets recorded`}</Copy>
         </View>
-        <View aria-hidden style={styles.track}><View style={[styles.fill, { width: `${100 * plannedDone / total}%` }]} /></View>
-      </View>
-      {movements.length > 1 && <View style={styles.actions}>
-        {movements.map(({ exerciseId, sets }, index) => <Chip key={exerciseId}
-          label={`${catalog.find(({ id }) => id === exerciseId)?.name ?? exerciseId} · ${session.sets[exerciseId]?.length ?? 0}/${sets}`}
-          selected={position === index} onPress={() => moveTo(index)} />)}
+        {!liveLog && <View aria-hidden style={styles.track}><View style={[styles.fill, { width: `${100 * plannedDone / total}%` }]} /></View>}
       </View>}
-      <View style={styles.active}>
-        <View style={styles.activeHead}>
-          <View style={styles.exerciseTitle}>
-            <Dumbbell aria-hidden size={20} color={color.plum} />
-            <Copy accessibilityRole="header" aria-level={3} size={19} weight="bold" style={{ flexShrink: 1 }}>{name}</Copy>
+      <View style={[styles.trainingLayout, split && { flexDirection: 'row', alignItems: 'flex-start' }]}>
+        <View style={[styles.lineup, split && { flex: 0.8 }]}>
+          <SectionTitle title="Exercises" level={3} />
+          <View style={styles.actions}>
+            {movements.map(({ exerciseId, sets }, index) => <Chip key={exerciseId}
+              label={`${catalog.find(({ id }) => id === exerciseId)?.name ?? exerciseId} · ${session.sets[exerciseId]?.length ?? 0}${liveLog ? '' : `/${sets}`}`}
+              selected={position === index} onPress={() => moveTo(index)} />)}
           </View>
-          {exercise && <Button compact kind="quiet" icon={Video} aria-expanded={showDemonstration}
-            onPress={() => setDemonstrating(showDemonstration ? null : exercise.id)}>
-            {showDemonstration ? 'Hide technique' : 'Show technique'}
-          </Button>}
+          {available.length > 0 && <Button compact kind="quiet" icon={Plus} aria-expanded={adding}
+            onPress={() => setAdding(!adding)}>{adding ? 'Hide exercise picker' : 'Add exercise'}</Button>}
+          {adding && <View style={styles.picker}>
+            <ExercisePicker label="Exercise to add" value={choice} onChange={setChoice}
+              options={available.map(({ id, name }) => ({ value: id, label: name }))} />
+            <Button compact disabled={!choice} onPress={addExercise}>Add to session</Button>
+          </View>}
+          {split && restTimer}
         </View>
-        {recent && <Copy size={12} tone={color.muted}>{`Last session · ${movementSummary(exercise ?? { unit: 'reps' }, recent)}`}</Copy>}
-        {exercise && showDemonstration && <View style={{ gap: 8 }}>
+        {current && <View style={[styles.active, split && { flex: 1.55 }]}>
+          <View style={styles.activeHead}>
+            <View style={styles.exerciseTitle}>
+              <Dumbbell aria-hidden size={20} color={color.plum} />
+              <Copy accessibilityRole="header" aria-level={3} size={19} weight="bold" style={{ flexShrink: 1 }}>{name}</Copy>
+            </View>
+            {exercise && (exercise.demonstration || exercise.cues.length > 0) && <Button compact kind="quiet" icon={Video} aria-expanded={showDemonstration}
+              onPress={() => setDemonstrating(showDemonstration ? null : exercise.id)}>
+              {showDemonstration ? 'Hide technique' : 'Show technique'}
+            </Button>}
+          </View>
+          {recent && <Copy size={12} tone={color.muted}>{`Last session · ${movementSummary(exercise ?? { unit: 'reps' }, recent)}`}</Copy>}
+          {exercise && showDemonstration && <View style={{ gap: 8 }}>
             <Demonstration exercise={exercise} />
             {exercise.cues.map((cue) => <Copy key={cue} tone={color.muted} size={13}>{cue}</Copy>)}
           </View>}
-        {performed.length < 30 && <SetInput key={current.exerciseId} exercise={exercise} name={name}
-          planned={current.setDetails?.[performed.length] ?? performed.at(-1) ?? current} next={performed.length + 1}
-          draft={session.setDrafts?.[current.exerciseId]}
-          holdDeadline={session.hold?.exerciseId === current.exerciseId && session.hold.setNumber === performed.length + 1
-            ? session.hold.deadline : null}
-          onHold={(deadline) => onChange({ ...session, activeExercise: current.exerciseId,
-            hold: deadline === null ? undefined : { exerciseId: current.exerciseId, setNumber: performed.length + 1, deadline } })}
-          onDraft={(fields, resetHold) => onChange({ ...session, activeExercise: current.exerciseId,
-            setDrafts: { ...session.setDrafts, [current.exerciseId]: fields },
-            hold: resetHold && session.hold?.exerciseId === current.exerciseId ? undefined : session.hold })}
-          extra={performed.length >= current.sets} onRecord={(set) => updateSets([...performed, set])} />}
-        {!!performed.length && <View style={{ gap: 6 }}>
-          {performed.map((set, index) => <View key={index} style={styles.summaryRow}>
-            <Copy size={12}>{`Set ${index + 1}`}</Copy>
-            <Copy size={12} tone={color.muted}>{performedSetSummary(exercise, set)}</Copy>
-          </View>)}
-          <Button compact kind="quiet" icon={RotateCcw} onPress={() => updateSets(performed.slice(0, -1))}>Undo last set</Button>
+          {performed.length < 30 && <SetInput key={current.exerciseId} exercise={exercise} name={name}
+            planned={current.setDetails?.[performed.length] ?? performed.at(-1) ?? (liveLog ? undefined : current)} next={performed.length + 1}
+            optionalReps={Boolean(session.adHoc)}
+            draft={session.setDrafts?.[current.exerciseId]}
+            holdDeadline={session.hold?.exerciseId === current.exerciseId && session.hold.setNumber === performed.length + 1
+              ? session.hold.deadline : null}
+            onHold={(deadline) => onChange({ ...session, activeExercise: current.exerciseId,
+              hold: deadline === null ? undefined : { exerciseId: current.exerciseId, setNumber: performed.length + 1, deadline } })}
+            onDraft={(fields, resetHold) => onChange({ ...session, activeExercise: current.exerciseId,
+              setDrafts: { ...session.setDrafts, [current.exerciseId]: fields },
+              hold: resetHold && session.hold?.exerciseId === current.exerciseId ? undefined : session.hold })}
+            extra={!liveLog && performed.length >= current.sets} onRecord={(set) => updateSets([...performed, set])} />}
+          {!!performed.length && <View style={{ gap: 6 }}>
+            {performed.map((set, index) => <View key={index} style={styles.summaryRow}>
+              <Copy size={12}>{`Set ${index + 1}`}</Copy>
+              <Copy size={12} tone={color.muted}>{performedSetSummary(exercise, set)}</Copy>
+            </View>)}
+            <Button compact kind="quiet" icon={RotateCcw} onPress={() => updateSets(performed.slice(0, -1))}>Undo last set</Button>
+          </View>}
         </View>}
       </View>
-      <RestTimer deadline={session.restDeadline ?? null} onDeadlineChange={(restDeadline) => onChange({ ...session, restDeadline })} />
+      {!split && restTimer}
       <View style={styles.sessionFooter}>
         {position < movements.length - 1 && <Button end={ChevronRight} onPress={() => moveTo(position + 1)}>Next exercise</Button>}
-        <Button icon={Check} kind="dark" disabled={!logged} onPress={() => setFinish(true)}>Finish session</Button>
+        <Button icon={Check} kind="dark" disabled={!canFinish} onPress={() => setFinish(true)}>Finish session</Button>
         <Button kind="quiet" onPress={onClose}>Pause session</Button>
       </View>
     </>}
   </Sheet>;
 }
 
-function SetInput({ exercise, name, planned, next, draft, holdDeadline, onHold, onDraft, extra, onRecord }: {
-  exercise?: Exercise; name: string; planned: ExerciseSet; next: number; draft?: TrainingSetDraft;
+function SetInput({ exercise, name, planned, next, draft, holdDeadline, onHold, onDraft, extra, optionalReps, onRecord }: {
+  exercise?: Exercise; name: string; planned?: ExerciseSet; next: number; draft?: TrainingSetDraft;
   holdDeadline: number | null; onHold: (deadline: number | null) => void;
-  onDraft: (draft: TrainingSetDraft, resetHold?: boolean) => void; extra: boolean; onRecord: (set: ExerciseSet) => void;
+  onDraft: (draft: TrainingSetDraft, resetHold?: boolean) => void; extra: boolean; optionalReps: boolean; onRecord: (set: ExerciseSet) => void;
 }) {
   const [failure, setFailure] = useState<{ next: number; message: string } | null>(null);
   const hold = useRestTimer(holdDeadline, onHold);
   const { reps, load, unit: weightUnit } = draft?.setNumber === next ? draft : {
-    reps: String(planned.reps), load: planned.load ? String(planned.load.value) : '', unit: planned.load?.unit ?? 'lb',
+    reps: planned?.reps === undefined ? '' : String(planned.reps), load: planned?.load ? String(planned.load.value) : '', unit: planned?.load?.unit ?? 'lb',
   };
   const weight = { load, unit: weightUnit };
   const error = failure?.next === next ? failure.message : '';
@@ -183,27 +220,28 @@ function SetInput({ exercise, name, planned, next, draft, holdDeadline, onHold, 
   }
 
   function record() {
-    if (!adjustable) {
-      setFailure({ next, message: `Enter ${unit.toLowerCase()} from 1 to 600.` });
+    if (!adjustable && !(optionalReps && !reps && weight.load)) {
+      setFailure({ next, message: optionalReps && !reps ? 'Enter reps, hold time, or weight to record a set.'
+        : `Enter ${unit.toLowerCase()} from 1 to 600.` });
       return;
     }
     if (weight.load && !validWeight(weight.load)) {
-      setFailure({ next, message: 'Enter a dumbbell weight from 0.01 to 1000 kg or lb, or leave it blank.' });
+      setFailure({ next, message: 'Enter a weight from 0.01 to 1000 kg or lb, or leave it blank.' });
       return;
     }
     setFailure(null);
-    onRecord({ reps: amount, ...(weight.load && { load: { value: Number(weight.load.replace(',', '.')), unit: weight.unit } }) });
+    onRecord({ ...(reps && { reps: amount }), ...(weight.load && { load: { value: Number(weight.load.replace(',', '.')), unit: weight.unit } }) });
   }
 
   return <View style={{ gap: 8 }}>
     <Copy size={13} weight="semibold">{extra ? `Extra set ${next}` : `Set ${next}`}</Copy>
     <View style={[styles.actions, { alignItems: 'flex-end' }]}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 5, minWidth: 164, flex: 1 }}>
-        <Input label={`${unit} · ${name}`} visibleLabel={unit} value={reps} onChangeText={setReps} editable={!runningHold} keyboardType="number-pad" maxLength={3} />
+        <Input label={`${unit} · ${name}`} visibleLabel={unit} value={reps} placeholder={optionalReps ? 'Optional' : undefined} onChangeText={setReps} editable={!runningHold} keyboardType="number-pad" maxLength={3} />
         <IconButton icon={Minus} size={43} label={`Decrease ${unit.toLowerCase()}`} disabled={runningHold || !adjustable || amount <= 1} onPress={() => setReps(String(amount - 1))} />
         <IconButton icon={Plus} size={43} label={`Increase ${unit.toLowerCase()}`} disabled={runningHold || !adjustable || amount >= 600} onPress={() => setReps(String(amount + 1))} />
       </View>
-      {exercise?.equipment.includes('Dumbbells') && <WeightFields label={name} set={weight}
+      {exercise?.loadType && <WeightFields label={name} perDumbbell={exercise.loadType === 'per-dumbbell'} set={weight}
         onChange={(fields) => onDraft({ ...weight, ...fields, setNumber: next, reps })} />}
     </View>
     {error && <Notice error>{error}</Notice>}
@@ -220,6 +258,9 @@ function SetInput({ exercise, name, planned, next, draft, holdDeadline, onHold, 
 
 const styles = StyleSheet.create({
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  trainingLayout: { gap: 16 },
+  lineup: { minWidth: 0, gap: 10 },
+  picker: { gap: 7, borderRadius: 8, padding: 10, backgroundColor: color.canvas },
   sessionProgress: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 6 },
   active: { padding: 15, borderRadius: 11, backgroundColor: color.canvas, borderWidth: 1, borderColor: color.line, gap: 12 },
   activeHead: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 7 },

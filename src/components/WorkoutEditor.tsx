@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SetStateAction } from 'react';
-import { Check, ChevronDown, ChevronUp, List, Plus, Trash2, X } from 'lucide-react-native';
+import { ArrowRight, Check, ChevronDown, ChevronUp, List, Plus, Trash2, X } from 'lucide-react-native';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { createId } from '../api';
 import { addDays, dateKey, earliestWorkoutDate, formatDay, isWorkoutDate, latestWorkoutDate, timeKey } from '../dates';
+import { ExercisePicker } from '../platform/ExercisePicker';
 import { DateTimeField, SelectField } from '../platform/fields';
 import { color } from '../theme';
-import type { DumbbellLoad, Exercise, ExerciseSet, Movement, Workout, WorkoutStatus } from '../types';
+import type { Exercise, ExerciseLoad, ExerciseSet, Movement, Workout, WorkoutStatus } from '../types';
 import { RestTimer } from './RestTimer';
 import { Sheet } from './Sheet';
 import { Button, Chip, Copy, IconButton, Input, Notice, SectionTitle } from './ui';
@@ -15,13 +16,13 @@ import { validWeight, WeightFields } from './WeightFields';
 type DraftSet = {
   reps: string;
   load: string;
-  unit: DumbbellLoad['unit'];
+  unit: ExerciseLoad['unit'];
 };
 type DetailedSet = DraftSet & { id: string };
 type DraftEntry = DraftSet & { exerciseId: string; sets: string; details?: DetailedSet[] };
 
 export type WorkoutDraft = {
-  id: string; name: string; day: string; time: string; status: WorkoutStatus; entries: DraftEntry[]; notes?: string; repeatWeeks?: number;
+  id: string; name: string; day: string; time: string; status: WorkoutStatus; entries: DraftEntry[]; notes?: string; repeatWeeks?: number; revision?: number;
 };
 
 type Props = {
@@ -31,6 +32,8 @@ type Props = {
   date: string;
   copy?: boolean;
   draft?: WorkoutDraft;
+  mode?: 'session';
+  exercisesOnly?: boolean;
   catalog: Exercise[];
   suggested: string[];
   bookmarks: string[];
@@ -40,31 +43,36 @@ type Props = {
   onDraftChange?: (draft: WorkoutDraft) => void;
 };
 
-function makeEntry(exercise: Exercise): DraftEntry {
-  return { exerciseId: exercise.id, sets: '3', reps: exercise.unit === 'seconds' ? '30' : '10', load: '', unit: 'lb' };
+function makeEntry(exercise: Exercise, logSets: boolean): DraftEntry {
+  const base = { reps: exercise.unit === 'seconds' ? '30' : '10', load: '', unit: 'lb' as const };
+  return { exerciseId: exercise.id, sets: '3', ...base,
+    ...(logSets && { details: [{ ...base, id: createId(), reps: '' }] }) };
 }
 
 function draftSet({ reps, load }: ExerciseSet): DraftSet {
-  return { reps: String(reps), load: load ? String(load.value) : '', unit: load?.unit ?? 'lb' };
+  return { reps: reps === undefined ? '' : String(reps), load: load ? String(load.value) : '', unit: load?.unit ?? 'lb' };
 }
 
 function toSet({ reps, load, unit }: DraftSet): ExerciseSet {
-  return { reps: Number(reps), ...(load ? { load: { value: Number(load.replace(',', '.')), unit } } : {}) };
+  return { ...(reps && { reps: Number(reps) }), ...(load && { load: { value: Number(load.replace(',', '.')), unit } }) };
 }
 
 function wholeNumber(value: string, max: number) {
   return /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= max;
 }
 
-export function WorkoutEditor({ initial, preset, status, date, copy = false, catalog, suggested, bookmarks, draft, onClose, onSave, onDelete, onDraftChange }: Props) {
+export function WorkoutEditor({ initial, preset, status, date, copy = false, catalog, suggested, bookmarks, draft, mode, exercisesOnly = false, onClose, onSave, onDelete, onDraftChange }: Props) {
   const loggingPlan = status === 'completed' && initial?.status === 'planned';
   const editing = initial && !copy;
+  const sessionLog = mode === 'session';
+  const metadataOnly = sessionLog && !editing;
+  const recordName = mode ? 'session' : 'workout';
   const [id] = useState(() => editing ? initial.id : draft?.id ?? createId());
-  const [name, setName] = useState(draft?.name ?? initial?.name ?? (preset ? preset.name + ' workout' : ''));
+  const [name, setName] = useState(draft?.name ?? initial?.name ?? (preset ? preset.name + ' ' + recordName : ''));
   const [day, setDay] = useState(draft?.day ?? (loggingPlan || copy ? date : initial?.date ?? date));
   const [time, setTime] = useState(() => {
     const now = new Date();
-    return draft?.time ?? (loggingPlan || (!initial && status === 'completed' && date === dateKey(now))
+    return draft?.time ?? (loggingPlan || (!initial && (mode || status === 'completed') && date === dateKey(now))
       ? timeKey(now) : initial?.time ?? '17:00');
   });
   const [currentStatus, setStatus] = useState(draft?.status ?? status);
@@ -72,25 +80,35 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   const [repeatWeeks, setRepeatWeeks] = useState(draft?.repeatWeeks ?? 1);
   const [showOptions, setShowOptions] = useState(Boolean(draft?.notes || initial?.notes || (draft?.repeatWeeks ?? 1) > 1));
   const [entries, setEntries] = useState<DraftEntry[]>(() => {
-    const items = initial?.exercises.map(({ exerciseId, sets, reps, load, setDetails }) => ({
-      exerciseId, sets: String(sets), ...draftSet({ reps, load }),
-      details: setDetails?.map((set) => ({ id: createId(), ...draftSet(set) })),
-    })) ?? draft?.entries ?? [];
-    return preset && !items.some((item) => item.exerciseId === preset.id) ? [...items, makeEntry(preset)] : items;
+    const items = draft?.entries ?? initial?.exercises.map(({ exerciseId, sets, reps, load, setDetails }) => {
+      const planning = status === 'planned';
+      const fallback = catalog.find(({ id }) => id === exerciseId)?.unit === 'seconds' ? 30 : 10;
+      const base = draftSet({ reps: planning ? reps ?? fallback : reps, load });
+      const source = setDetails ?? (sessionLog ? Array.from({ length: sets }, () => ({ reps, load })) : undefined);
+      const details = source?.length
+        ? source.map((set) => ({ id: createId(), ...draftSet({ ...set, reps: planning ? set.reps ?? fallback : set.reps }) }))
+        : source && !planning ? [{ id: createId(), reps: '', load: '', unit: 'lb' as const }] : undefined;
+      return { exerciseId, sets: String(planning && !sets ? 3 : sets), ...base, details };
+    }) ?? [];
+    return !mode && preset && !items.some((item) => item.exerciseId === preset.id) ? [...items, makeEntry(preset, false)] : items;
   });
-  const [choice, setChoice] = useState('');
+  const [choice, setChoice] = useState(() => sessionLog && preset && !entries.some(({ exerciseId }) => exerciseId === preset.id) ? preset.id : '');
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
   const [error, setError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const narrow = useWindowDimensions().width < 500;
+  const width = useWindowDimensions().width;
+  const narrow = width < 500;
+  const sessionColumns = sessionLog && width >= 660;
   const available = catalog.filter((exercise) => !entries.some((entry) => entry.exerciseId === exercise.id));
   const rank = (id: string) => bookmarks.includes(id) ? 2 : Number(suggested.includes(id));
   const ranked = [...available].sort((a, b) => rank(b.id) - rank(a.id));
   const [startedEditing, markEdited] = useState(false);
   useEffect(() => {
-    if (startedEditing) onDraftChange?.({ id, name, day, time, status: currentStatus, entries, notes, repeatWeeks });
-  }, [startedEditing, onDraftChange, id, name, day, time, currentStatus, entries, notes, repeatWeeks]);
+    if (startedEditing) onDraftChange?.({
+      id, name, day, time, status: currentStatus, entries, notes, repeatWeeks, revision: initial?.revision,
+    });
+  }, [startedEditing, onDraftChange, id, name, day, time, currentStatus, entries, notes, repeatWeeks, initial?.revision]);
 
   function changeEntries(next: SetStateAction<DraftEntry[]>) {
     markEdited(true);
@@ -100,7 +118,7 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   function add() {
     const exercise = available.find((item) => item.id === choice);
     if (!exercise) return;
-    changeEntries((items) => items.some(({ exerciseId }) => exerciseId === exercise.id) ? items : [...items, makeEntry(exercise)]);
+    changeEntries((items) => items.some(({ exerciseId }) => exerciseId === exercise.id) ? items : [...items, makeEntry(exercise, sessionLog)]);
     setChoice('');
   }
 
@@ -142,76 +160,106 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   const close = () => { if (!saving.current) onClose(); };
 
   if (confirmDelete && editing) {
-    return <Sheet title="Delete workout?" detail={`“${initial.name}” will be removed from your schedule or history.`} onClose={close}>
+    return <Sheet title={`Delete ${recordName}?`} detail={sessionLog ? `“${initial.name}” will be removed from your session log and progress.`
+      : `“${initial.name}” will be removed from your schedule or history.`} onClose={close}>
       {error && <Notice error>{error}</Notice>}
       <View style={styles.actions}>
-        <Button onPress={() => { setError(''); setConfirmDelete(false); }} disabled={busy}>Keep workout</Button>
-        <Button kind="danger" icon={Trash2} disabled={busy} onPress={() => run(() => onDelete(initial.id, initial.revision))}>{busy ? 'Deleting…' : 'Delete workout'}</Button>
+        <Button onPress={() => { setError(''); setConfirmDelete(false); }} disabled={busy}>{`Keep ${recordName}`}</Button>
+        <Button kind="danger" icon={Trash2} disabled={busy} onPress={() => run(() => onDelete(initial.id, initial.revision))}>{busy ? 'Deleting…' : `Delete ${recordName}`}</Button>
       </View>
     </Sheet>;
   }
 
   const logging = currentStatus === 'completed';
-  const canRepeat = !editing && !logging;
+  const optionalSets = sessionLog || (logging && initial?.status === 'completed');
+  const canRepeat = !mode && !editing && !logging;
   const lastDay = canRepeat && repeatWeeks > 1 && isWorkoutDate(day) ? addDays(day, (repeatWeeks - 1) * 7) : '';
   const lastDayValid = !lastDay || isWorkoutDate(lastDay);
-  const title = copy ? 'Repeat workout' : editing ? (loggingPlan ? 'Log planned workout' : 'Edit workout')
+  const title = sessionLog ? metadataOnly ? 'New session' : exercisesOnly ? 'Session exercises' : 'Edit session'
+    : copy ? 'Repeat workout' : editing ? (loggingPlan ? 'Log planned workout' : 'Edit workout')
     : logging ? 'Log a workout' : 'Schedule a workout';
 
-  function submit() {
-    if (saving.current) return;
-    if (!name.trim() || !day || !time || !entries.length) {
-      setError('Enter a name, date, and time, then add at least one exercise.');
-      return;
+  function validMetadata() {
+    if (!name.trim()) {
+      setError(`Enter a ${recordName} name.`);
+      return false;
     }
     if (!isWorkoutDate(day) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) {
-      setError('Choose a valid date and time for your workout.');
+      setError(`Choose a valid date and time for your ${recordName}.`);
+      return false;
+    }
+    return true;
+  }
+
+  function metadata() {
+    return { id, name: name.trim(), date: day, time, notes: notes.trim(), revision: editing ? initial.revision : undefined };
+  }
+
+  function submit() {
+    if (saving.current || !validMetadata()) return;
+    if (metadataOnly) {
+      void run(() => onSave({ ...metadata(), status: 'completed', exercises: [] }, false, 1));
+      return;
+    }
+    if (!mode && !optionalSets && !entries.length) {
+      setError('Add at least one exercise.');
       return;
     }
     if (!lastDayValid) {
       setError('Choose a weekly schedule that ends by December 2199.');
       return;
     }
-    const details = entries.flatMap<DraftSet>((entry) => entry.details ?? [entry]);
-    if (entries.some((entry) => !entry.details && !wholeNumber(entry.sets, 30)) || details.some(({ reps }) => !wholeNumber(reps, 600))) {
+    if (entries.some((entry) => !entry.details && (!wholeNumber(entry.sets, 30) || !wholeNumber(entry.reps, 600)))) {
       setError('Use whole numbers between 1 and 30 for sets and between 1 and 600 for reps or seconds.');
       return;
     }
-    if (details.some(({ load }) => load && !validWeight(load))) {
-      setError('Enter a dumbbell weight from 0.01 to 1000 kg or lb, or leave it blank.');
+    if (entries.some(({ details }) => details?.some(({ reps }) => !(optionalSets && !reps) && !wholeNumber(reps, 600)))) {
+      setError(`Enter whole numbers from 1 to 600 for reps or seconds${optionalSets ? ', or leave the field blank' : ''}.`);
+      return;
+    }
+    const sets = entries.flatMap<DraftSet>((entry) => entry.details ?? [entry]);
+    if (sets.some(({ load }) => load && !validWeight(load))) {
+      setError('Enter a weight from 0.01 to 1000 kg or lb, or leave it blank.');
       return;
     }
     void run(() => onSave({
-      id, name: name.trim(), date: day, time, status: currentStatus, revision: editing ? initial.revision : undefined,
-      notes: notes.trim(),
+      ...metadata(), status: currentStatus,
       exercises: entries.map((entry): Movement => {
         if (!entry.details) return { exerciseId: entry.exerciseId, sets: Number(entry.sets), ...toSet(entry) };
-        const setDetails = entry.details.map(toSet);
+        const setDetails = (optionalSets ? entry.details.filter(({ reps, load }) => reps || load) : entry.details).map(toSet);
         return { exerciseId: entry.exerciseId, sets: setDetails.length, ...setDetails[0], setDetails };
       }),
     }, Boolean(editing), canRepeat ? repeatWeeks : 1));
   }
 
-  return <Sheet title={title} detail={logging ? 'Enter the sets and reps or hold times you completed.' : 'Choose when you’ll train and which exercises you’ll do.'} onClose={close}>
+  return <Sheet title={title} wide={sessionLog && !metadataOnly}
+    detail={exercisesOnly ? `“${name}” is saved in your session log. Add exercises now or come back later.`
+      : metadataOnly ? undefined
+      : sessionLog ? 'Reps and weight are optional for each set.'
+      : logging ? 'Enter the sets and reps or hold times you completed.' : 'Choose when you’ll train and which exercises you’ll do.'} onClose={close}>
     {editing && initial.example && <Notice>Saving adds this workout to your own schedule or history.</Notice>}
-    <View style={styles.basics}>
-      <Input label="Workout name" value={name} onChangeText={(value) => { markEdited(true); setName(value); }}
+    {!exercisesOnly && <View style={styles.basics}>
+      <Input label={mode ? 'Session name' : 'Workout name'} value={name} onChangeText={(value) => { markEdited(true); setName(value); }}
         placeholder="e.g. Upper Body Strength" maxLength={70} />
       <View style={styles.actions}>
         <DateTimeField label="Date" kind="date" value={day} min={earliestWorkoutDate} max={latestWorkoutDate} disabled={busy}
           onChange={(value) => { markEdited(true); setDay(value); }} />
         <DateTimeField label="Time" kind="time" value={time} disabled={busy} onChange={(value) => { markEdited(true); setTime(value); }} />
       </View>
-    </View>
-    <View style={styles.exerciseSection}>
+      {mode && <Input label="Session notes" value={notes} onChangeText={(value) => { markEdited(true); setNotes(value); }}
+        placeholder="Optional" maxLength={1200} multiline numberOfLines={3}
+        style={{ minHeight: 74, paddingVertical: 8, textAlignVertical: 'top' }} />}
+    </View>}
+    {!metadataOnly && <View style={styles.exerciseSection}>
       <SectionTitle title="Exercises" level={3} />
       {entries.map((entry, index) => {
         const exercise = catalog.find((item) => item.id === entry.exerciseId);
         const measurement = exercise?.unit === 'seconds' ? 'Seconds' : 'Reps';
         const exerciseName = exercise?.name ?? entry.exerciseId;
-        const weighted = exercise?.equipment.includes('Dumbbells');
+        const loadType = exercise?.loadType;
         const individual = entry.details;
-        return <View key={entry.exerciseId} style={[styles.entry, (narrow || individual) && { alignItems: 'stretch', flexDirection: 'column' }]}>
+        return <View key={entry.exerciseId} style={[styles.entry, (narrow || individual) && { alignItems: 'stretch', flexDirection: 'column' },
+          sessionLog && styles.sessionExercise]}>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
             <Copy size={13} weight="semibold" style={{ flexShrink: 1 }}>{exerciseName}</Copy>
             <View style={{ flexDirection: 'row', gap: 4 }}>
@@ -231,16 +279,16 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
               const change = (fields: Partial<DraftSet>) => update(entry.exerciseId, {
                 details: individual.map((item, position) => position === index ? { ...item, ...fields } : item),
               });
-              return <View key={set.id} style={styles.set}>
+              return <View key={set.id} style={[styles.set, sessionColumns && styles.sessionSet]}>
                 <View style={styles.setTitle}>
                   <Copy size={12} weight="semibold">{`Set ${index + 1}`}</Copy>
                   {individual.length > 1 && <IconButton icon={X} label={`Remove ${label}`}
                     onPress={() => update(entry.exerciseId, { details: individual.filter((_, position) => position !== index) })} />}
                 </View>
-                <View style={[styles.actions, { alignItems: 'flex-end' }]}>
+                <View style={[styles.actions, { alignItems: 'flex-end' }, sessionColumns && styles.sessionFields]}>
                   <Input label={`${measurement} · ${label}`} visibleLabel={measurement} value={set.reps}
-                    onChangeText={(reps) => change({ reps })} keyboardType="number-pad" maxLength={3} />
-                  {weighted && <WeightFields label={label} set={set} onChange={change} />}
+                    onChangeText={(reps) => change({ reps })} placeholder={optionalSets ? 'Optional' : undefined} keyboardType="number-pad" maxLength={3} />
+                  {loadType && <WeightFields label={label} perDumbbell={loadType === 'per-dumbbell'} set={set} onChange={change} />}
                 </View>
               </View>;
             })}
@@ -258,8 +306,8 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
             </View>
             {!narrow && <IconButton icon={X} label={`Remove ${exerciseName}`}
               onPress={() => changeEntries((items) => items.filter((item) => item.exerciseId !== entry.exerciseId))} />}
-            {weighted && <View style={[styles.actions, { flexBasis: narrow ? 'auto' : '100%', alignItems: 'flex-end' }]}>
-              <WeightFields label={exerciseName} set={entry} onChange={(fields) => update(entry.exerciseId, fields)} />
+            {loadType && <View style={[styles.actions, { flexBasis: narrow ? 'auto' : '100%', alignItems: 'flex-end' }]}>
+              <WeightFields label={exerciseName} perDumbbell={loadType === 'per-dumbbell'} set={entry} onChange={(fields) => update(entry.exerciseId, fields)} />
             </View>}
             <Button kind="quiet" compact icon={List} accessibilityLabel={`${logging ? 'Log each set' : 'Plan each set'} · ${exerciseName}`}
               onPress={() => showDetails(entry)}>{logging ? 'Log each set' : 'Plan each set'}</Button>
@@ -268,15 +316,15 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
       })}
       {available.length > 0 && <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 7 }}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <SelectField label="Choose an exercise" value={choice} onChange={setChoice} placeholder="Select an exercise"
-            options={ranked.map((exercise) => ({ value: exercise.id,
-              label: exercise.name + (bookmarks.includes(exercise.id) ? ' · Saved' : suggested.includes(exercise.id) ? ' · Recent' : '') }))} />
+          <ExercisePicker label="Choose an exercise" value={choice} onChange={setChoice} disabled={busy}
+            options={ranked.map((exercise) => ({ value: exercise.id, label: exercise.name,
+              detail: bookmarks.includes(exercise.id) ? 'Saved' : suggested.includes(exercise.id) ? 'Recent' : undefined }))} />
         </View>
         <Button icon={Plus} disabled={!choice} style={{ alignSelf: 'flex-end', minHeight: 43 }} onPress={add}>Add</Button>
       </View>}
-    </View>
+    </View>}
     {loggingPlan && logging && <RestTimer />}
-    <View style={styles.options}>
+    {!mode && <View style={styles.options}>
       <Button kind="quiet" compact end={showOptions ? ChevronUp : ChevronDown} aria-expanded={showOptions}
         onPress={() => setShowOptions((value) => !value)}>Workout options</Button>
       {showOptions && <View style={styles.optionFields}>
@@ -298,13 +346,17 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
           maxLength={1200} multiline numberOfLines={3} style={{ minHeight: 74, paddingVertical: 8, textAlignVertical: 'top' }} />
       </View>}
       {lastDay && lastDayValid && <Copy size={12} tone={color.muted}>{`Last session · ${formatDay(lastDay)}`}</Copy>}
-    </View>
+    </View>}
     {error && <Notice error>{error}</Notice>}
     <View style={[styles.actions, styles.footer]}>
-      <Button icon={Check} kind="primary" disabled={busy} onPress={submit}>
-        {busy ? 'Saving…' : logging ? 'Save workout log' : canRepeat && repeatWeeks > 1 ? `Schedule ${repeatWeeks} workouts` : 'Save workout'}
+      <Button icon={metadataOnly ? undefined : Check} end={metadataOnly ? ArrowRight : undefined}
+        kind="primary" disabled={busy} onPress={submit}>
+        {busy ? 'Saving…' : metadataOnly ? 'Save and continue' : exercisesOnly ? 'Save exercises' : mode ? 'Save session'
+          : logging ? 'Save workout log' : canRepeat && repeatWeeks > 1 ? `Schedule ${repeatWeeks} workouts` : 'Save workout'}
       </Button>
-      {editing && <Button icon={Trash2} kind="quiet" disabled={busy} onPress={() => { setError(''); setConfirmDelete(true); }}>Delete workout</Button>}
+      {exercisesOnly && <Button kind="quiet" disabled={busy} onPress={close}>Add later</Button>}
+      {editing && !exercisesOnly && <Button icon={Trash2} kind="quiet" disabled={busy}
+        onPress={() => { setError(''); setConfirmDelete(true); }}>{`Delete ${recordName}`}</Button>}
     </View>
   </Sheet>;
 }
@@ -318,6 +370,9 @@ const styles = StyleSheet.create({
   optionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 14 },
   footer: { justifyContent: 'space-between', paddingTop: 12, borderTopWidth: 1, borderColor: color.line },
   entry: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, backgroundColor: color.canvas, borderRadius: 8, padding: 8 },
+  sessionExercise: { flexWrap: 'nowrap', padding: 13 },
   set: { gap: 5, borderTopWidth: 1, borderColor: color.line, paddingVertical: 7 },
-  setTitle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sessionSet: { flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
+  sessionFields: { flex: 1, minWidth: 0, maxWidth: 620 },
+  setTitle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, minHeight: 36 },
 });

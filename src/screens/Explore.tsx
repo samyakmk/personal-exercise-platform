@@ -9,14 +9,16 @@ import { Sheet } from '../components/Sheet';
 import { Button, Chip, Copy, Empty, IconButton, Input, Loading, Notice, PageTitle, Panel, ViewTab } from '../components/ui';
 import { SelectField } from '../platform/fields';
 import { color } from '../theme';
-import type { EquipmentMode, Exercise, Recommendation } from '../types';
+import type { EquipmentMode, Exercise, ExerciseFilters, Recommendation } from '../types';
 import { useWorkspace } from '../workspace';
+
+const pageSize = 30;
 
 export function Explore() {
   const { data, mutate, recommendationContext, announce } = useWorkspace();
   const router = useRouter();
-  const { exercise: requested, muscles, equipment, level: difficulty, saved: savedFilter } = useLocalSearchParams<{
-    exercise?: string; muscles?: string; equipment?: string; level?: string; saved?: string;
+  const { exercise: requested, muscles, equipment, level: difficulty, saved: savedFilter, category: categoryParam, video } = useLocalSearchParams<{
+    exercise?: string; muscles?: string; equipment?: string; level?: string; saved?: string; category?: string; video?: string;
   }>();
   const muscleOptions = data?.muscles;
   const targets = useMemo(() => {
@@ -27,16 +29,24 @@ export function Explore() {
   const preferredMode = data?.equipment == null ? 'all' : data.equipment.length ? 'saved' : 'bodyweight';
   const mode = modeOverride === 'saved' && preferredMode !== 'saved' ? preferredMode : modeOverride ?? preferredMode;
   const [search, setSearch] = useState('');
-  const level = difficulty === 'Beginner' || difficulty === 'Intermediate' ? difficulty : null;
+  const level = difficulty === 'Beginner' || difficulty === 'Intermediate' || difficulty === 'Advanced' ? difficulty : null;
+  const category = categoryParam && data?.exerciseCategories?.includes(categoryParam) ? categoryParam : null;
+  const withVideo = video === '1';
+  const filters = useMemo<ExerciseFilters>(() => ({ targets, mode, query: search, level, category, withVideo }),
+    [targets, mode, search, level, category, withVideo]);
   const savedOnly = savedFilter === '1';
   const [result, setResult] = useState<{ key: string; items: Exercise[] } | null>(null);
   const [coaching, setCoaching] = useState<{ key: string; pending?: boolean; error?: string; picks?: Recommendation[]; retryAt?: number } | null>(null);
   const coachingRequest = useRef<AbortController | null>(null);
   const equipmentKey = JSON.stringify(data?.equipment);
-  const selectionKey = JSON.stringify([targets, mode, search, level, equipmentKey]);
+  const selectionKey = JSON.stringify([filters, equipmentKey]);
   const coachingKey = JSON.stringify([selectionKey, recommendationContext]);
   const saved = data?.bookmarks ?? [];
   const results = result?.key === selectionKey ? result.items.filter(({ id }) => !savedOnly || saved.includes(id)) : null;
+  const resultKey = JSON.stringify([selectionKey, savedOnly]);
+  const [shown, setShown] = useState({ key: '', count: pageSize });
+  const showCount = shown.key === resultKey ? shown.count : pageSize;
+  const visibleResults = results?.slice(0, showCount) ?? [];
   const currentCoaching = coaching?.key === coachingKey ? coaching : null;
   const hasPicks = Boolean(currentCoaching?.picks?.length);
   const retryAt = currentCoaching?.retryAt;
@@ -55,14 +65,14 @@ export function Explore() {
     const controller = new AbortController();
     setError('');
     const timer = setTimeout(() => {
-      api.exercises(targets, mode, search, level, controller.signal).then((items) => {
+      api.exercises(filters, controller.signal).then((items) => {
         if (!controller.signal.aborted) setResult({ key: selectionKey, items });
       }, (failure: Error) => {
         if (!controller.signal.aborted) setError(failure.message);
       });
     }, search ? 140 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [workspaceReady, targets, mode, search, level, selectionKey, retry]);
+  }, [workspaceReady, filters, search, selectionKey, retry]);
 
   useEffect(() => {
     setCoaching(null);
@@ -91,7 +101,7 @@ export function Explore() {
     coachingRequest.current = controller;
     setCoaching({ key: coachingKey, pending: true });
     try {
-      const picks = await api.recommendations(targets, mode, search, level, controller.signal);
+      const picks = await api.recommendations(filters, controller.signal);
       if (!controller.signal.aborted) setCoaching({ key: coachingKey, picks });
     } catch (failure) {
       if (!controller.signal.aborted) {
@@ -112,7 +122,8 @@ export function Explore() {
 
   function reset() {
     setSearch('');
-    router.setParams({ muscles: undefined, equipment: preferredMode === 'all' ? undefined : 'all', level: undefined });
+    router.setParams({ muscles: undefined, equipment: preferredMode === 'all' ? undefined : 'all',
+      level: undefined, category: undefined, video: undefined });
   }
 
   function toggleTarget(muscle: string) {
@@ -122,8 +133,8 @@ export function Explore() {
 
   const showAllExercises = () => router.setParams({ saved: undefined });
 
-  const filtered = Boolean(search.trim() || targets.length || mode !== 'all' || level);
-  const filterCount = Number(mode !== 'all') + Number(Boolean(level));
+  const filterCount = Number(mode !== 'all') + Number(Boolean(level)) + Number(Boolean(category)) + Number(withVideo);
+  const filtered = Boolean(search.trim() || targets.length || filterCount);
 
   return <View style={styles.page}>
     <PageTitle title="Exercise library" summary="Find a movement that fits your training and equipment." />
@@ -161,8 +172,13 @@ export function Explore() {
           </View>
           <View style={{ minWidth: 145 }}>
             <SelectField label="Difficulty" value={level ?? ''} onChange={(value) => router.setParams({ level: value || undefined })}
-              options={[{ label: 'Any level', value: '' }, { label: 'Beginner', value: 'Beginner' }, { label: 'Intermediate', value: 'Intermediate' }]} />
+              options={[{ label: 'Any level', value: '' }, { label: 'Beginner', value: 'Beginner' }, { label: 'Intermediate', value: 'Intermediate' }, { label: 'Advanced', value: 'Advanced' }]} />
           </View>
+          {!!data.exerciseCategories?.length && <View style={{ minWidth: 145 }}>
+            <SelectField label="Exercise type" value={category ?? ''} onChange={(value) => router.setParams({ category: value || undefined })}
+              options={[{ label: 'Any type', value: '' }, ...data.exerciseCategories.map((value) => ({ label: value, value }))]} />
+          </View>}
+          <Chip label="Has video" selected={withVideo} onPress={() => router.setParams({ video: withVideo ? undefined : '1' })} />
         </View>
       </Panel>}
 
@@ -199,7 +215,7 @@ export function Explore() {
     {error ? <Notice error action={<Button compact onPress={() => setRetry((value) => value + 1)}>Retry</Button>}>{error}</Notice>
       : results === null ? <Loading label="Finding exercises…" />
       : results.length === 0 ? <Empty icon={SearchX} title={savedOnly && !saved.length ? 'No saved exercises yet' : 'No matching exercises'}
-        message={savedOnly && !saved.length ? 'Open a demonstration and save the exercises you want to practice again.' : 'Try a different muscle group, equipment filter, or search.'}
+        message={savedOnly && !saved.length ? 'Save the exercises you want to practice again.' : 'Try a different muscle group, equipment filter, or search.'}
         action={savedOnly && !saved.length ? <Button compact onPress={showAllExercises}>Browse exercises</Button>
           : <Button compact onPress={reset}>Clear filters</Button>} />
       : <View style={{ gap: 10 }}>
@@ -208,12 +224,15 @@ export function Explore() {
           {filtered && <Button compact kind="quiet" onPress={reset}>Clear filters</Button>}
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-          {results.map((exercise) => <View key={exercise.id} style={{ flexBasis: cardBasis, flexGrow: 1, minWidth: 0 }}>
+          {visibleResults.map((exercise) => <View key={exercise.id} style={{ flexBasis: cardBasis, flexGrow: 1, minWidth: 0 }}>
             <ExerciseCard exercise={exercise} saved={saved.includes(exercise.id)} onPress={() => openExercise(exercise)} />
           </View>)}
-          {Array.from({ length: (columns - results.length % columns) % columns }, (_, index) =>
+          {Array.from({ length: (columns - visibleResults.length % columns) % columns }, (_, index) =>
             <View key={`space-${index}`} aria-hidden style={{ flexBasis: cardBasis, flexGrow: 1, minWidth: 0 }} />)}
         </View>
+        {results.length > showCount && <Button compact onPress={() => setShown({ key: resultKey, count: showCount + pageSize })}>
+          Show more exercises
+        </Button>}
       </View>}
 
     <Link href="/photo-credits" style={{ alignSelf: 'flex-start' }}>

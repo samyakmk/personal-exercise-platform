@@ -12,7 +12,7 @@ const types = {
   '.png': 'image/png', '.ttf': 'font/ttf', '.mp4': 'video/mp4', '.ico': 'image/x-icon',
 };
 const compressible = new Set(['.html', '.js', '.css', '.json']);
-const spaPaths = new Set(['/', '/explore', '/workouts', '/progress', '/form-review', '/photo-credits']);
+const spaPaths = new Set(['/', '/explore', '/workouts', '/sessions', '/progress', '/form-review', '/photo-credits']);
 const fingerprint = /(?:[.-])[\da-f]{32}\.[a-z]+$/i;
 const brotli = promisify(brotliCompress);
 const zipped = promisify(gzip);
@@ -28,10 +28,10 @@ const browserPolicy = [
   "form-action 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  "img-src 'self' data: blob: https://i.ytimg.com https://i.vimeocdn.com",
   "font-src 'self' data:",
   "media-src 'self' blob:",
-  'frame-src https://www.youtube-nocookie.com',
+  'frame-src https://www.youtube-nocookie.com https://player.vimeo.com',
   "connect-src 'self'",
 ].join('; ');
 

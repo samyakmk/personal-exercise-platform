@@ -7,9 +7,9 @@ import { AiError } from './ai.mjs';
 
 const run = promisify(execFile);
 
-export async function convertQuickTime(bytes, { limit, signal, binary = process.env.REPFORM_FFMPEG || 'ffmpeg' }) {
+export async function convertQuickTime(bytes, { limit, signal, binary = process.env.LIFTMORROW_FFMPEG || 'ffmpeg' }) {
   signal?.throwIfAborted();
-  const directory = await mkdtemp(join(tmpdir(), 'repform-quicktime-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-quicktime-'));
   const input = join(directory, 'clip.mov');
   const output = join(directory, 'clip.mp4');
   try {

@@ -3,15 +3,15 @@ import { useEffect, useState } from 'react';
 import { Image, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { ArrowRight, ArrowUpRight, CalendarDays, Check, ChevronDown, ChevronRight, Dumbbell, Play, Plus, ScanLine } from 'lucide-react-native';
 import { exercisePhotos, hero } from '../assets';
+import { useActiveSession } from '../activeSession';
 import { api } from '../api';
 import { addDays, compareWorkoutTime, formatDay, formatTime, workoutDay, workoutTime } from '../dates';
 import { ExerciseSheet } from '../components/ExerciseSheet';
 import { Button, Copy, Display, Notice, Panel, SectionTitle, Tag } from '../components/ui';
 import { useTrainingNavigation } from '../navigation';
-import { readTrainingSession } from '../platform/trainingSession';
 import { color } from '../theme';
-import { completedWorkouts, isSavedTrainingLog, movementSummary } from '../trainingProgress';
-import type { Exercise, TrainingSession } from '../types';
+import { completedWorkouts, movementSummary } from '../trainingProgress';
+import type { Exercise } from '../types';
 import { useLocalClock } from '../useLocalClock';
 import { useWorkspace } from '../workspace';
 
@@ -27,16 +27,13 @@ export function Overview() {
   const [details, setDetails] = useState<string | null>(null);
   const [loadingExamples, setLoadingExamples] = useState(false);
   const [exampleError, setExampleError] = useState('');
-  const [session, setSession] = useState<TrainingSession | null>(null);
-  const workspaceKey = data?.workspaceKey;
-  useEffect(() => { setSession(workspaceKey ? readTrainingSession(workspaceKey) : null); }, [workspaceKey]);
+  const { session: paused } = useActiveSession();
   if (!data) return null;
 
   const current = workoutTime(now);
   const today = current.date;
   const next = data.workouts.find((item) => item.status === 'planned' && compareWorkoutTime(item, current) >= 0);
   const overdue = data.workouts.filter((item) => item.status === 'planned' && compareWorkoutTime(item, current) < 0).length;
-  const paused = session && !data.workouts.some((workout) => isSavedTrainingLog(session, workout)) ? session : null;
   const plan = paused?.plan ?? next;
   const movements = plan?.exercises.flatMap((movement) => {
     const exercise = data.catalog.find(({ id }) => id === movement.exerciseId);
@@ -79,7 +76,7 @@ export function Overview() {
         <View style={styles.feature}>
           {showPhoto && <>
             <Image aria-hidden source={hero} resizeMode="cover" style={styles.photo} />
-            {Platform.OS === 'web' && <div aria-hidden className="repform-feature-shade" />}
+            {Platform.OS === 'web' && <div aria-hidden className="liftmorrow-feature-shade" />}
           </>}
           <View style={[styles.featureBody, showPhoto && { width: '64%' }]}>
             <View style={styles.eyebrow}>
@@ -94,7 +91,7 @@ export function Overview() {
               : 'Choose exercises and set a time to train.'}</Copy>
             {plan?.example && <Tag style={{ backgroundColor: color.inkHover }} tone={color.onInk}>Sample workout</Tag>}
             <View style={styles.featureActions}>
-              {paused ? <Button kind="primary" icon={Play} onPress={() => training.open({ type: 'resume' })}>Resume session</Button>
+              {paused ? <Button kind="primary" icon={Play} onPress={() => training.open({ type: paused.adHoc ? 'resume-session' : 'resume' })}>Resume session</Button>
                 : next ? <Button kind="primary" icon={Play} onPress={() => training.open({ type: 'train', workoutId: next.id })}>Start session</Button>
                   : <Button kind="primary" icon={Plus} onPress={() => training.open({ type: 'schedule' })}>Schedule a workout</Button>}
             </View>
@@ -105,8 +102,9 @@ export function Overview() {
           {plan && <Button kind="quiet" compact end={ChevronDown} aria-expanded={open} onPress={() => setDetails(open ? null : detailKey)}>
             {open ? 'Hide workout details' : 'Workout details'}
           </Button>}
-          {!plan && <Button kind="quiet" compact icon={Check} onPress={() => training.open({ type: 'log' })}>Log a workout</Button>}
+          {!plan && <Button kind="quiet" compact icon={Check} onPress={() => training.open({ type: 'new-session' })}>New session</Button>}
           <Button kind="quiet" compact end={ArrowRight} onPress={() => router.push('/workouts')}>View schedule</Button>
+          <Button kind="quiet" compact end={ArrowRight} onPress={() => router.push('/sessions')}>View sessions</Button>
         </View>
         {plan && open && <View style={styles.details}>
           {movements.map(({ exercise, movement }) => <Pressable key={exercise.id} accessibilityRole="button"

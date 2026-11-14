@@ -10,6 +10,8 @@ type Intent =
   | { type: 'train'; workoutId: string }
   | { type: 'resume' }
   | { type: 'add'; exerciseId: string }
+  | { type: 'resume-session' }
+  | { type: 'new-session'; exerciseId?: string }
   | { type: 'review'; exerciseId: string };
 
 const Context = createContext<{
@@ -25,7 +27,8 @@ export function TrainingNavigation({ children }: { children: ReactNode }) {
     intent,
     open(next) {
       setIntent(next);
-      router.navigate(next.type === 'review' ? '/form-review' : '/workouts');
+      router.navigate(next.type === 'review' ? '/form-review'
+        : next.type === 'resume-session' || next.type === 'new-session' ? '/sessions' : '/workouts');
     },
     clear: () => setIntent(null),
   }}>{children}</Context.Provider>;

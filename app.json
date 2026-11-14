@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Repform",
-    "slug": "repform",
-    "scheme": "repform",
+    "name": "Liftmorrow",
+    "slug": "liftmorrow",
+    "scheme": "liftmorrow",
     "platforms": ["web", "ios", "android"],
     "plugins": ["expo-router", "expo-document-picker"],
     "userInterfaceStyle": "light",

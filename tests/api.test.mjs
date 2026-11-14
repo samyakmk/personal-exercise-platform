@@ -8,10 +8,10 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { AiError, createOpenAi } from '../server/ai.mjs';
-import { createRepformServer } from '../server/index.mjs';
+import { createLiftmorrowServer } from '../server/index.mjs';
 
 async function start(t, options = {}) {
-  const server = createRepformServer({ database: ':memory:', respond: null, ...options });
+  const server = createLiftmorrowServer({ database: ':memory:', respond: null, ...options });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((done) => server.close(done)));
@@ -39,25 +39,71 @@ function payload(method, body) {
 test('filters require all exercise equipment, match multiple muscles, and persist preferences', async (t) => {
   const { session } = await start(t);
   const browser = await session();
-  assert.equal(browser.data.catalog.length, 15);
+  assert.equal(browser.data.catalog.length, 880);
+  assert.equal(new Set(browser.data.catalog.map(({ id }) => id)).size, browser.data.catalog.length);
+  assert.ok(browser.data.catalog.every(({ primaryMuscles, category, cues }) =>
+    primaryMuscles.length > 0 && browser.data.exerciseCategories.includes(category) && cues.length > 0));
   assert.equal(browser.data.aiAvailable, false);
   assert.equal((await browser.call('exercises/recommendations?equipment=all', { method: 'POST' })).status, 503);
   assert.equal(browser.data.workouts.length, 0);
-  assert.ok(browser.data.catalog.every((exercise) => exercise.demonstration.videoId.length === 11));
   assert.equal((await browser.call('equipment', payload('PUT', { selected: ['Dumbbells'] }))).status, 200);
   const results = await (await browser.call('exercises?equipment=saved&muscle=Legs&muscle=Chest')).json();
-  assert.deepEqual(new Set(results.map((entry) => entry.id)), new Set(['goblet-squat', 'push-up', 'reverse-lunge', 'bodyweight-squat', 'glute-bridge', 'dumbbell-rdl']));
-  assert.deepEqual((await (await browser.call('exercises?equipment=bodyweight&muscle=Back')).json()).map(({ id }) => id), ['bird-dog']);
-  assert.deepEqual((await (await browser.call('exercises?equipment=all&muscle=Chest&level=Beginner&q=incline')).json()).map(({ id }) => id), ['incline-push-up']);
-  const search = await (await browser.call('exercises?equipment=all&q=shoulders%20dumbbell%20press')).json();
-  assert.deepEqual(search.map(({ id }) => id), ['dumbbell-bench-press', 'dumbbell-shoulder-press']);
-  assert.deepEqual((await (await browser.call('exercises?equipment=all&level=Intermediate')).json()).map(({ id }) => id), ['push-up', 'pull-up']);
+  assert.ok(results.some(({ id }) => id === 'goblet-squat'));
+  assert.ok(results.some(({ id }) => id === 'fedb-dumbbell-lunges'));
+  assert.ok(results.every(({ muscles, equipment }) => muscles.some((muscle) => ['Legs', 'Chest'].includes(muscle))
+    && equipment.every((item) => item === 'Dumbbells')));
+  for (const id of ['dumbbell-bench-press', 'fedb-barbell-squat', 'fedb-dumbbell-bench-press-with-neutral-grip']) {
+    assert.ok(!results.some((exercise) => exercise.id === id));
+  }
+  const bodyweightBack = await (await browser.call('exercises?equipment=bodyweight&muscle=Back')).json();
+  assert.ok(bodyweightBack.some(({ id }) => id === 'bird-dog'));
+  assert.ok(bodyweightBack.every(({ equipment }) => equipment.length === 0));
+  const incline = await (await browser.call('exercises?equipment=all&muscle=Chest&level=Beginner&q=incline')).json();
+  assert.ok(incline.some(({ id }) => id === 'incline-push-up'));
+  assert.ok(incline.every(({ muscles, level }) => muscles.includes('Chest') && level === 'Beginner'));
+  const shoulderPress = await (await browser.call('exercises?equipment=all&q=shoulders%20dumbbell%20press')).json();
+  for (const id of ['dumbbell-bench-press', 'dumbbell-shoulder-press', 'fedb-dumbbell-shoulder-press']) {
+    assert.ok(shoulderPress.some((exercise) => exercise.id === id));
+  }
+  const advanced = await (await browser.call('exercises?equipment=all&level=Advanced')).json();
+  assert.ok(advanced.some(({ id }) => id === 'fedb-handstand-push-ups'));
+  assert.ok(advanced.every(({ level }) => level === 'Advanced'));
   assert.equal((await browser.call('equipment', payload('PUT', { selected: ['Pull-up bar'] }))).status, 200);
-  assert.deepEqual((await (await browser.call('exercises?equipment=saved&muscle=Back')).json()).map(({ id }) => id), ['pull-up', 'bird-dog']);
+  const withBar = await (await browser.call('exercises?equipment=saved&muscle=Back')).json();
+  assert.ok(withBar.some(({ id }) => id === 'fedb-chin-up'));
+  assert.ok(withBar.some(({ id }) => id === 'pull-up'));
+  assert.ok(!bodyweightBack.some(({ id }) => id === 'fedb-chin-up'));
   assert.equal((await browser.call('equipment', payload('PUT', { selected: ['Dumbbells'] }))).status, 200);
   assert.equal((await browser.call('exercises?equipment=all&level=unknown')).status, 400);
   assert.deepEqual((await (await browser.call('workspace')).json()).equipment, ['Dumbbells']);
   assert.equal((await browser.call('exercises?equipment=all&muscle=Unknown')).status, 400);
+});
+
+test('exercise types, detailed muscles, and demonstration availability can be searched together', async (t) => {
+  const { session } = await start(t);
+  const browser = await session();
+  const videos = browser.data.catalog.filter(({ demonstration }) => demonstration);
+  assert.ok(videos.length >= 650 && videos.length < browser.data.catalog.length);
+  assert.equal(new Set(videos.map(({ demonstration }) => demonstration.videoId)).size, videos.length);
+  for (const { id, demonstration } of videos) {
+    if (demonstration.provider === 'vimeo') {
+      assert.match(demonstration.videoId, /^\d+$/);
+      assert.equal(new URL(demonstration.thumbnailUrl).hostname, 'i.vimeocdn.com');
+    } else {
+      assert.match(demonstration.videoId, /^[\w-]{11}$/);
+    }
+    if (id.startsWith('fedb-')) {
+      assert.equal(new URL(demonstration.source).protocol, 'https:');
+      assert.ok(demonstration.creator);
+    }
+  }
+  const matches = await (await browser.call('exercises?equipment=all&category=Strength&video=1&q=quadriceps')).json();
+  assert.ok(matches.some(({ id }) => id === 'fedb-barbell-squat'));
+  assert.ok(matches.every(({ category, demonstration }) => category === 'Strength' && demonstration));
+  const stretches = await (await browser.call('exercises?equipment=all&category=Stretching')).json();
+  assert.ok(stretches.some(({ id, demonstration }) => id === 'fedb-all-fours-quad-stretch' && !demonstration));
+  assert.equal((await browser.call('exercises?equipment=all&category=unknown')).status, 400);
+  assert.equal((await browser.call('exercises?equipment=all&video=true')).status, 400);
 });
 
 test('workouts validate, create idempotently, convert to completed, and delete within their workspace', async (t) => {
@@ -116,7 +162,7 @@ test('examples are opt-in, idempotent, and removable without deleting a saved wo
 });
 
 test('workout edit receipts survive parallel retries, later edits, and deletion', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-edit-receipt-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-edit-receipt-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const database = join(directory, 'workspace.sqlite');
   const first = await start(t, { database });
@@ -279,7 +325,7 @@ test('training backups restore only missing personal workouts and preserve saved
   await uploadFixture(source, randomUUID(), 'push-up');
   const response = await source.call(path);
   assert.equal(response.status, 200);
-  assert.match(response.headers.get('content-disposition'), /repform-training-backup.json/);
+  assert.match(response.headers.get('content-disposition'), /liftmorrow-training-backup.json/);
   const backup = await response.json();
   assert.deepEqual(Object.keys(backup), ['format', 'version', 'equipment', 'bookmarks', 'workouts']);
   assert.deepEqual(backup.bookmarks, ['push-up']);
@@ -315,7 +361,6 @@ test('per-set workout data persists and exports all actual reps and weights', as
   const exerciseId = 'dumbbell-curl';
   const setDetails = [{ reps: 12, load: { value: 20, unit: 'lb' } }, { reps: 9, load: { value: 12.5, unit: 'kg' } }];
   const save = (exercise) => owner.call('workouts', payload('POST', { ...workout, exercises: [exercise] }));
-  assert.equal((await save({ exerciseId, setDetails: [] })).status, 400);
   assert.equal((await save({ exerciseId, setDetails: [...setDetails, { reps: 0 }] })).status, 400);
   assert.equal((await save({ exerciseId: 'push-up', setDetails })).status, 400);
   assert.equal((await save({ exerciseId, sets: 99, reps: 2, setDetails })).status, 200);
@@ -329,6 +374,38 @@ test('per-set workout data persists and exports all actual reps and weights', as
   assert.equal((await legacyEdit.json()).workouts[0].notes, notes);
   const cleared = await owner.call('workouts/' + id, payload('PUT', { ...workout, notes: '', exercises: [saved] }));
   assert.equal((await cleared.json()).workouts[0].notes, undefined);
+});
+
+test('completed sessions can save metadata, add exercises without sets, and export optional measurements', async (t) => {
+  const { session } = await start(t);
+  const owner = await session();
+  const destination = await session();
+  const workout = { id: randomUUID(), name: 'Morning session', date: '2026-11-12', time: '08:30', status: 'completed', exercises: [] };
+  assert.equal((await owner.call('workouts', payload('POST', workout))).status, 200);
+  assert.equal((await owner.call('workouts', payload('POST', workout))).status, 200);
+  assert.match(await (await owner.call('workouts/history.csv')).text(), /2026-11-12,08:30,Morning session,,,,,,,,\r\n/);
+
+  const setDetails = [{ load: { value: 20, unit: 'lb' } }, { reps: 12 }];
+  const exercises = [{ exerciseId: 'dumbbell-bench-press', setDetails }, { exerciseId: 'forearm-plank', setDetails: [] }];
+  const update = (changed) => owner.call('workouts/' + workout.id, payload('PUT', { ...workout, exercises, revision: 1, ...changed }));
+  assert.equal((await update({ status: 'planned' })).status, 400);
+  assert.equal((await update({ exercises: [{ exerciseId: 'dumbbell-bench-press', setDetails: [{}] }] })).status, 400);
+  const saved = await update({});
+  assert.equal(saved.status, 200);
+  const { workouts } = await saved.json();
+  assert.deepEqual(workouts[0].exercises, [
+    { exerciseId: 'dumbbell-bench-press', sets: 2, load: { value: 20, unit: 'lb' }, setDetails },
+    { exerciseId: 'forearm-plank', sets: 0, setDetails: [] },
+  ]);
+  assert.equal((await update({})).status, 409);
+  const csv = await (await owner.call('workouts/history.csv')).text();
+  assert.match(csv, /Dumbbell Bench Press,1,,reps,20,lb,1,/);
+  assert.match(csv, /Dumbbell Bench Press,1,12,reps,,,2,/);
+  const path = 'workspace/training-backup';
+  const backup = await (await owner.call(path)).json();
+  const imported = await destination.call(path, payload('POST', backup));
+  assert.equal(imported.status, 200);
+  assert.deepEqual((await imported.json()).workouts[0].exercises, workouts[0].exercises);
 });
 
 test('calendar and history exports contain only the requested private personal records', async (t) => {
@@ -347,11 +424,11 @@ test('calendar and history exports contain only the requested private personal r
   for (const workout of [planned, done]) assert.equal((await owner.call('workouts', payload('POST', workout))).status, 200);
   const calendar = await owner.call('workouts/calendar.ics');
   assert.equal(calendar.headers.get('cache-control'), 'private, no-store');
-  assert.match(calendar.headers.get('content-disposition'), /repform-calendar\.ics/);
+  assert.match(calendar.headers.get('content-disposition'), /liftmorrow-calendar\.ics/);
   const body = await calendar.text();
   assert.ok(body.split('\r\n').every((line) => Buffer.byteLength(line) <= 75));
   const unfolded = body.replace(/\r\n /g, '');
-  assert.ok(unfolded.includes(`UID:${planned.id}@repform.local\r\n`));
+  assert.ok(unfolded.includes(`UID:${planned.id}@liftmorrow.local\r\n`));
   assert.match(unfolded, /DTSTART:20261115T181500\r\n/);
   assert.ok(unfolded.includes('SUMMARY:Plan\\, back \\\\ core\\; ' + '🟩'.repeat(20)));
   assert.match(unfolded, /DESCRIPTION:Dead Bug · 3 × 10 reps/);
@@ -390,11 +467,11 @@ test('workout exports preserve byte format and date, time, and ID ordering', asy
     assert.equal((await owner.call('workouts', payload('POST', workout))).status, 200);
   }
   const calendar = await (await owner.call('workouts/calendar.ics')).text();
-  assert.deepEqual([...calendar.matchAll(/^UID:(.+)@repform\.local\r$/gm)].map(([, id]) => id), planned.map(({ id }) => id));
+  assert.deepEqual([...calendar.matchAll(/^UID:(.+)@liftmorrow\.local\r$/gm)].map(([, id]) => id), planned.map(({ id }) => id));
   const single = (await (await owner.call('workouts/calendar.ics?workout=' + planned[2].id)).text())
     .replace(/DTSTAMP:[^\r\n]+/g, 'DTSTAMP:fixed');
   const event = calendar.split('BEGIN:VEVENT\r\n')[3].split('END:VEVENT\r\n')[0].replace(/DTSTAMP:[^\r\n]+/g, 'DTSTAMP:fixed');
-  assert.equal(single, 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Repform//Workouts//EN\r\nBEGIN:VEVENT\r\n'
+  assert.equal(single, 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Liftmorrow//Workouts//EN\r\nBEGIN:VEVENT\r\n'
     + event + 'END:VEVENT\r\nEND:VCALENDAR\r\n');
   const csv = await (await owner.call('workouts/history.csv')).arrayBuffer();
   const header = '\uFEFFDate,Time,Workout,Exercise,Sets,Reps or seconds,Measurement,Weight per dumbbell,Weight unit,Set number,Workout notes';
@@ -483,7 +560,7 @@ test('video upload validates type and size, survives retries, supports ranges, a
 });
 
 test('existing SQLite workspaces retain workouts and older unchunked videos', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'repform-legacy-'));
+  const root = await mkdtemp(join(tmpdir(), 'liftmorrow-legacy-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const database = join(root, 'old.sqlite');
   const db = new DatabaseSync(database);
@@ -508,7 +585,7 @@ test('existing SQLite workspaces retain workouts and older unchunked videos', as
   );
   db.close();
   const { session } = await start(t, { database });
-  const owner = await session('repform_workspace=' + workspace);
+  const owner = await session('liftmorrow_workspace=' + workspace);
   assert.deepEqual(owner.data.equipment, ['Dumbbells']);
   assert.equal(owner.data.workouts[0].revision, 1);
   const video = await owner.call('clips/' + id + '/video', { headers: { Range: 'bytes=0-20' } });
@@ -605,7 +682,8 @@ test('AI recommendations use only filtered catalog IDs and omit workout names', 
   const { session } = await start(t, { respond: async (input) => {
     calls += 1;
     request = input;
-    return { recommendations: [{ exerciseId: 'push-up', reason: 'A bodyweight chest press.' }] };
+    const { candidates, limit } = JSON.parse(input.content[0].text);
+    return { recommendations: candidates.slice(0, limit).map(({ id }) => ({ exerciseId: id, reason: 'A bodyweight chest press.' })) };
   } });
   const browser = await session();
   assert.equal(browser.data.aiAvailable, true);
@@ -617,7 +695,8 @@ test('AI recommendations use only filtered catalog IDs and omit workout names', 
   assert.equal(result.status, 200);
   assert.equal((await result.json())[0].exerciseId, 'push-up');
   const input = JSON.parse(request.content[0].text);
-  assert.deepEqual(input.candidates.map((item) => item.id), ['push-up']);
+  assert.ok(input.candidates.length > 3);
+  assert.ok(input.candidates.every(({ equipment, muscles }) => equipment.length === 0 && muscles.includes('Chest')));
   assert.equal(input.completedSessionsByExercise['push-up'], undefined);
   assert.ok(!request.content[0].text.includes('Full Body Foundations'));
   for (const [time, name] of [['07:15', 'Before now'], ['20:30', 'Later today']]) {
@@ -634,10 +713,9 @@ test('AI recommendations use only filtered catalog IDs and omit workout names', 
   assert.equal(calls, 2);
   assert.equal((await browser.call('exercises/recommendations?equipment=bodyweight&muscle=Chest&today=2026-11-12&now=10:01', post)).status, 200);
   assert.equal(calls, 2);
-  const invalid = await browser.call('exercises/recommendations?equipment=bodyweight&muscle=Legs', post);
-  assert.equal(invalid.status, 502);
-  const ordinary = await browser.call('exercises?equipment=bodyweight&muscle=Legs');
-  assert.deepEqual((await ordinary.json()).map((item) => item.id), ['reverse-lunge', 'bodyweight-squat', 'glute-bridge']);
+  const broad = await browser.call('exercises/recommendations?equipment=all', post);
+  assert.equal(broad.status, 200);
+  assert.equal(JSON.parse(request.content[0].text).candidates.length, 50);
 });
 
 test('OpenAI responses request disables storage and upstream errors do not expose the provider body', async () => {
@@ -917,7 +995,7 @@ test('clip mutation deltas include the public review state and leave unrelated p
 });
 
 test('a server restart leaves an interrupted background review available to retry', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-api-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-api-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const database = join(directory, 'workspace.sqlite');
   const initial = await start(t, {
@@ -1019,14 +1097,14 @@ test('the local server rejects unconfigured hosts before creating a workspace', 
 });
 
 test('the web server contains symlinks, validates shell freshness, and compresses fingerprinted assets', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'repform-static-'));
+  const root = await mkdtemp(join(tmpdir(), 'liftmorrow-static-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const dist = join(root, 'dist');
   await mkdir(dist);
-  const body = 'console.log("repform");\n'.repeat(600);
+  const body = 'console.log("liftmorrow");\n'.repeat(600);
   const asset = 'entry-0123456789abcdef0123456789abcdef.js';
   await Promise.all([
-    writeFile(join(dist, 'index.html'), '<!doctype html><title>Repform</title>'),
+    writeFile(join(dist, 'index.html'), '<!doctype html><title>Liftmorrow</title>'),
     writeFile(join(dist, asset), body),
     writeFile(join(root, 'canary.txt'), 'should not be served'),
   ]);

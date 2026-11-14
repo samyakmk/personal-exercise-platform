@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f5f2ed" />
     <meta name="description" content="Plan your workouts, learn new exercises, and keep track of your training." />
     <link rel="icon" href="/favicon.ico" />
-    <title>Repform — Training workspace</title>
+    <title>Liftmorrow — Training workspace</title>
     <style>
       html, body, #root { height: 100%; }
       body { margin: 0; overflow: hidden; background: #f5f2ed; }
@@ -27,12 +27,12 @@
         font: 500 12px/1.35 system-ui, sans-serif;
         white-space: nowrap;
       }
-      .repform-skip-link { position: fixed; inset: 10px auto auto 10px; z-index: 10; padding: 10px 14px; border-radius: 6px; background: #f4a77f; color: #251b2e; font-family: system-ui, sans-serif; }
-      .repform-skip-link:not(:focus) { left: -10000px; pointer-events: none; }
-      #repform-main:focus-visible { outline-offset: -2px; }
-      .repform-dialog::backdrop { background: rgba(32, 22, 38, 0.58); }
-      .repform-dialog { box-shadow: 0 22px 64px #251b2e52; }
-      .repform-feature-shade {
+      .liftmorrow-skip-link { position: fixed; inset: 10px auto auto 10px; z-index: 10; padding: 10px 14px; border-radius: 6px; background: #f4a77f; color: #251b2e; font-family: system-ui, sans-serif; }
+      .liftmorrow-skip-link:not(:focus) { left: -10000px; pointer-events: none; }
+      #liftmorrow-main:focus-visible { outline-offset: -2px; }
+      .liftmorrow-dialog::backdrop { background: rgba(32, 22, 38, 0.58); }
+      .liftmorrow-dialog { box-shadow: 0 22px 64px #251b2e52; }
+      .liftmorrow-feature-shade {
         position: absolute;
         inset: 0 0 0 auto;
         width: 39%;
@@ -40,7 +40,7 @@
         pointer-events: none;
       }
       @media (min-height: 680px) {
-        .repform-dialog #repform-review-player { position: sticky; top: 10px; }
+        .liftmorrow-dialog #liftmorrow-review-player { position: sticky; top: 10px; }
       }
       @media (forced-colors: active) {
         :focus-visible { outline-color: Highlight !important; }
@@ -51,7 +51,7 @@
     </style>
   </head>
   <body>
-    <noscript>Enable JavaScript to use Repform.</noscript>
+    <noscript>Enable JavaScript to use Liftmorrow.</noscript>
     <div id="root"></div>
   </body>
 </html>

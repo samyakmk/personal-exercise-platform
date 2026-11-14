@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { parentPort } from 'node:worker_threads';
 
 assert.deepEqual(process.execArgv, []);
-assert.deepEqual({ ...process.env }, { REPFORM_POSE_MODEL: 'synthetic-model-path' });
+assert.deepEqual({ ...process.env }, { LIFTMORROW_POSE_MODEL: 'synthetic-model-path' });
 
 parentPort.on('message', ({ id, frames }) => {
   if (!frames) {

@@ -3,7 +3,7 @@ import { Worker } from 'node:worker_threads';
 const workerScript = new URL('./pose-worker.mjs', import.meta.url);
 const maxQueued = 2;
 
-export function createPosePool({ workerUrl = workerScript, modelPath = process.env.REPFORM_POSE_MODEL } = {}) {
+export function createPosePool({ workerUrl = workerScript, modelPath = process.env.LIFTMORROW_POSE_MODEL } = {}) {
   let worker;
   let active;
   let nextId = 0;
@@ -27,7 +27,7 @@ export function createPosePool({ workerUrl = workerScript, modelPath = process.e
 
   function startWorker() {
     const current = new Worker(workerUrl, {
-      env: modelPath ? { REPFORM_POSE_MODEL: modelPath } : {},
+      env: modelPath ? { LIFTMORROW_POSE_MODEL: modelPath } : {},
       execArgv: [],
     });
     worker = current;

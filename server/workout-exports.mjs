@@ -26,10 +26,10 @@ function* calendarLines(workouts, now) {
   const stamp = now.toISOString().slice(0, 19).replace(/[-:]/g, '') + 'Z';
   yield 'BEGIN:VCALENDAR';
   yield 'VERSION:2.0';
-  yield 'PRODID:-//Repform//Workouts//EN';
+  yield 'PRODID:-//Liftmorrow//Workouts//EN';
   for (const workout of workouts) {
     yield 'BEGIN:VEVENT';
-    yield `UID:${workout.id}@repform.local`;
+    yield `UID:${workout.id}@liftmorrow.local`;
     yield `DTSTAMP:${stamp}`;
     yield `DTSTART:${workout.date.replace(/-/g, '')}T${workout.time.replace(':', '')}00`;
     yield `SUMMARY:${calendarText(workout.name)}`;
@@ -63,10 +63,11 @@ function* historyRows(workouts) {
   yield ['\uFEFFDate', 'Time', 'Workout', 'Exercise', 'Sets', 'Reps or seconds', 'Measurement',
     'Weight per dumbbell', 'Weight unit', 'Set number', 'Workout notes'];
   for (const { date, time, name, notes, exercises } of workouts) {
+    if (!exercises.length) yield [date, time, name, '', '', '', '', '', '', '', notes];
     for (const { exerciseId, sets, reps, load, setDetails } of exercises) {
       const exercise = exercisesById.get(exerciseId);
       const prefix = [date, time, name, exercise?.name ?? exerciseId];
-      if (setDetails) {
+      if (setDetails?.length) {
         for (const [index, set] of setDetails.entries()) {
           yield [...prefix, 1, set.reps, exercise?.unit, set.load?.value, set.load?.unit, index + 1, notes];
         }

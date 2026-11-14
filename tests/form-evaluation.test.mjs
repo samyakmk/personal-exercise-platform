@@ -160,7 +160,7 @@ function runCli(args, env = {}, preload) {
 }
 
 test('opt-in live retry is visible, bounded to one attempt, and excludes secrets from reports', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-evaluation-retry-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-evaluation-retry-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const manifest = join(directory, 'manifest.json');
   const output = join(directory, 'report.json');
@@ -181,8 +181,8 @@ for (let i = 1; i <= 2; i++) {
   await writeFile(preload, `let count = 0;
 globalThis.fetch = async () => {
   count++;
-  if (process.env.REPFORM_MOCK_MODE === 'rate') return Response.json({ error: { code: 'rate_limit', message: 'provider-secret' } }, {status: 429});
-  if (count === 1 || process.env.REPFORM_MOCK_MODE === 'fail') {
+  if (process.env.LIFTMORROW_MOCK_MODE === 'rate') return Response.json({ error: { code: 'rate_limit', message: 'provider-secret' } }, {status: 429});
+  if (count === 1 || process.env.LIFTMORROW_MOCK_MODE === 'fail') {
     throw new TypeError('provider-secret', { cause: Object.assign(new Error('endpoint-secret'), { code: 'EAI_AGAIN' }) });
   }
   return Response.json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text:
@@ -190,7 +190,7 @@ globalThis.fetch = async () => {
   }] }], usage: { marker: 'usage-secret' } });
 };`);
   const args = ['--manifest', manifest, '--clips', directory, '--output', output, '--live', '--strict'];
-  const env = { CHATGPT_API_KEY: 'key-secret', REPFORM_AI_MODEL: 'gpt-5.4-mini-mock', REPFORM_FFMPEG: ffmpeg };
+  const env = { CHATGPT_API_KEY: 'key-secret', LIFTMORROW_AI_MODEL: 'gpt-5.4-mini-mock', LIFTMORROW_FFMPEG: ffmpeg };
   const defaultRun = runCli(args, env, preload);
   assert.equal(defaultRun.status, 1, defaultRun.stderr);
   assert.doesNotMatch(defaultRun.stderr, /retrying/);
@@ -204,21 +204,21 @@ globalThis.fetch = async () => {
   assert.match(recovered.stderr, /fixture-01 trial 1.*dns_temporary.*retrying once/);
   const raw = await readFile(output, 'utf8');
   report = JSON.parse(raw);
-  assert.equal(report.model, env.REPFORM_AI_MODEL);
+  assert.equal(report.model, env.LIFTMORROW_AI_MODEL);
   assert.equal(report.reviewVersion, reviewVersion);
   assert.equal(report.retryPolicy, 'one-transient-v1');
   assert.deepEqual(report.results[0].retry, { diagnostic: 'dns_temporary', delayMs: 750 });
   assert.equal(report.results[0].outcome, 'expected_verdict');
   assert.doesNotMatch(raw + recovered.stdout + recovered.stderr, /key-secret|usage-secret|endpoint-secret|provider-secret/);
 
-  const exhausted = runCli(retryArgs, { ...env, REPFORM_MOCK_MODE: 'fail' }, preload);
+  const exhausted = runCli(retryArgs, { ...env, LIFTMORROW_MOCK_MODE: 'fail' }, preload);
   assert.equal(exhausted.status, 1, exhausted.stderr);
   assert.equal(exhausted.stderr.match(/retrying once/g).length, 1);
   report = JSON.parse(await readFile(output, 'utf8'));
   assert.equal(report.results[0].outcome, 'error');
   assert.ok(report.results[0].retry);
 
-  const rateLimited = runCli(retryArgs, { ...env, REPFORM_MOCK_MODE: 'rate' }, preload);
+  const rateLimited = runCli(retryArgs, { ...env, LIFTMORROW_MOCK_MODE: 'rate' }, preload);
   assert.equal(rateLimited.status, 1, rateLimited.stderr);
   assert.doesNotMatch(rateLimited.stderr, /retrying/);
   report = JSON.parse(await readFile(output, 'utf8'));
@@ -227,7 +227,7 @@ globalThis.fetch = async () => {
 });
 
 test('CLI writes a report and exits 1 when a fixture is missing', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-evaluation-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-evaluation-test-'));
   try {
     const output = join(directory, 'report.json');
     const result = runCli(['--clips', directory, '--strict', '--output', output, 'clip-a']);
@@ -244,7 +244,7 @@ test('CLI writes a report and exits 1 when a fixture is missing', async () => {
 });
 
 test('comparison rejects changed clip bytes before decoding or calling the provider', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-evaluation-comparison-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-evaluation-comparison-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const source = 'https://example.test/fixture';
   const item = { id: 'fixture-01', group: 'visual', exercise: 'incline-push-up', verdict: 'different_exercise' };
@@ -261,7 +261,7 @@ test('comparison rejects changed clip bytes before decoding or calling the provi
     writeFile(decoder, `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started');\n`, { mode: 0o700 }),
   ]);
   const run = runCli(['--manifest', manifest, '--clips', directory, '--compare', baseline, '--live'], {
-    CHATGPT_API_KEY: 'mock-key', REPFORM_FFMPEG: decoder,
+    CHATGPT_API_KEY: 'mock-key', LIFTMORROW_FFMPEG: decoder,
   });
   assert.equal(run.status, 1);
   assert.match(run.stderr, /The video bytes changed for fixture-01/);
@@ -269,7 +269,7 @@ test('comparison rejects changed clip bytes before decoding or calling the provi
 });
 
 test('reports identical clip bytes under different case IDs without changing strict grades', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-duplicate-evaluation-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-duplicate-evaluation-test-'));
   try {
     const manifestPath = join(directory, 'manifest.json');
     const output = join(directory, 'report.json');
@@ -294,7 +294,7 @@ for (let i = 1; i <= 4; i++) {
 `, { mode: 0o700 }),
     ]);
     const result = runCli(['--manifest', manifestPath, '--clips', directory, '--output', output, '--strict'], {
-      REPFORM_FFMPEG: ffmpeg,
+      LIFTMORROW_FFMPEG: ffmpeg,
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stderr, /Identical clip bytes for clip-a, clip-b\. Check provenance/);
@@ -310,7 +310,7 @@ for (let i = 1; i <= 4; i++) {
 });
 
 test('a custom manifest loads external fixtures only by neutral ID and keeps attribution in the report', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-external-evaluation-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-external-evaluation-test-'));
   try {
     const manifestPath = join(directory, 'manifest.json');
     const output = join(directory, 'report.json');
@@ -329,7 +329,7 @@ test('a custom manifest loads external fixtures only by neutral ID and keeps att
     const bytes = Buffer.from('synthetic fixture bytes');
     await writeFile(join(directory, 'external-02.mp4'), bytes);
     const result = runCli(['--manifest', manifestPath, '--dataset', directory, '--clips', directory, '--output', output], {
-      REPFORM_FFMPEG: join(directory, 'missing-ffmpeg'),
+      LIFTMORROW_FFMPEG: join(directory, 'missing-ffmpeg'),
     });
     assert.equal(result.status, 1, result.stderr);
     assert.match(result.stderr, /Missing external-01\.mp4\. Place the prepared external clip/);
@@ -346,7 +346,7 @@ test('a custom manifest loads external fixtures only by neutral ID and keeps att
 });
 
 test('rejects malformed provenance and path-like or colliding fixture IDs before evaluating', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-invalid-evaluation-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-invalid-evaluation-test-'));
   try {
     const path = join(directory, 'manifest.json');
     const cases = [{ id: 'external-01', group: 'external', provenance: { source: 'https://example.com/video' } }];
@@ -368,7 +368,7 @@ test('rejects malformed provenance and path-like or colliding fixture IDs before
 });
 
 test('rejects unknown or inconsistent group, exercise, mode, check, and verdict values', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-invalid-rubric-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-invalid-rubric-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const path = join(directory, 'manifest.json');
   const source = 'https://example.com/video';
@@ -394,7 +394,7 @@ test('rejects unknown or inconsistent group, exercise, mode, check, and verdict 
 });
 
 test('custom groups and explicit overrides select the right cases offline and with a mocked reviewer', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-evaluation-mode-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-evaluation-mode-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const manifest = join(directory, 'manifest.json');
   const output = join(directory, 'report.json');
@@ -430,7 +430,7 @@ for (let i = 1; i <= 12; i++) {
     }] }] });
   };`);
   const args = ['--manifest', manifest, '--clips', directory, '--output', output, '--strict'];
-  const env = { REPFORM_FFMPEG: ffmpeg, REPFORM_POSE_MODEL: join(directory, 'missing-model') };
+  const env = { LIFTMORROW_FFMPEG: ffmpeg, LIFTMORROW_POSE_MODEL: join(directory, 'missing-model') };
 
   const local = runCli(args, env);
   assert.equal(local.status, 1, local.stderr);

@@ -13,16 +13,16 @@ export const reviewWindowSeconds = 20;
 export const maxReviewFrames = 8;
 
 export async function extractFrames(source, {
-  binary = process.env.REPFORM_FFMPEG || 'ffmpeg', mime, signal, sampleRate = 2, startSeconds = 0,
+  binary = process.env.LIFTMORROW_FFMPEG || 'ffmpeg', mime, signal, sampleRate = 2, startSeconds = 0,
 } = {}) {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-frames-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-frames-'));
   try {
     const input = join(directory, 'clip');
     await pipeline(Readable.from(source, { objectMode: false }), createWriteStream(input, { mode: 0o600 }), { signal });
     const filters = [
       // Capture the actual first decoded presentation time before resetting the sample grid.
-      'metadata=mode=add:key=repform:value=1',
-      'metadata=mode=print:key=repform:file=source-times.txt',
+      'metadata=mode=add:key=liftmorrow:value=1',
+      'metadata=mode=print:key=liftmorrow:file=source-times.txt',
       'setpts=PTS-STARTPTS',
       `trim=duration=${reviewWindowSeconds}`,
       `fps=${sampleRate}:start_time=0`,

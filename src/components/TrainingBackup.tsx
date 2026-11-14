@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { isTrainingBackupFormat } from '../../shared/training-backup.mjs';
 import { api } from '../api';
 import { earliestWorkoutDate, isWorkoutDate, latestWorkoutDate } from '../dates';
 import { BackupPicker } from '../platform/BackupPicker';
@@ -35,13 +36,13 @@ export function TrainingBackup({ onClose }: { onClose: () => void }) {
     try {
       const contents = await file.read();
       const backup = JSON.parse(contents);
-      if (backup?.format !== 'repform-training' || backup.version !== 1 || !Array.isArray(backup.workouts)) {
+      if (!isTrainingBackupFormat(backup?.format) || backup.version !== 1 || !Array.isArray(backup.workouts)) {
         throw new Error('Invalid training backup');
       }
       setSelected({ name: file.name, contents, workouts: backup.workouts.length, equipment: Array.isArray(backup.equipment),
         bookmarks: Array.isArray(backup.bookmarks) ? backup.bookmarks.length : 0 });
     } catch {
-      setError('Choose a valid Repform training backup JSON file.');
+      setError('Choose a valid Liftmorrow training backup JSON file.');
     } finally {
       loading.current = false;
       setBusy(false);
@@ -74,7 +75,7 @@ export function TrainingBackup({ onClose }: { onClose: () => void }) {
   const validRange = Boolean(from || before) && (!from || isWorkoutDate(from)) && (!before || isWorkoutDate(before))
     && (!from || !before || from < before);
   const download = {
-    filename: 'repform-training-backup.json',
+    filename: 'liftmorrow-training-backup.json',
     onStart: () => setDownloadError(''),
     onError: (message: string, status?: number) => {
       setDownloadError(message);

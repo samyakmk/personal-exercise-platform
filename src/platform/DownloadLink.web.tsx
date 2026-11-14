@@ -48,7 +48,7 @@ export function DownloadLink({ href, label, compact, accessibilityLabel, validat
         return;
       }
       if (response.headers.get('content-type')?.split(';', 1)[0] !== 'application/json') {
-        if (pending.current === request) validated.onError('Repform received an unreadable backup. Try again.');
+        if (pending.current === request) validated.onError('Liftmorrow received an unreadable backup. Try again.');
         return;
       }
       const data = await response.blob();

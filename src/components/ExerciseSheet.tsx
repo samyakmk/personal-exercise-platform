@@ -20,7 +20,7 @@ export function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClo
   const saving = useRef(false);
   const split = useWindowDimensions().width >= 900;
   const saved = data?.bookmarks?.includes(exercise.id) ?? false;
-  function open(type: 'add' | 'review') {
+  function open(type: 'add' | 'review' | 'new-session') {
     onClose();
     training.open({ type, exerciseId: exercise.id });
   }
@@ -37,27 +37,39 @@ export function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClo
     finally { saving.current = false; setBusy(false); }
   }
 
-  return <Sheet title={exercise.name} detail={exercise.description} onClose={onClose} wide={split}>
-    <View style={[styles.content, split && { flexDirection: 'row', alignItems: 'flex-start' }]}>
-      <View style={split ? { flex: 1.65, minWidth: 0 } : undefined}><Demonstration exercise={exercise} /></View>
-      <View style={[styles.instructions, split && { flex: 1 }]}>
-        <SectionTitle title="How to do it" level={3} />
+  return <Sheet title={exercise.name} detail={exercise.description === exercise.category ? undefined : exercise.description}
+    onClose={onClose} wide={split && Boolean(exercise.demonstration)}>
+    <View style={[styles.content, split && exercise.demonstration && { flexDirection: 'row', alignItems: 'flex-start' }]}>
+      {exercise.demonstration && <View style={split ? { flex: 1.65, minWidth: 0 } : undefined}><Demonstration exercise={exercise} /></View>}
+      <View style={[styles.instructions, split && exercise.demonstration && { flex: 1 }]}>
+        <View style={styles.actions}>
+          <Tag>{exercise.category}</Tag>
+          <Tag>{exercise.level}</Tag>
+          <Tag>{exercise.equipment.join(' · ') || 'Bodyweight'}</Tag>
+        </View>
+        <View style={{ gap: 4 }}>
+          <Copy size={12} weight="semibold">Primary muscles</Copy>
+          <View style={styles.actions}>
+            {(exercise.primaryMuscles ?? exercise.muscles).map((muscle) => <Tag key={muscle}>{muscle}</Tag>)}
+          </View>
+        </View>
+        {!!exercise.secondaryMuscles?.length && <View style={{ gap: 4 }}>
+          <Copy size={12} weight="semibold">Secondary muscles</Copy>
+          <View style={styles.actions}>{exercise.secondaryMuscles.map((muscle) => <Tag key={muscle}>{muscle}</Tag>)}</View>
+        </View>}
+        {exercise.cues.length > 0 && <SectionTitle title="How to do it" level={3} />}
         {exercise.cues.map((cue, index) => (
           <View key={cue} style={styles.cue}>
             <View style={styles.number}><Copy weight="bold" size={11} tone={color.plum}>{index + 1}</Copy></View>
             <Copy tone={color.text} size={13} style={{ flex: 1 }}>{cue}</Copy>
           </View>
         ))}
-        <View style={styles.actions}>
-          {exercise.muscles.map((muscle) => <Tag key={muscle}>{muscle}</Tag>)}
-          <Tag>{exercise.equipment.join(' · ') || 'Bodyweight'}</Tag>
-          <Tag>{exercise.level}</Tag>
-        </View>
       </View>
     </View>
     <View style={styles.footer}>
       <View style={styles.actions}>
         <Button kind="primary" icon={Plus} onPress={() => open('add')}>Add to workout</Button>
+        <Button icon={Plus} onPress={() => open('new-session')}>New session</Button>
         <Button icon={Bookmark} disabled={busy} onPress={() => void toggleBookmark()}>{saved ? 'Remove saved exercise' : 'Save exercise'}</Button>
       </View>
       <View style={styles.actions}>

@@ -16,7 +16,7 @@ export function Dialog({ children, label, onClose, wide }: { children: ReactNode
         if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) {
           opener.focus();
         } else if (document.activeElement === document.body || document.activeElement === null) {
-          document.getElementById('repform-main')?.focus({ preventScroll: true });
+          document.getElementById('liftmorrow-main')?.focus({ preventScroll: true });
         }
       });
     };
@@ -35,7 +35,7 @@ export function Dialog({ children, label, onClose, wide }: { children: ReactNode
       aria-label={label}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
-      className="repform-dialog"
+      className="liftmorrow-dialog"
       style={{
         padding: 0, width: `min(${wide ? 1050 : 600}px, calc(100% - 26px))`, maxHeight: 'calc(100dvh - 32px)', overflow: 'auto',
         border: `1px solid ${color.line}`, borderRadius: 18, background: color.surface, color: color.text,

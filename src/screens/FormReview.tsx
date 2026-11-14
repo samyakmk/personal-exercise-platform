@@ -7,6 +7,7 @@ import { Sheet } from '../components/Sheet';
 import { Button, Copy, Empty, IconButton, Input, Loading, Notice, PageTitle, Panel, SectionTitle, Tag } from '../components/ui';
 import { dateKey, formatDay, workoutTime } from '../dates';
 import { DownloadLink } from '../platform/DownloadLink';
+import { ExercisePicker } from '../platform/ExercisePicker';
 import { SelectField } from '../platform/fields';
 import { VideoPicker } from '../platform/VideoPicker';
 import { VideoPlayer } from '../platform/VideoPlayer';
@@ -110,15 +111,15 @@ export function FormReview() {
     {showUploader && <View style={[styles.uploadLayout, wide && { flexDirection: 'row', alignItems: 'flex-start' }]}>
       <Panel style={[styles.panel, wide && { flex: 1.55 }]}>
         <SectionTitle title="Upload a clip" />
-        <SelectField label="Exercise in your clip" placeholder="Choose an exercise" value={exercise} onChange={chooseExercise} disabled={busy}
-          options={ordered.map((item) => ({ value: item.id, label: item.name + (recent.has(item.id) ? ' · Recent' : '') }))} />
+        <ExercisePicker label="Exercise in your clip" value={exercise} onChange={chooseExercise} disabled={busy}
+          options={ordered.map((item) => ({ value: item.id, label: item.name, detail: recent.has(item.id) ? 'Recent' : undefined }))} />
         {draft ? <View style={{ gap: 8 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <Copy weight="semibold" size={13} style={{ flex: 1 }}>{draft.clip.name} · {clipSize(draft.clip.size)}</Copy>
             {!busy && <IconButton icon={X} label="Remove selected video" onPress={clearVideo} />}
           </View>
           {converting
-            ? <Copy size={13} tone={color.muted}>Repform converts this MOV to MP4 for playback after upload.</Copy>
+            ? <Copy size={13} tone={color.muted}>Liftmorrow converts this MOV to MP4 for playback after upload.</Copy>
             : <VideoPlayer key={draft.id} uri={draft.clip.uri} label="Video preview"
               onReady={() => setPreview({ id: draft.id, state: 'ready' })} onError={() => setPreview({ id: draft.id, state: 'failed' })} />}
           {previewStatus === 'failed' && <Copy size={12} tone={color.muted}>Choose a video your browser can play.</Copy>}
@@ -216,7 +217,7 @@ function Feedback({ review, onSeek }: { review: FormFeedback; onSeek: (seconds: 
   }[review.verdict];
   return <View style={styles.feedbackContent}>
     <SectionTitle title={title} level={3} />
-    <Copy size={15}>{review.summary}</Copy>
+    {review.summary && <Copy size={15}>{review.summary}</Copy>}
     {review.observations.map(({ timestamp, comparisonTimestamp, kind, observation, cue }, index) => (
       <View key={index} style={styles.observation}>
         <View style={styles.observationHeading}>
@@ -234,7 +235,7 @@ function Feedback({ review, onSeek }: { review: FormFeedback; onSeek: (seconds: 
       </View>
     ))}
     <View style={styles.reviewContext}>
-      <Copy size={12} tone={color.muted}>{review.limitations}</Copy>
+      {review.limitations && <Copy size={12} tone={color.muted}>{review.limitations}</Copy>}
       <Copy size={12} tone={color.muted}>AI review of {review.framesReviewed} frames from up to {review.windowSeconds} seconds of video, starting at {formatTimestamp(review.startSeconds ?? 0)}.</Copy>
     </View>
   </View>;
@@ -370,7 +371,7 @@ function SavedClip({ clip, title, catalog, canReview, reviewVersion, onClose, on
   if (editExercise) return <Sheet title="Change video exercise" detail={clip.filename} onClose={() => {
     if (!busy) { setEditExercise(false); setError(''); }
   }}>
-    <SelectField label="New exercise selection" value={exercise} onChange={setExercise} disabled={busy}
+    <ExercisePicker label="New exercise selection" value={exercise} onChange={setExercise} disabled={busy}
       options={catalog.map(({ id, name }) => ({ value: id, label: name }))} />
     {clip.review && <Notice>Saving clears the previous feedback so you can analyze this clip for the new exercise.</Notice>}
     {error && <Notice error>{error}</Notice>}
@@ -387,7 +388,7 @@ function SavedClip({ clip, title, catalog, canReview, reviewVersion, onClose, on
     wide={!confirm}
     onClose={() => { if (!busy) onClose(); }}>
     {!confirm && <View style={split ? styles.reviewColumns : styles.reviewColumn}>
-      <View nativeID={split ? 'repform-review-player' : undefined} style={[styles.reviewColumn, split && { flex: 1.1, alignSelf: 'flex-start' }]}>
+      <View nativeID={split ? 'liftmorrow-review-player' : undefined} style={[styles.reviewColumn, split && { flex: 1.1, alignSelf: 'flex-start' }]}>
         <VideoPlayer key={playbackAttempt} ref={player} uri={api.clipUrl(clip.id)} label="Saved exercise video" detailed
           onReady={() => { setDuration(player.current?.duration() ?? 0); setReady(true); setPlaybackFailed(false); }}
           onError={() => { setReady(false); setPlaybackFailed(true); }} />
@@ -451,7 +452,7 @@ function SavedClip({ clip, title, catalog, canReview, reviewVersion, onClose, on
                 {tooLate && <View nativeID="review-start-error">
                   <Notice error>Choose a starting point with at least one second of exercise footage remaining.</Notice>
                 </View>}
-                <Copy size={12} tone={color.muted}>Repform sends up to eight still frames from the next 20 seconds to OpenAI. Audio stays with the saved video.</Copy>
+                <Copy size={12} tone={color.muted}>Liftmorrow sends up to eight still frames from the next 20 seconds to OpenAI. Audio stays with the saved video.</Copy>
                 <Button kind="primary" icon={Sparkles} disabled={!validStart || tooLate || retryAt !== null} onPress={() => analyze(reviewedHere)}>
                   {retryAt !== null ? 'Retry shortly' : error || failedHere || cancelledHere
                     ? 'Retry analysis' : reviewedHere ? 'Review this section again' : clip.review ? 'Analyze this section' : 'Analyze form'}

@@ -4,14 +4,14 @@ import type { Exercise, ExerciseSet, Movement, TrainingSession, Workout } from '
 export type ExerciseLog = { workout: Workout; movement: Movement };
 
 export function trainingLog(session: TrainingSession, separate: boolean): Workout {
-  const when = workoutTime(new Date(session.startedAt));
+  const when = session.logTime ?? workoutTime(new Date(session.startedAt));
   return {
     ...when, id: separate ? session.logId : session.plan.id,
     revision: separate ? undefined : session.plan.revision,
     name: session.plan.name, status: 'completed', notes: session.notes.trim(),
     exercises: session.plan.exercises.flatMap(({ exerciseId }) => {
-      const setDetails = session.sets[exerciseId];
-      return setDetails?.length ? [{ exerciseId, ...setDetails[0], sets: setDetails.length, setDetails }] : [];
+      const setDetails = session.sets[exerciseId] ?? [];
+      return setDetails.length || session.logTime ? [{ exerciseId, ...setDetails[0], sets: setDetails.length, setDetails }] : [];
     }),
   };
 }
@@ -65,18 +65,21 @@ export function weeklyActivity(workouts: Workout[], today: string, weeks: number
 
 export function movementSummary(exercise: Pick<Exercise, 'unit'>, { sets, reps, load, setDetails }: Movement) {
   if (setDetails) {
-    const counts = setDetails.map((item) => item.reps);
+    const label = `${sets} ${sets === 1 ? 'set' : 'sets'}`;
+    const counts = setDetails.flatMap(({ reps }) => reps === undefined ? [] : [reps]);
+    if (!counts.length) return label;
     const min = Math.min(...counts);
     const max = Math.max(...counts);
     const range = min === max ? String(min) : `${min}–${max}`;
-    return `${sets} ${sets === 1 ? 'set' : 'sets'} · ${range} ${exercise.unit === 'seconds' ? 'sec' : max === 1 ? 'rep' : 'reps'}`;
+    return `${label} · ${range} ${exercise.unit === 'seconds' ? 'sec' : max === 1 ? 'rep' : 'reps'}`;
   }
   return `${sets} × ${reps} ${exercise.unit === 'seconds' ? 'sec' : reps === 1 ? 'rep' : 'reps'}${load ? ` · ${load.value} ${load.unit}` : ''}`;
 }
 
-export function performedSetSummary(exercise: Pick<Exercise, 'unit'> | undefined, { reps, load }: ExerciseSet) {
+export function performedSetSummary(exercise: Pick<Exercise, 'unit' | 'loadType'> | undefined, { reps, load }: ExerciseSet) {
   const unit = exercise?.unit === 'seconds' ? 'sec' : reps === 1 ? 'rep' : 'reps';
-  return `${reps} ${unit}${load ? ` · ${load.value} ${load.unit} per dumbbell` : ''}`;
+  const loadUnit = exercise?.loadType === 'per-dumbbell' ? ' per dumbbell' : '';
+  return [reps === undefined ? '' : `${reps} ${unit}`, load ? `${load.value} ${load.unit}${loadUnit}` : ''].filter(Boolean).join(' · ');
 }
 
 export function heaviestLoad(logs: ExerciseLog[]) {
@@ -99,14 +102,15 @@ function loadIn(load: NonNullable<Movement['load']>, unit: 'kg' | 'lb') {
 
 export type ExerciseTrend = { workout: Workout; value: number };
 
-export function exerciseTrend(logs: ExerciseLog[], exercise: Pick<Exercise, 'unit'>) {
+export function exerciseTrend(logs: ExerciseLog[], exercise: Pick<Exercise, 'unit' | 'loadType'>) {
   const recent = logs.slice(0, 8).reverse();
   const loads = recent.map(({ movement }) => movementLoad(movement));
   const weighed = loads.filter((load) => load !== undefined);
   const unit = weighed.at(-1)?.unit;
   if (unit && weighed.length >= 2) {
+    const weight = exercise.loadType === 'per-dumbbell' ? 'dumbbell' : 'weight';
     return {
-      measurement: `Heaviest dumbbell (${unit})`, unit,
+      measurement: `Heaviest ${weight} (${unit})`, unit,
       points: recent.flatMap(({ workout }, index) => {
         const load = loads[index];
         return load ? [{ workout, value: loadIn(load, unit) }] : [];
@@ -116,8 +120,11 @@ export function exerciseTrend(logs: ExerciseLog[], exercise: Pick<Exercise, 'uni
   const timed = exercise.unit === 'seconds';
   return {
     measurement: timed ? 'Total hold time' : 'Total reps', unit: timed ? 'sec' : 'reps',
-    points: recent.map(({ workout, movement }) => ({
-      workout, value: movement.setDetails?.reduce((sum, set) => sum + set.reps, 0) ?? movement.sets * movement.reps,
-    })),
+    points: recent.flatMap(({ workout, movement }) => {
+      const counts = (movement.setDetails ?? [movement]).map(({ reps }) => reps);
+      if (!counts.length || counts.some((reps) => reps === undefined)) return [];
+      const total = counts.reduce<number>((sum, reps) => sum + (reps ?? 0), 0);
+      return [{ workout, value: movement.setDetails ? total : total * movement.sets }];
+    }),
   };
 }

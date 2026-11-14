@@ -4,10 +4,10 @@ import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { test } from 'node:test';
-import { createRepformServer } from '../server/index.mjs';
+import { createLiftmorrowServer } from '../server/index.mjs';
 
 test('rejected uploads close unfinished connections and only admitted uploads receive 100 Continue', { timeout: 5000 }, async (t) => {
-  const server = createRepformServer({ database: ':memory:', respond: null });
+  const server = createLiftmorrowServer({ database: ':memory:', respond: null });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(async () => {

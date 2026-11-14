@@ -8,13 +8,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { reviewVersion } from '../server/coaching.mjs';
-import { createRepformServer } from '../server/index.mjs';
+import { createLiftmorrowServer } from '../server/index.mjs';
 
 const sampleFrames = async () => [{ timestamp: 0, image: Buffer.from('fixture') }];
 const feedback = (summary) => ({ verdict: 'insufficient_visibility', summary, limitations: 'One still frame.', observations: [] });
 
 async function sharedDatabase(t) {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-review-lease-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-review-lease-'));
   const database = join(directory, 'workspace.sqlite');
   const servers = [];
   t.after(async () => {
@@ -32,7 +32,7 @@ async function sharedDatabase(t) {
   return {
     database,
     async start(options) {
-      const server = createRepformServer({ database, sampleFrames, ...options });
+      const server = createLiftmorrowServer({ database, sampleFrames, ...options });
       servers.push(server);
       server.listen(0, '127.0.0.1');
       await once(server, 'listening');

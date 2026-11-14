@@ -154,6 +154,55 @@ test('vision feedback keeps supported strengths in a no-clear-correction review'
   assert.deepEqual(review.observations, [{ timestamp: 2, kind: strength.kind, observation: strength.observation, cue: strength.cue }]);
 });
 
+test('review keeps one useful point and drops incidental scene commentary', async () => {
+  const exercise = exercisesById.get('incline-push-up');
+  const frames = [1, 2].map((timestamp) => ({ timestamp, image: Buffer.from('frame') }));
+  const adjustment = { frame: 2, comparisonFrame: 1, kind: 'adjustment',
+    observation: 'Your hips rise ahead of your chest.', cue: 'Move your hips and chest together.' };
+  const review = await reviewExercise(async () => ({
+    verdict: 'observations', summary: 'There are bystanders.', limitations: 'There are reflections.',
+    observations: [
+      { frame: 1, kind: 'strength', observation: 'Other people are in view.', cue: 'Keep going.' },
+      adjustment,
+      { frame: 1, kind: 'strength', observation: 'Your hands stay on the bench.', cue: 'Keep your hands planted.' },
+    ],
+  }), { exercise, frames });
+  assert.equal(review.summary, '');
+  assert.equal(review.limitations, '');
+  assert.deepEqual(review.observations, [{ timestamp: 2, comparisonTimestamp: 1, kind: 'adjustment',
+    observation: adjustment.observation, cue: adjustment.cue }]);
+
+  const obscured = await reviewExercise(async () => ({
+    verdict: 'insufficient_visibility', summary: 'Bystanders cover parts of the movement.', observations: [],
+  }), { exercise, frames });
+  assert.match(obscured.summary, /working joints visible/);
+  const visible = await reviewExercise(async () => ({
+    verdict: 'observations', summary: '', observations: [],
+  }), { exercise, frames });
+  assert.equal(visible.verdict, 'no_clear_issue');
+  assert.match(visible.summary, /didn’t see a clear correction/);
+});
+
+test('measured review keeps one local cue or a supported strength', async () => {
+  const exercise = exercisesById.get('push-up');
+  const frames = [1, 2].map((timestamp) => ({ timestamp, image: Buffer.from('frame') }));
+  const response = async () => ({
+    verdict: 'observations', summary: '',
+    observations: [{ frame: 1, comparisonFrame: 2, kind: 'strength',
+      observation: 'Your hips and shoulders move together.', cue: 'Keep that body line as you lower.' }],
+  });
+  const alignment = { timestamp: 1, observation: 'Your hips drop below your shoulders and ankles.', cue: 'Brace before lowering.' };
+  const depth = { timestamp: 2, observation: 'Several descents look shallow.', cue: 'Try lowering a little farther.' };
+  const options = { exercise, frames, coverage: 'measured' };
+  const withEvidence = await reviewExercise(response, { ...options, evidence: [alignment, depth] });
+  assert.deepEqual(withEvidence.observations, [{ ...alignment, kind: 'adjustment' }]);
+  const clean = await reviewExercise(response, options);
+  assert.equal(clean.verdict, 'no_clear_issue');
+  assert.equal(clean.observations.length, 1);
+  assert.equal(clean.observations[0].kind, 'strength');
+  assert.equal(clean.observations[0].comparisonTimestamp, 2);
+});
+
 test('core reviews require a supported correction category and comparison', async () => {
   const exercise = exercisesById.get('dead-bug');
   const frames = [0, 1].map((timestamp) => ({ timestamp, image: Buffer.from('frame') }));

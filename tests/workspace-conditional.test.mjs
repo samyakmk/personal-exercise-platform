@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { createRepformServer } from '../server/index.mjs';
+import { createLiftmorrowServer } from '../server/index.mjs';
 
-const webOrigin = 'https://repform.test';
+const webOrigin = 'https://liftmorrow.test';
 const condition = (tag) => ({ headers: { 'If-None-Match': tag } });
 const payload = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 async function start(t, options) {
-  const server = createRepformServer({ database: ':memory:', respond: null, webOrigin, ...options });
+  const server = createLiftmorrowServer({ database: ':memory:', respond: null, webOrigin, ...options });
   t.after(async () => {
     const closed = once(server, 'close');
     server.close();
@@ -47,7 +47,7 @@ test('workspace validators are private, cookie-scoped and available to configure
   const otherTag = await getTag(other);
   assert.notEqual(otherTag, tag);
   assert.equal(await getTag(await call('workspace', otherCookie, condition(tag))), otherTag);
-  const fakeCookie = 'repform_workspace=' + randomUUID();
+  const fakeCookie = 'liftmorrow_workspace=' + randomUUID();
   assert.ok((await call('workspace', fakeCookie, condition('*'))).headers.get('set-cookie'));
 
   const originHeaders = { Origin: webOrigin, 'If-None-Match': '"invalid", ' + tag.slice(2) };
@@ -69,6 +69,29 @@ test('workspace validators are private, cookie-scoped and available to configure
   assert.match(preflight.headers.get('access-control-allow-headers'), /If-None-Match/);
 });
 
+test('an older workspace cookie upgrades without changing the owner or draft key', async (t) => {
+  const call = await start(t, { secureCookies: true });
+  const initial = await call();
+  const currentCookie = initial.headers.get('set-cookie').split(';')[0];
+  const id = currentCookie.split('=')[1];
+  const previousCookie = 'repform_workspace=' + id;
+  const initialData = await initial.json();
+  assert.equal(initialData.workspaceKey, createHash('sha256').update('repform-local-drafts:' + id).digest('hex').slice(0, 24));
+
+  const upgraded = await call('workspace', previousCookie, condition(initial.headers.get('etag')));
+  assert.equal(upgraded.status, 304);
+  const [issued, expired] = upgraded.headers.getSetCookie();
+  assert.match(issued, new RegExp('^' + currentCookie + ';'));
+  assert.match(issued, /HttpOnly.*SameSite=Lax.*Secure/);
+  assert.match(expired, /^repform_workspace=;.*Secure.*Max-Age=0$/);
+
+  const other = await call();
+  const otherCookie = other.headers.get('set-cookie').split(';')[0];
+  const otherData = await other.json();
+  const preferred = await call('workspace', previousCookie + '; ' + otherCookie);
+  assert.equal((await preferred.json()).workspaceKey, otherData.workspaceKey);
+});
+
 test('a large workspace supports gzip and identity with the same private weak validator', async (t) => {
   const call = await start(t);
   const first = await call();
@@ -77,7 +100,7 @@ test('a large workspace supports gzip and identity with the same private weak va
     notes: 'Keep the same setup. '.repeat(35), exercises: [{ exerciseId: 'push-up', sets: 3, reps: 8 }] };
   const workouts = Array.from({ length: 16 }, () => ({ ...sample, id: randomUUID() }));
   const restore = await call('workspace/training-backup', cookie,
-    payload('POST', { format: 'repform-training', version: 1, equipment: null, workouts }));
+    payload('POST', { format: 'liftmorrow-training', version: 1, equipment: null, workouts }));
   assert.equal(restore.status, 200);
   await restore.arrayBuffer();
 
@@ -97,7 +120,7 @@ test('a large workspace supports gzip and identity with the same private weak va
 });
 
 test('validators invalidate across SQLite instances for settings, workouts, and review changes or expiry', { timeout: 6000 }, async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-workspace-condition-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-workspace-condition-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const database = join(directory, 'workspace.sqlite');
   const server = await start(t, { database });
@@ -156,7 +179,7 @@ test('validators invalidate across SQLite instances for settings, workouts, and 
 });
 
 test('legacy workspaces receive a durable validator when the database opens', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'repform-workspace-legacy-condition-'));
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-workspace-legacy-condition-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const database = join(directory, 'workspace.sqlite');
   const id = randomUUID();
@@ -168,7 +191,7 @@ test('legacy workspaces receive a durable validator when the database opens', as
     db.close();
   }
   const call = await start(t, { database });
-  const cookie = 'repform_workspace=' + id;
+  const cookie = 'liftmorrow_workspace=' + id;
   const initial = await call('workspace', cookie);
   assert.equal(initial.status, 200);
   const tag = initial.headers.get('etag');

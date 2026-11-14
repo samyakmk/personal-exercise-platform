@@ -1,6 +1,7 @@
 import { Slot } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { StyleSheet, View } from 'react-native';
+import { ActiveSessionProvider } from '../src/activeSession';
 import { Shell } from '../src/components/Shell';
 import { Loading } from '../src/components/ui';
 import { TrainingNavigation } from '../src/navigation';
@@ -21,9 +22,9 @@ function WorkspaceLayout() {
     InterBold: require('../assets/fonts/Inter-Bold.ttf'),
     InterExtraBold: require('../assets/fonts/Inter-ExtraBold.ttf'),
   });
-  if (!loaded && !error) return <View style={styles.loading}><Loading label="Loading Repform…" /></View>;
+  if (!loaded && !error) return <View style={styles.loading}><Loading label="Loading Liftmorrow…" /></View>;
 
-  return <TrainingNavigation><VideoUploadProvider><Shell><Slot /></Shell></VideoUploadProvider></TrainingNavigation>;
+  return <TrainingNavigation><ActiveSessionProvider><VideoUploadProvider><Shell><Slot /></Shell></VideoUploadProvider></ActiveSessionProvider></TrainingNavigation>;
 }
 
 const styles = StyleSheet.create({

@@ -1,7 +1,7 @@
-export const equipment = ['Dumbbells', 'Bench', 'Pull-up bar'];
-export const muscles = ['Legs', 'Glutes', 'Chest', 'Back', 'Shoulders', 'Arms', 'Core'];
+import additionalExercises from './free-exercise-db.json' with { type: 'json' };
+import demonstrations from './exercise-demonstrations.json' with { type: 'json' };
 
-export const catalog = [
+const curated = [
   {
     id: 'goblet-squat', name: 'Goblet Squat', muscles: ['Legs', 'Glutes', 'Core'],
     equipment: ['Dumbbells'], level: 'Beginner', unit: 'reps',
@@ -169,6 +169,44 @@ export const catalog = [
   },
 ];
 
+const curatedMuscles = {
+  'goblet-squat': [['Quadriceps', 'Glutes'], ['Abdominals', 'Hamstrings']],
+  'dumbbell-bench-press': [['Chest'], ['Shoulders', 'Triceps']],
+  'dumbbell-row': [['Lats', 'Mid-back'], ['Biceps', 'Forearms']],
+  'push-up': [['Chest'], ['Shoulders', 'Triceps', 'Abdominals']],
+  'incline-push-up': [['Chest'], ['Shoulders', 'Triceps', 'Abdominals']],
+  'reverse-lunge': [['Quadriceps', 'Glutes'], ['Hamstrings']],
+  'forearm-plank': [['Abdominals'], ['Shoulders']],
+  'bodyweight-squat': [['Quadriceps', 'Glutes'], ['Abdominals', 'Hamstrings']],
+  'glute-bridge': [['Glutes'], ['Hamstrings', 'Abdominals']],
+  'dumbbell-curl': [['Biceps'], ['Forearms']],
+  'dumbbell-shoulder-press': [['Shoulders'], ['Triceps']],
+  'dumbbell-rdl': [['Glutes', 'Hamstrings'], ['Lower back']],
+  'bird-dog': [['Abdominals', 'Lower back'], ['Glutes']],
+  'dead-bug': [['Abdominals'], []],
+  'pull-up': [['Lats'], ['Biceps', 'Forearms', 'Shoulders']],
+};
+
+export const catalog = [
+  ...curated.map((exercise) => ({
+    ...exercise,
+    category: 'Strength',
+    primaryMuscles: curatedMuscles[exercise.id][0],
+    secondaryMuscles: curatedMuscles[exercise.id][1],
+    ...(exercise.equipment.includes('Dumbbells') && { loadType: 'per-dumbbell' }),
+  })),
+  ...additionalExercises.map((exercise) => {
+    const video = demonstrations[exercise.id];
+    if (!video) return exercise;
+    const thumbnailUrl = video.thumbnailUrl ?? `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`;
+    return { ...exercise, demonstration: { ...video, thumbnailUrl } };
+  }),
+];
+const additionalEquipment = [...new Set(additionalExercises.flatMap((exercise) => exercise.equipment))].sort();
+export const equipment = [...new Set(['Dumbbells', 'Bench', 'Pull-up bar', ...additionalEquipment])];
+export const muscles = ['Legs', 'Glutes', 'Chest', 'Back', 'Shoulders', 'Arms', 'Core', 'Neck'];
+export const levels = ['Beginner', 'Intermediate', 'Advanced'];
+export const categories = [...new Set(catalog.map(({ category }) => category))].sort();
 export const exercisesById = new Map(catalog.map((exercise) => [exercise.id, exercise]));
 
 function words(text) {
@@ -176,16 +214,19 @@ function words(text) {
 }
 
 const searchable = new Map(catalog.map((item) => [item.id, words([
-  item.name, item.description, ...item.muscles, ...item.equipment, ...(item.equipment.length ? [] : ['Bodyweight', 'No equipment']),
+  item.name, item.description, item.category, ...item.muscles, ...item.equipment,
+  ...(item.primaryMuscles ?? []), ...(item.secondaryMuscles ?? []), ...(item.equipment.length ? [] : ['Bodyweight', 'No equipment']),
 ].join(' '))]));
 
-export function recommend({ targets, available, query, recent, level }) {
+export function recommend({ targets, available, query, recent, level, category, withVideo }) {
   const terms = words(query);
   return catalog
     .filter((item) => (
       (!targets.length || item.muscles.some((muscle) => targets.includes(muscle))) &&
       (available === null || item.equipment.every((item) => available.includes(item))) &&
       (!level || item.level === level) &&
+      (!category || item.category === category) &&
+      (!withVideo || item.demonstration) &&
       terms.every((term) => searchable.get(item.id).some((word) => word.startsWith(term) || term === word + 's'))
     ))
     .map((exercise, index) => ({

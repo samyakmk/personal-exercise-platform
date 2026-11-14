@@ -1,8 +1,9 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Archive, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Dumbbell, History, Pencil, Play, Plus, Repeat2, Search, SearchX, X } from 'lucide-react-native';
 import { Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { api, createId } from '../api';
+import { useActiveSession } from '../activeSession';
 import { addDays, asDate, compareWorkoutTime, dateKey, earliestWorkoutDate, formatDay, formatTime, isWorkoutDate, latestWorkoutDate, weekStart, workoutDay, workoutTime } from '../dates';
 import { Sheet } from '../components/Sheet';
 import { TrainingBackup } from '../components/TrainingBackup';
@@ -13,19 +14,19 @@ import { Button, Copy, Display, Empty, IconButton, Input, Notice, PageTitle, Pan
 import { useTrainingNavigation } from '../navigation';
 import { DownloadLink } from '../platform/DownloadLink';
 import { DateTimeField } from '../platform/fields';
-import { readTrainingSession, writeTrainingSession } from '../platform/trainingSession';
 import { readWorkoutDraft, removeWorkoutDraft, writeWorkoutDraft } from '../platform/workoutDraft';
 import { color } from '../theme';
-import { completedWorkouts, isSavedTrainingLog, movementSummary } from '../trainingProgress';
-import type { Exercise, Movement, TrainingSession as Session, Workout, WorkoutStatus } from '../types';
+import { completedWorkouts, movementSummary } from '../trainingProgress';
+import type { Exercise, Movement, Workout, WorkoutStatus } from '../types';
 import { useLocalClock } from '../useLocalClock';
 import { useWorkspace } from '../workspace';
+import { useSaveWorkout } from '../useSaveWorkout';
 
 type Editor = { initial?: Workout; preset?: Exercise; status: WorkoutStatus; date: string; copy?: boolean; draft?: WorkoutDraft; keepDraft?: boolean };
 
 export function Workouts() {
   const { data, mutate, announce, reload } = useWorkspace();
-  const { intent, clear } = useTrainingNavigation();
+  const { intent, clear, open } = useTrainingNavigation();
   const router = useRouter();
   const { view, week, day, scope, logged } = useLocalSearchParams<{
     view?: string; week?: string; day?: string; scope?: string; logged?: string;
@@ -42,19 +43,18 @@ export function Workouts() {
   const [removingExamples, setRemovingExamples] = useState(false);
   const [examplesError, setExamplesError] = useState('');
   const [storedDraft, setStoredDraft] = useState<WorkoutDraft | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const { session, keepSession } = useActiveSession();
+  const saveWorkout = useSaveWorkout();
   const [sessionOpen, setSessionOpen] = useState(false);
   const [nextPlan, setNextPlan] = useState<Workout | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [expandedWorkout, setExpandedWorkout] = useState<string | null>(null);
   const workspaceKey = data?.workspaceKey;
-  const pendingEdit = useRef<{ key: string; id: string } | null>(null);
   const firstWeek = weekStart(earliestWorkoutDate);
   const lastWeek = weekStart(latestWorkoutDate);
   useEffect(() => { setStoredDraft(workspaceKey ? readWorkoutDraft(workspaceKey) : null); }, [workspaceKey]);
   useEffect(() => {
-    setSession(workspaceKey ? readTrainingSession(workspaceKey) : null);
     setSessionOpen(false);
     setNextPlan(null);
     setConfirmDiscard(false);
@@ -75,14 +75,6 @@ export function Workouts() {
     if (workspaceKey) removeWorkoutDraft(workspaceKey);
     setStoredDraft(null);
   }
-  async function saveWorkout(workout: Workout, existing: boolean, repeatWeeks?: number) {
-    if (!existing || !workout.revision) return mutate(() => api.saveWorkout(workout, existing, repeatWeeks));
-    const key = JSON.stringify([workspaceKey, workout]);
-    const edit = pendingEdit.current?.key === key ? pendingEdit.current : { key, id: createId() };
-    pendingEdit.current = edit;
-    await mutate(() => api.saveWorkout(workout, existing, repeatWeeks, edit.id));
-    if (pendingEdit.current === edit) pendingEdit.current = null;
-  }
   const now = useLocalClock();
   const current = workoutTime(now);
   const today = current.date;
@@ -92,17 +84,9 @@ export function Workouts() {
   const nextWeek = addDays(shownWeek, 7);
   const narrow = useWindowDimensions().width < 540;
 
-  const keepSession = useCallback((value: Session | null) => {
-    if (workspaceKey) writeTrainingSession(workspaceKey, value);
-    setSession(value);
-  }, [workspaceKey]);
-
   useEffect(() => {
-    if (session && data?.workouts.some((workout) => isSavedTrainingLog(session, workout))) {
-      keepSession(null);
-      setSessionOpen(false);
-    }
-  }, [data?.workouts, keepSession, session]);
+    if (!session) setSessionOpen(false);
+  }, [session]);
 
   const startSession = useCallback((plan: Workout) => {
     if (session && session.plan.id !== plan.id) {
@@ -116,7 +100,8 @@ export function Workouts() {
   }, [keepSession, session]);
 
   useEffect(() => {
-    if (!data || !intent || intent.type === 'review') return;
+    if (!data || !intent || intent.type === 'review' || intent.type === 'new-session'
+      || intent.type === 'resume-session') return;
     if (intent.type === 'schedule') {
       setAddExercise(null);
       setEditor({ status: 'planned', date: dateKey(), keepDraft: !draft });
@@ -234,7 +219,7 @@ export function Workouts() {
     }>Sample workouts are marked and excluded from your progress.</Notice>}
     {examplesError && <Notice error>{examplesError}</Notice>}
     {session && !sessionOpen && <Notice action={<View style={styles.actions}>
-      <Button compact icon={Play} onPress={() => setSessionOpen(true)}>Resume session</Button>
+      <Button compact icon={Play} onPress={() => session.adHoc ? open({ type: 'resume-session' }) : setSessionOpen(true)}>Resume session</Button>
         <Button compact kind="quiet" onPress={() => {
           if (Object.values(session.sets).some((sets) => sets.length)) setConfirmDiscard(true);
           else keepSession(null);

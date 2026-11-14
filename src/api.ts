@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { dateKey, workoutTime } from './dates';
 import { uploadVideo } from './platform/uploadVideo';
-import type { Clip, ClipReview, EquipmentMode, Exercise, FormFeedback, Recommendation, SelectedVideo, Snapshot, Workout, Workspace, WorkspaceChange } from './types';
+import type { Clip, ClipReview, Exercise, ExerciseFilters, FormFeedback, Recommendation, SelectedVideo, Snapshot, Workout, WorkoutDelta, Workspace, WorkspaceChange } from './types';
 
 const origin = process.env.EXPO_PUBLIC_API_ORIGIN ?? '';
 
@@ -40,7 +40,7 @@ async function requestWithResponse<T>(path: string, init?: RequestInit, timeout 
       throw new RequestError(typeof result?.error === 'string' ? result.error : 'Something went wrong. Please try again.',
         response.status, Number.isSafeInteger(retry) && retry > 0 ? retry : undefined);
     }
-    if (result === null) throw new RequestError('Repform received an unreadable response. Try again.', 502);
+    if (result === null) throw new RequestError('Liftmorrow received an unreadable response. Try again.', 502);
     return { data: result, headers: response.headers };
   } catch (error) {
     if (init?.signal?.aborted || error instanceof RequestError) throw error;
@@ -54,7 +54,7 @@ async function requestWithResponse<T>(path: string, init?: RequestInit, timeout 
 
 async function request<T>(path: string, init?: RequestInit, timeout?: number): Promise<T> {
   const { data } = await requestWithResponse<T>(path, init, timeout);
-  if (data === null) throw new RequestError('Repform received an unreadable response. Try again.', 502);
+  if (data === null) throw new RequestError('Liftmorrow received an unreadable response. Try again.', 502);
   return data;
 }
 
@@ -62,11 +62,13 @@ function json(method: string, data: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) };
 }
 
-function exerciseParams(targets: string[], mode: EquipmentMode, query: string, level: Exercise['level'] | null) {
+function exerciseParams({ targets, mode, query, level, category, withVideo }: ExerciseFilters) {
   const now = workoutTime();
   const params = new URLSearchParams({ equipment: mode, q: query, today: now.date, now: now.time });
   targets.forEach((target) => params.append('muscle', target));
   if (level) params.set('level', level);
+  if (category) params.set('category', category);
+  if (withVideo) params.set('video', '1');
   return params.toString();
 }
 
@@ -88,11 +90,11 @@ export const api = {
   restoreTrainingBackup: (contents: string) => request<{ restore: { added: number; skipped: number; equipmentImported: boolean; savedExercises: number } }>(
     'workspace/training-backup?response=summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: contents }, 35_000,
   ),
-  exercises(targets: string[], mode: EquipmentMode, query: string, level: Exercise['level'] | null, signal: AbortSignal) {
-    return request<Exercise[]>('exercises?' + exerciseParams(targets, mode, query, level), { signal });
+  exercises(filters: ExerciseFilters, signal: AbortSignal) {
+    return request<Exercise[]>('exercises?' + exerciseParams(filters), { signal });
   },
-  recommendations: (targets: string[], mode: EquipmentMode, query: string, level: Exercise['level'] | null, signal: AbortSignal) => (
-    request<Recommendation[]>('exercises/recommendations?' + exerciseParams(targets, mode, query, level), { method: 'POST', signal }, 55_000)
+  recommendations: (filters: ExerciseFilters, signal: AbortSignal) => (
+    request<Recommendation[]>('exercises/recommendations?' + exerciseParams(filters), { method: 'POST', signal }, 55_000)
   ),
   startClipReview: (id: string, startSeconds: number, refresh = false) => request<ClipReview>(
     'clips/' + id + '/review?background=1' + (startSeconds ? '&start=' + startSeconds : '') + (refresh ? '&refresh=1' : ''),
@@ -110,7 +112,7 @@ export const api = {
   setExerciseBookmark: (id: string, saved: boolean) => request<WorkspaceChange>(
     'exercises/' + id + '/bookmark?response=delta', { method: saved ? 'PUT' : 'DELETE' },
   ),
-  saveWorkout: (workout: Workout, existing: boolean, repeatWeeks?: number, operationId?: string) => request<WorkspaceChange>(
+  saveWorkout: (workout: Workout, existing: boolean, repeatWeeks?: number, operationId?: string) => request<WorkoutDelta>(
     (existing ? 'workouts/' + workout.id : 'workouts') + '?response=delta',
     json(existing ? 'PUT' : 'POST', { ...workout, ...(repeatWeeks && repeatWeeks > 1 && { repeatWeeks }), ...(operationId && { operationId }) }),
   ),
@@ -127,7 +129,7 @@ export const api = {
       const error = data && typeof data === 'object' && 'error' in data ? data.error : undefined;
       throw new RequestError(typeof error === 'string' ? error : 'The video could not be saved. Try again.', status);
     }
-    if (!data) throw new RequestError('Repform received an unreadable response. Try again.', 502);
+    if (!data) throw new RequestError('Liftmorrow received an unreadable response. Try again.', 502);
   },
   deleteClip: (id: string) => request<WorkspaceChange>('clips/' + id + '?response=delta', { method: 'DELETE' }),
   clip: (id: string, signal: AbortSignal) => request<Clip>('clips/' + id, { signal }),

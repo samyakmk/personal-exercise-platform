@@ -3,9 +3,10 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
+import { isTrainingBackupFormat } from '../shared/training-backup.mjs';
 import { AiError } from './ai.mjs';
 import { reviewVersion } from './coaching.mjs';
-import { catalog, equipment, exercisesById, muscles, recommend } from './catalog.mjs';
+import { catalog, categories, equipment, exercisesById, levels, muscles, recommend } from './catalog.mjs';
 import { convertQuickTime } from './quicktime.mjs';
 import { hasVideoTrack } from './video-container.mjs';
 import { workoutCalendar, workoutHistoryCsv } from './workout-exports.mjs';
@@ -16,7 +17,8 @@ const maxBackupBytes = 8 * 1024 * 1024;
 const maxBackupWorkouts = 10_000;
 const uuidPattern = /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
 const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
-const cookieName = 'repform_workspace';
+const cookieName = 'liftmorrow_workspace';
+const previousCookieName = 'repform_workspace';
 const videoTypes = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 const workspaceResponseVersion = 1;
 const compress = promisify(gzip);
@@ -35,6 +37,16 @@ function requireValue(condition, message, status = 400) {
 function json(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(data));
+}
+
+async function catalogJson(req, res, data) {
+  const jsonBody = JSON.stringify(data);
+  const encoding = jsonBody.length >= 16 * 1024 && preferredEncoding(req.headers['accept-encoding'], ['gzip']);
+  const body = encoding ? await compress(jsonBody, { level: 3 }) : jsonBody;
+  if (res.destroyed) return;
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) };
+  if (encoding) headers['Content-Encoding'] = encoding;
+  res.writeHead(200, headers).end(body);
 }
 
 function matchesWorkspaceTag(header, tag) {
@@ -93,32 +105,35 @@ function workoutFields(body) {
   requireValue(typeof time === 'string' && timePattern.test(time), 'Choose a valid workout time.');
   requireValue(['planned', 'completed'].includes(status), 'Choose a workout status.');
   requireValue(notes === undefined || typeof notes === 'string' && notes.length <= 1200, 'Keep workout notes to 1200 characters.');
-  requireValue(Array.isArray(exercises) && exercises.length > 0 && exercises.length <= catalog.length, 'Add at least one exercise.');
+  const completed = status === 'completed';
+  requireValue(Array.isArray(exercises) && exercises.length <= catalog.length && (completed || exercises.length > 0),
+    'Add at least one exercise.');
   requireValue(exercises.every((entry) => entry && exercisesById.has(entry.exerciseId)), 'Choose an exercise from the library.');
   requireValue(new Set(exercises.map((entry) => entry.exerciseId)).size === exercises.length, 'Use each exercise once per workout.');
   return {
     name: name.trim().toWellFormed(), date, time, status,
     ...(notes !== undefined && { notes: notes.trim().toWellFormed() }),
-    exercises: exercises.map(movementFields),
+    exercises: exercises.map((movement) => movementFields(movement, completed)),
   };
 }
 
-function movementFields({ exerciseId, sets, reps, load, setDetails }) {
-  const weighted = exercisesById.get(exerciseId).equipment.includes('Dumbbells');
-  function setFields(item) {
-    requireValue(item && Number.isInteger(item.reps) && item.reps >= 1 && item.reps <= 600,
-      'Enter valid reps or hold times from 1 to 600.');
-    const weight = item.load;
-    if (weight === undefined) return { reps: item.reps };
+function movementFields({ exerciseId, sets, reps, load, setDetails }, completed) {
+  const weighted = exercisesById.get(exerciseId).loadType;
+  function setFields(item, optionalReps = false) {
+    const reps = item?.reps;
+    const weight = item?.load;
+    requireValue(item && (Number.isInteger(reps) && reps >= 1 && reps <= 600
+      || optionalReps && reps === undefined && weight !== undefined), 'Enter valid reps or hold times from 1 to 600.');
+    if (weight === undefined) return { reps };
     requireValue(weighted && weight && ['kg', 'lb'].includes(weight.unit) && typeof weight.value === 'number'
       && weight.value > 0 && weight.value <= 1000 && /^\d+(?:\.\d{1,2})?$/.test(String(weight.value)),
-    'Use a dumbbell weight from 0.01 to 1000 kg or lb.');
-    return { reps: item.reps, load: { value: weight.value, unit: weight.unit } };
+      'Use a weight from 0.01 to 1000 kg or lb.');
+    return { ...(reps !== undefined && { reps }), load: { value: weight.value, unit: weight.unit } };
   }
   if (setDetails !== undefined) {
-    requireValue(Array.isArray(setDetails) && setDetails.length >= 1 && setDetails.length <= 30,
+    requireValue(Array.isArray(setDetails) && setDetails.length <= 30 && (completed || setDetails.length >= 1),
       'Enter between 1 and 30 sets for each exercise.');
-    const details = setDetails.map(setFields);
+    const details = setDetails.map((set) => setFields(set, completed));
     return { exerciseId, sets: details.length, ...details[0], setDetails: details };
   }
   requireValue(Number.isInteger(sets) && sets >= 1 && sets <= 30, 'Enter between 1 and 30 sets for each exercise.');
@@ -138,6 +153,7 @@ function weeklyWorkouts(workout, weeks) {
     date.setUTCDate(first.getUTCDate() + index * 7);
     const day = date.toISOString().slice(0, 10);
     requireValue(validDate(day), 'Choose a date range that ends by December 2199.');
+    // This namespace is part of the persisted workout IDs and must survive a rename.
     const hash = createHash('sha256').update(`repform-weekly:${workout.id}:${index}`).digest('hex');
     const id = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-8${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
     return { ...workout, id, date: day };
@@ -219,7 +235,11 @@ function exerciseSelection(store, workspace, url) {
   const query = url.searchParams.get('q') ?? '';
   requireValue(query.length <= 100, 'Keep the search to 100 characters.');
   const level = url.searchParams.get('level');
-  requireValue(level === null || ['Beginner', 'Intermediate'].includes(level), 'Invalid exercise level.');
+  requireValue(level === null || levels.includes(level), 'Invalid exercise level.');
+  const category = url.searchParams.get('category');
+  requireValue(category === null || categories.includes(category), 'Invalid exercise type.');
+  const video = url.searchParams.get('video');
+  requireValue(video === null || video === '1', 'Invalid video filter.');
   const available = mode === 'bodyweight' ? [] : mode === 'saved' ? store.equipment(workspace) : null;
   const utc = new Date().toISOString();
   const day = url.searchParams.get('today') ?? utc.slice(0, 10);
@@ -229,7 +249,7 @@ function exerciseSelection(store, workspace, url) {
   for (const exercises of store.recentWorkouts(workspace, day, time)) {
     for (const { exerciseId } of exercises) history.set(exerciseId, (history.get(exerciseId) ?? 0) + 1);
   }
-  return { targets, available, history, candidates: recommend({ targets, available, recent: history, query, level }) };
+  return { targets, available, history, candidates: recommend({ targets, available, recent: history, query, level, category, withVideo: video === '1' }) };
 }
 
 export function createApi(store, {
@@ -238,7 +258,7 @@ export function createApi(store, {
 } = {}) {
   const uploading = new Set();
   const legacyReads = { used: 0, limit: legacyReadBudgetBytes };
-  const workspaceConfig = { catalog, muscles, equipmentOptions: equipment, aiAvailable: coaching.available, reviewVersion };
+  const workspaceConfig = { catalog, muscles, equipmentOptions: equipment, exerciseCategories: categories, aiAvailable: coaching.available, reviewVersion };
   const workspaceSchema = createHash('sha256').update(JSON.stringify([workspaceResponseVersion, workspaceConfig])).digest('hex');
   return async function api(req, res, url) {
     const method = req.method;
@@ -267,17 +287,24 @@ export function createApi(store, {
       const [, , resource, id, action, extra] = url.pathname.split('/');
       requireValue(!extra, 'Endpoint not found.', 404);
       const wantsDelta = url.searchParams.get('response') === 'delta';
-      const cookie = (req.headers.cookie ?? '').split(';').map((value) => value.trim())
-        .find((value) => value.startsWith(cookieName + '='));
-      let workspace = cookie?.slice(cookieName.length + 1);
+      const cookies = (req.headers.cookie ?? '').split(';').map((value) => value.trim());
+      const readCookie = (name) => cookies.find((value) => value.startsWith(name + '='))?.slice(name.length + 1);
+      const currentCookie = readCookie(cookieName);
+      const previousCookie = readCookie(previousCookieName);
+      let workspace = currentCookie ?? previousCookie;
       if (workspace && (!uuidPattern.test(workspace) || !store.workspace(workspace))) workspace = undefined;
 
       if (resource === 'workspace' && method === 'GET' && !id) {
         const existing = Boolean(workspace);
-        if (!workspace) {
-          workspace = store.createWorkspace();
-          res.setHeader('Set-Cookie', `${cookieName}=${workspace}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secureCookies ? '; Secure' : ''}`);
+        workspace ??= store.createWorkspace();
+        const cookieOptions = `Path=/; HttpOnly; SameSite=Lax${secureCookies ? '; Secure' : ''}`;
+        const updates = [];
+        if (!existing || currentCookie === undefined) {
+          updates.push(`${cookieName}=${workspace}; ${cookieOptions}; Max-Age=31536000`);
         }
+        if (previousCookie !== undefined) updates.push(`${previousCookieName}=; ${cookieOptions}; Max-Age=0`);
+        if (updates.length) res.setHeader('Set-Cookie', updates);
+        // The key links existing drafts and in-progress sessions to this workspace.
         const workspaceKey = createHash('sha256').update('repform-local-drafts:' + workspace).digest('hex').slice(0, 24);
         res.setHeader('Vary', origin && originAllowed ? 'Origin, Cookie, Accept-Encoding' : 'Cookie, Accept-Encoding');
         const { tag, data } = store.readWorkspace(workspace, (revision, liveReviews, now) => {
@@ -289,13 +316,7 @@ export function createApi(store, {
         res.setHeader('ETag', 'W/' + tag);
         closeAfterResponse(req, res);
         if (!data) return res.writeHead(304).end();
-        const jsonBody = JSON.stringify(data);
-        const compressible = jsonBody.length >= 16 * 1024 && preferredEncoding(req.headers['accept-encoding'], ['gzip']);
-        const body = compressible ? await compress(jsonBody, { level: 3 }) : jsonBody;
-        if (res.destroyed) return;
-        const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) };
-        if (compressible) headers['Content-Encoding'] = compressible;
-        return res.writeHead(200, headers).end(body);
+        return await catalogJson(req, res, data);
       }
 
       requireValue(workspace, 'Workspace not found. Reload the page and try again.', 404);
@@ -309,13 +330,13 @@ export function createApi(store, {
             maxBytes: maxBackupBytes, maxWorkouts: maxBackupWorkouts });
           requireValue(body !== null, 'This workspace is too large for a single training backup. Choose a narrower date range.', 413);
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8',
-            'Content-Disposition': 'attachment; filename="repform-training-backup.json"', 'Content-Length': Buffer.byteLength(body) });
+            'Content-Disposition': 'attachment; filename="liftmorrow-training-backup.json"', 'Content-Length': Buffer.byteLength(body) });
           return res.end(body);
         }
         if (method === 'POST') {
           const backup = await readJson(req, res, maxBackupBytes);
-          requireValue(backup.format === 'repform-training' && backup.version === 1,
-            'Choose a Repform training backup in the current format.');
+          requireValue(isTrainingBackupFormat(backup.format) && backup.version === 1,
+            'Choose a Liftmorrow training backup in the current format.');
           requireValue(backup.equipment === null || optionList(backup.equipment, equipment), 'This backup contains invalid equipment options.');
           const bookmarks = backup.bookmarks === undefined ? [] : backup.bookmarks;
           requireValue(Array.isArray(bookmarks) && bookmarks.length <= catalog.length && new Set(bookmarks).size === bookmarks.length
@@ -345,7 +366,8 @@ export function createApi(store, {
         return json(res, 200, coaching.snapshot(workspace));
       }
       if (resource === 'exercises' && method === 'GET' && !id) {
-        return json(res, 200, exerciseSelection(store, workspace, url).candidates);
+        res.setHeader('Vary', origin && originAllowed ? 'Origin, Accept-Encoding' : 'Accept-Encoding');
+        return await catalogJson(req, res, exerciseSelection(store, workspace, url).candidates);
       }
       if (resource === 'exercises' && action === 'bookmark' && ['PUT', 'DELETE'].includes(method)) {
         requireValue(exercisesById.has(id), 'Exercise not found.', 404);
@@ -354,7 +376,7 @@ export function createApi(store, {
       }
       if (resource === 'exercises' && id === 'recommendations' && method === 'POST' && !action) {
         const selection = exerciseSelection(store, workspace, url);
-        return json(res, 200, await coaching.recommend(workspace, selection));
+        return json(res, 200, await coaching.recommend(workspace, { ...selection, candidates: selection.candidates.slice(0, 50) }));
       }
 
       if (resource === 'equipment' && method === 'PUT' && !id) {
@@ -368,7 +390,7 @@ export function createApi(store, {
         if (method === 'GET' && id === 'history.csv') {
           res.writeHead(200, {
             'Content-Type': 'text/csv; charset=utf-8',
-            'Content-Disposition': 'attachment; filename="repform-history.csv"',
+            'Content-Disposition': 'attachment; filename="liftmorrow-history.csv"',
           });
           return await pipeline(Readable.from(workoutHistoryCsv(store.historyWorkouts(workspace)), { objectMode: false }), res);
         }
@@ -379,7 +401,7 @@ export function createApi(store, {
           const workouts = workout ? [workout] : store.calendarWorkouts(workspace);
           res.writeHead(200, {
             'Content-Type': 'text/calendar; charset=utf-8',
-            'Content-Disposition': 'attachment; filename="repform-calendar.ics"',
+            'Content-Disposition': 'attachment; filename="liftmorrow-calendar.ics"',
           });
           return await pipeline(Readable.from(workoutCalendar(workouts), { objectMode: false }), res);
         }
@@ -567,8 +589,8 @@ export function createApi(store, {
       }
       closeAfterResponse(req, res);
       const known = error instanceof ApiError || error instanceof AiError;
-      if (error instanceof AiError && error.diagnostic) console.warn('Repform AI request failed:', error.diagnostic);
-      else if (!known) console.error('Repform API request failed:', error.name);
+      if (error instanceof AiError && error.diagnostic) console.warn('Liftmorrow AI request failed:', error.diagnostic);
+      else if (!known) console.error('Liftmorrow API request failed:', error.name);
       if (error instanceof AiError && error.retryAfter !== undefined) res.setHeader('Retry-After', String(error.retryAfter));
       json(res, known ? error.status : 500, { error: known ? error.message : 'Something went wrong. Please try again.' });
     }

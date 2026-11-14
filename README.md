@@ -1,6 +1,6 @@
-# Repform
+# Liftmorrow
 
-Repform is a web-first personal training workspace. Browse exercises with YouTube demonstrations, schedule and log workouts, track progress, and review form from private video uploads.
+Liftmorrow is a web-first personal training workspace. Browse exercises with YouTube demonstrations, schedule and log workouts, track progress, and review form from private video uploads.
 
 ## Run locally
 
@@ -15,22 +15,22 @@ npm start
 
 Open [the website](http://127.0.0.1:4173). For a live-reloading web development server, run `npm run dev` and open [localhost:8081](http://localhost:8081).
 
-A browser cookie links equipment, saved exercises, workouts, and videos in `.data/repform.sqlite` to this workspace. New workspaces start empty. **Load sample workouts** on Overview adds editable examples. They appear in training metrics once saved as personal workouts. **Remove sample workouts** clears the remaining examples.
+A browser cookie links equipment, saved exercises, workouts, and videos to this workspace. New installations use `.data/liftmorrow.sqlite`. Existing installations continue to open their original database and upgrade the browser cookie on the next workspace load. Earlier training backups remain supported. New workspaces start empty. **Load sample workouts** on Overview adds editable examples. They appear in training metrics once saved as personal workouts. **Remove sample workouts** clears the remaining examples.
 
-The server binds to loopback by default. `PORT` changes the port and `REPFORM_DB` selects another SQLite file. Set `REPFORM_ALLOWED_HOSTS` for trusted custom hostnames. Use a dedicated hostname if sharing a machine with untrusted web services, since browsers send cookies across ports on the same hostname.
+The server binds to loopback by default. `PORT` changes the port and `LIFTMORROW_DB` selects another SQLite file. Set `LIFTMORROW_ALLOWED_HOSTS` for trusted custom hostnames. Use a dedicated hostname if sharing a machine with untrusted web services, since browsers send cookies across ports on the same hostname.
 
 ## Training workflows
 
-- **Exercises** puts search and muscle groups up front. Open **Filters** for equipment and difficulty, or **My equipment** to save available gear. Muscle, equipment, difficulty, and saved-only selections stay in the URL. Save exercises to keep them handy in the library and workout picker. Exercise details can be opened directly with an `/explore?exercise=…` URL.
-- **Workouts** supports one-time or weekly plans, filtering by week or day, and repeating completed workouts. Open a row’s **Details** to see its exercises or edit the workout. In the editor, **Workout options** contains notes, status, and recurrence. Guided sessions show the exercise demonstration and previous performance. Record reps or hold seconds and weight per dumbbell in kg or lb. The selected exercise, recorded sets, in-progress set inputs, and timers resume in the same tab after reload. The hold timer can fill elapsed seconds when stopped early.
+- **Exercises** puts search and muscle groups up front. Open **Filters** for equipment, difficulty, exercise type and **Has video**, or **My equipment** to save available gear. Filter selections stay in the URL. Save exercises to keep them handy in the library and workout picker. Exercise details can be opened directly with an `/explore?exercise=…` URL.
+- **Workouts** supports one-time or weekly plans, filtering by week or day, and repeating completed workouts. Open a row’s **Details** to see its exercises or edit the workout. In the editor, **Workout options** contains notes, status, and recurrence. Guided sessions show the exercise demonstration and previous performance. Record reps or seconds and enter weight in kg or lb where applicable. The selected exercise, recorded sets, in-progress set inputs, and timers resume in the same tab after reload. The hold timer can fill elapsed seconds when stopped early.
 - **Progress** shows weekly activity and per-exercise history with expandable sets. Select a week to open its workout history, or open a workout from the exercise's session list. Recent charts show reps, hold seconds, or heaviest weight, with kg and lb converted to the latest logged unit for comparison.
 - **Export and backup** in Workouts contains the calendar, CSV history, and JSON training backup. A backup includes personal workouts, bookmarks, and equipment. Each part can contain up to 10,000 workouts and 8 MiB. Use date ranges for larger histories. Restore merges missing workouts and bookmarks and fills equipment preferences when unset. Video downloads are under **Video options** in Form Review.
 
 ## AI recommendations and form review
 
-The start and development commands load `CHATGPT_API_KEY` from the ignored local `.env` through Node. The web build skips dotenv loading. `REPFORM_AI_MODEL` can override the default `gpt-5.4-mini` model, and `REPFORM_FFMPEG` can point to an FFmpeg executable. Without a key, exercise filters, workout management, and private video storage remain usable. `npm run setup:pose` downloads a checksum-pinned [MoveNet Thunder ONNX model](https://huggingface.co/Xenova/movenet-singlepose-thunder) into ignored local storage. `REPFORM_POSE_MODEL` can point to another copy of that artifact.
+The start and development commands load `CHATGPT_API_KEY` from the ignored local `.env` through Node. The web build skips dotenv loading. `LIFTMORROW_AI_MODEL` can override the default `gpt-5.4-mini` model, and `LIFTMORROW_FFMPEG` can point to an FFmpeg executable. Without a key, exercise filters, workout management, and private video storage remain usable. `npm run setup:pose` downloads a checksum-pinned [MoveNet Thunder ONNX model](https://huggingface.co/Xenova/movenet-singlepose-thunder) into ignored local storage. `LIFTMORROW_POSE_MODEL` can point to another copy of that artifact.
 
-In Exercises, **Get recommendations** sends eligible catalog entries, muscle and equipment selections, and recent completion counts to OpenAI. Form Review accepts MP4, WebM, and MOV up to 50 MB. The server converts MOV files to MP4 with FFmpeg. A selected file and an active upload stay available while you navigate the website in the same tab.
+In Exercises, **Get recommendations** sends up to 50 matching catalog entries, muscle and equipment selections, and recent completion counts to OpenAI. Form Review accepts MP4, WebM, and MOV up to 50 MB. The server converts MOV files to MP4 with FFmpeg. A selected file and an active upload stay available while you navigate the website in the same tab.
 
 **Analyze form** sends up to eight JPEG stills from a 20-second window. Open **Choose start time** to enter a starting second or use the current player position. FFmpeg extracts frames locally and removes temporary files. The open clip and active review survive a page reload in the same workspace. **Saved review section** switches between up to ten successful sections. Feedback timestamps seek to the supporting frames, and failed or cancelled attempts preserve saved results. In **Video options**, changing the selected exercise clears its feedback; deleting a clip removes its feedback and cancels active analysis.
 
@@ -76,11 +76,14 @@ The core benchmark retains `core-17`, a mild single-lift glute-bridge fault the 
 ## Source
 
 - `app/` and `src/screens/` contain Expo Router routes and React Native TypeScript screens for the laptop web layout. `src/components/Shell.tsx` owns the sidebar and `src/theme.ts` defines the shared palette and typography.
-- `src/platform/` contains the browser-specific dialogs, form fields, YouTube embed, and video handling alongside native implementations. The supported build and test target is the website.
-- `server/catalog.mjs` contains the curated exercise catalog and deterministic filters. `server/api.mjs` serves workspace data, downloads, and private media. Upload validation checks the container and video samples. Playback and form review also depend on decoder support for the source codec.
+- `src/platform/` contains browser-specific dialogs, form fields, demonstration players, and video handling alongside native implementations. The supported build and test target is the website.
+- `server/catalog.mjs` combines Liftmorrow's curated exercises with `server/free-exercise-db.json`. The bundled snapshot comes from [Free Exercise DB](https://github.com/yuhonas/free-exercise-db/tree/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5) ([Unlicense](https://github.com/yuhonas/free-exercise-db/blob/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/LICENSE.md)). Liftmorrow omits overlapping entries, normalizes equipment and muscle groups, and keeps its own demonstration videos.
+- `server/api.mjs` serves workspace data, downloads, and private media. Upload validation checks the container and video samples. Playback and form review also depend on decoder support for the source codec.
 - `server/store.mjs` owns SQLite persistence, review leases, workout edit receipts, and workspace validators. The API sends compact mutation responses and compresses large workspace reads. The browser holds the validator in memory for unchanged workspace refreshes and confirms uploaded clips before opening them.
 
 ### Demonstration videos
+
+The library embeds YouTube and Vimeo videos from their original publishers. `server/exercise-demonstrations.json` records the video ID, original uploader, and source page for each added demonstration. Matches were checked against the publisher's exercise guide and the video provider's embed metadata. Written descriptions and muscle tags use the bundled catalog data. [PureGym](https://www.puregym.com/exercises/) · [CrossFit](https://www.crossfit.com/crossfit-movements) · [Precision Nutrition](https://www.precisionnutrition.com/video-exercise-library) · [AtletIQ](https://atletiq.com/en/exercises/) · [Fitloop](https://fitloop.app/exercises)
 
 - [Dumbbell goblet squat by Bony to Bombshell](https://www.youtube.com/watch?v=NIrcxSkwui8)
 - [Dumbbell bench press by PureGym](https://www.youtube.com/watch?v=AduT4Eq-iP0)
@@ -100,4 +103,4 @@ The core benchmark retains `core-17`, a mild single-lift glute-bridge fault the 
 
 ### Photo sources
 
-The [Photo credits page](http://127.0.0.1:4173/photo-credits) lists the original sources and credits. Repform bundles a [CC0 dashboard photograph](https://commons.wikimedia.org/wiki/File:Free_weights_area.jpg) and U.S. public-domain photographs and video frames for the exercise thumbnails. The [source list](src/photoCredits.ts) records each asset’s publisher and rights status.
+The [Photo credits page](http://127.0.0.1:4173/photo-credits) lists the original sources and credits. Liftmorrow bundles a [CC0 dashboard photograph](https://commons.wikimedia.org/wiki/File:Free_weights_area.jpg) and U.S. public-domain photographs and video frames for the exercise thumbnails. The [source list](src/photoCredits.ts) records each asset’s publisher and rights status.

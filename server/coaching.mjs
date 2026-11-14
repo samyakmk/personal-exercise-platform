@@ -5,7 +5,7 @@ import { analyzeClip } from './analyze-clip.mjs';
 import { exercisesById } from './catalog.mjs';
 import { reviewWindowSeconds } from './frames.mjs';
 
-export const reviewVersion = 25;
+export const reviewVersion = 26;
 
 const interrupted = 'Analysis was interrupted. Try again when you’re ready.';
 const cancelled = 'cancelled';
@@ -172,7 +172,7 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
         try {
           store.abandonReviewAttempt(workspace, id, attempt, interrupted);
         } catch {
-          console.error('Repform could not release a review lease during shutdown.');
+          console.error('Liftmorrow could not release a review lease during shutdown.');
         }
       }
       controller.abort(new AiError(503, interrupted));
@@ -224,8 +224,8 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
     startReview(workspace, id, startSeconds, refresh) {
       const { review, reviewStatus, result, started } = requestReview(workspace, id, startSeconds, refresh);
       if (started) void result.catch((error) => {
-        if (error instanceof AiError && error.diagnostic) console.warn('Repform AI request failed:', error.diagnostic);
-        else if (!(error instanceof AiError)) console.error('Repform review failed:', error.name);
+        if (error instanceof AiError && error.diagnostic) console.warn('Liftmorrow AI request failed:', error.diagnostic);
+        else if (!(error instanceof AiError)) console.error('Liftmorrow review failed:', error.name);
       });
       return { review, reviewStatus };
     },

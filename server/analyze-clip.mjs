@@ -54,7 +54,7 @@ export async function prepareClipReview(source, {
     }
     catch (error) {
       if (signal?.aborted) throw error;
-      console.warn('Repform pose estimates unavailable for this clip.');
+      console.warn('Liftmorrow pose estimates unavailable for this clip.');
     }
   }
   signal?.throwIfAborted();

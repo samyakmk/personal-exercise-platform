@@ -39,7 +39,11 @@ test('desktop and narrow browser widths support keyboard exercise discovery and 
 
 test('keyboard video upload and download preserve the file and workspace privacy', async ({ page, browser }) => {
   await page.goto('/form-review');
-  await page.getByLabel('Exercise in your clip').selectOption('push-up');
+  const exercise = page.getByRole('combobox', { name: 'Exercise in your clip' });
+  await exercise.focus();
+  await page.keyboard.type('push-up');
+  await page.keyboard.press('Enter');
+  await expect(exercise).toHaveValue('Push-Up');
   await page.locator('input[type=file]').setInputFiles('tests/fixtures/synthetic.mp4');
   await activate(page.getByRole('button', { name: 'Upload video' }));
   const dialog = page.getByRole('dialog', { name: 'Push-Up' });

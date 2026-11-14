@@ -1,4 +1,4 @@
-const storageKey = 'repform-workspace-update';
+const storageKey = 'liftmorrow-workspace-update';
 let updateChannel: BroadcastChannel | null = null;
 
 function broadcastChannel() {
