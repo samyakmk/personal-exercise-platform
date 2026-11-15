@@ -5,7 +5,7 @@ import { analyzeClip } from './analyze-clip.mjs';
 import { exercisesById } from './catalog.mjs';
 import { reviewWindowSeconds } from './frames.mjs';
 
-export const reviewVersion = 26;
+export const reviewVersion = 27;
 
 const interrupted = 'Analysis was interrupted. Try again when you’re ready.';
 const cancelled = 'cancelled';
@@ -194,11 +194,12 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
       return clip ? { upsert: [publicClip(clip)], remove: [] } : { upsert: [], remove: [id] };
     },
     clipReview,
-    recommend(workspace, { candidates, targets, available, history: completed }) {
+    recommend(workspace, { candidates, targets, detail, available, history: completed }) {
       if (!candidates.length) return [];
       const history = Object.fromEntries(candidates.filter(({ id }) => completed.has(id)).map(({ id }) => [id, completed.get(id)]));
-      const input = { candidates, targets: [...targets].sort(), available: available?.slice().sort() ?? null, history };
-      const key = 'recommend:' + JSON.stringify([candidates.map((item) => item.id), input.targets, input.available, history]);
+      const input = { candidates, targets: [...targets].sort(), detail, available: available?.slice().sort() ?? null, history };
+      if (candidates.length === 1) return rankExercises(respond, input);
+      const key = 'recommend:' + JSON.stringify([candidates.map((item) => item.id), input.targets, detail, input.available, history]);
       const cacheKey = workspace + ':' + key;
       const now = Date.now();
       for (const [id, item] of ranked) {
@@ -242,6 +243,17 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
     deleteClip(workspace, id) {
       const owner = store.removeClip(workspace, id);
       pending.get('review:' + owner)?.controller.abort(new AiError(404, 'Video not found.'));
+    },
+    removeWorkspace(workspace) {
+      for (const [key, job] of pending) {
+        if (job.reviewJob?.workspace === workspace || key.startsWith('recommend:' + workspace + ':')) {
+          job.controller.abort(new AiError(404, 'Profile deleted.'));
+        }
+      }
+      for (const key of ranked.keys()) {
+        if (key.startsWith(workspace + ':')) ranked.delete(key);
+      }
+      workspaceLimits.delete(workspace);
     },
     stop() {
       shutdown ??= Promise.resolve().then(stopJobs);

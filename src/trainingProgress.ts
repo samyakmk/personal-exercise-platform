@@ -8,10 +8,11 @@ export function trainingLog(session: TrainingSession, separate: boolean): Workou
   return {
     ...when, id: separate ? session.logId : session.plan.id,
     revision: separate ? undefined : session.plan.revision,
-    name: session.plan.name, status: 'completed', notes: session.notes.trim(),
-    exercises: session.plan.exercises.flatMap(({ exerciseId }) => {
+    name: session.plan.name, status: 'completed', notes: session.notes.trim(), effort: session.effort, source: session.plan.source,
+    exercises: session.plan.exercises.flatMap(({ exerciseId, notes: plannedNotes }) => {
+      const notes = (session.exerciseNotes?.[exerciseId] ?? plannedNotes)?.trim();
       const setDetails = session.sets[exerciseId] ?? [];
-      return setDetails.length || session.logTime ? [{ exerciseId, ...setDetails[0], sets: setDetails.length, setDetails }] : [];
+      return setDetails.length || session.logTime || notes ? [{ exerciseId, ...setDetails[0], sets: setDetails.length, setDetails, ...(notes && { notes }) }] : [];
     }),
   };
 }
@@ -21,9 +22,10 @@ export function isSavedTrainingLog(session: TrainingSession, workout: Workout) {
   if (workout.id !== session.plan.id || workout.status !== 'completed' || workout.revision !== (session.plan.revision ?? 0) + 1) return false;
   const log = trainingLog(session, false);
   return workout.name === log.name && workout.date === log.date && workout.time === log.time && (workout.notes ?? '') === log.notes
+    && (workout.effort ?? null) === (log.effort ?? null) && workout.source === log.source
     && workout.exercises.length === log.exercises.length && workout.exercises.every((movement, index) => {
       const match = log.exercises[index];
-      return movement.exerciseId === match.exerciseId && movement.setDetails?.length === match.setDetails?.length
+      return movement.exerciseId === match.exerciseId && movement.notes === match.notes && movement.setDetails?.length === match.setDetails?.length
         && movement.setDetails?.every(({ reps, load }, set) => {
           const expected = match.setDetails?.[set];
           return reps === expected?.reps && load?.unit === expected?.load?.unit && load?.value === expected?.load?.value;

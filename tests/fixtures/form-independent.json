@@ -1,0 +1,36 @@
+{
+  "cases": [
+    {
+      "id": "navy-2013-floor-mask-v3",
+      "group": "independent",
+      "sourceFamily": "dvids-283728",
+      "exercise": "push-up",
+      "mode": "measured",
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/283728/push-up-demonstration",
+        "title": "Push Up Demonstration",
+        "creator": "LT Andrea Perez, Navy Personnel Command",
+        "license": "Public domain as marked by DVIDS. DVIDS Public Use Notice applies.",
+        "excerpt": "73.6\u201382.4 seconds of the official DVIDS page\u2019s 720-pixel stream, reduced to video only with a moving face mask."
+      },
+      "note": "Single near-side view during two full floor push-ups and a held top position. Hands and toes stay on the floor. The working shoulder, hip, and ankle remain visible. The hips follow the torso through the repeats. No clear correction expected. The face mask avoids the working shoulder and hand contact. This mask variant uses the same recording and time window as the earlier rectangular privacy mask."
+    },
+    {
+      "id": "air-force-2021-plank",
+      "group": "independent",
+      "sourceFamily": "dvids-825280",
+      "exercise": "forearm-plank",
+      "mode": "measured",
+      "verdict": "no_clear_issue",
+      "provenance": {
+        "source": "https://www.dvidshub.net/video/825280/forearm-plank",
+        "title": "Forearm Plank",
+        "creator": "SSgt Randall Moose, 301st Fighter Wing",
+        "license": "Public domain as marked by DVIDS. DVIDS Public Use Notice applies.",
+        "excerpt": "8\u201317.5 seconds of the official DVIDS page's MP4 stream, reduced to video only with a face mask and crop."
+      },
+      "note": "Single person in a sustained forearm plank. Both body supports and the near-side shoulder, elbow, hip, knee, and ankle stay visible. Stable trunk and straight legs, with no pronounced sag or pike. No clear correction expected."
+    }
+  ]
+}

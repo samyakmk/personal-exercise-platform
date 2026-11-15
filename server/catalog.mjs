@@ -1,6 +1,8 @@
 import additionalExercises from './free-exercise-db.json' with { type: 'json' };
 import demonstrations from './exercise-demonstrations.json' with { type: 'json' };
 
+import { technique } from './technique.mjs';
+
 const curated = [
   {
     id: 'goblet-squat', name: 'Goblet Squat', muscles: ['Legs', 'Glutes', 'Core'],
@@ -187,10 +189,11 @@ const curatedMuscles = {
   'pull-up': [['Lats'], ['Biceps', 'Forearms', 'Shoulders']],
 };
 
-export const catalog = [
+const exerciseRecords = [
   ...curated.map((exercise) => ({
     ...exercise,
     category: 'Strength',
+    ...(technique[exercise.id] && { technique: technique[exercise.id] }),
     primaryMuscles: curatedMuscles[exercise.id][0],
     secondaryMuscles: curatedMuscles[exercise.id][1],
     ...(exercise.equipment.includes('Dumbbells') && { loadType: 'per-dumbbell' }),
@@ -202,12 +205,15 @@ export const catalog = [
     return { ...exercise, demonstration: { ...video, thumbnailUrl } };
   }),
 ];
+export const catalog = exerciseRecords.filter(({ demonstration }) => demonstration);
+export const archivedExercises = exerciseRecords.filter(({ demonstration }) => !demonstration);
 const additionalEquipment = [...new Set(additionalExercises.flatMap((exercise) => exercise.equipment))].sort();
 export const equipment = [...new Set(['Dumbbells', 'Bench', 'Pull-up bar', ...additionalEquipment])];
 export const muscles = ['Legs', 'Glutes', 'Chest', 'Back', 'Shoulders', 'Arms', 'Core', 'Neck'];
+export const detailedMuscles = [...new Set(exerciseRecords.flatMap((item) => [...item.primaryMuscles, ...item.secondaryMuscles]))];
 export const levels = ['Beginner', 'Intermediate', 'Advanced'];
 export const categories = [...new Set(catalog.map(({ category }) => category))].sort();
-export const exercisesById = new Map(catalog.map((exercise) => [exercise.id, exercise]));
+export const exercisesById = new Map(exerciseRecords.map((exercise) => [exercise.id, exercise]));
 
 function words(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
@@ -218,15 +224,15 @@ const searchable = new Map(catalog.map((item) => [item.id, words([
   ...(item.primaryMuscles ?? []), ...(item.secondaryMuscles ?? []), ...(item.equipment.length ? [] : ['Bodyweight', 'No equipment']),
 ].join(' '))]));
 
-export function recommend({ targets, available, query, recent, level, category, withVideo }) {
+export function recommend({ targets, detail, available, query, recent, level, category }) {
   const terms = words(query);
   return catalog
     .filter((item) => (
       (!targets.length || item.muscles.some((muscle) => targets.includes(muscle))) &&
+      (!detail || item.primaryMuscles.includes(detail) || item.secondaryMuscles.includes(detail)) &&
       (available === null || item.equipment.every((item) => available.includes(item))) &&
       (!level || item.level === level) &&
       (!category || item.category === category) &&
-      (!withVideo || item.demonstration) &&
       terms.every((term) => searchable.get(item.id).some((word) => word.startsWith(term) || term === word + 's'))
     ))
     .map((exercise, index) => ({
@@ -234,6 +240,7 @@ export function recommend({ targets, available, query, recent, level, category, 
       index,
       score: (targets.includes(exercise.muscles[0]) ? 4 : 0)
         + exercise.muscles.filter((muscle) => targets.includes(muscle)).length
+        + (detail && exercise.primaryMuscles.includes(detail) ? 4 : 0)
         + (recent.has(exercise.id) ? 0.25 : 0),
     }))
     .sort((a, b) => b.score - a.score || a.index - b.index)

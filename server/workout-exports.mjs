@@ -59,20 +59,23 @@ function csvCell(value) {
   return /[",\r\n]/.test(safe) ? '"' + safe.replace(/"/g, '""') + '"' : safe;
 }
 
-function* historyRows(workouts) {
+function* historyRows(workouts, includeFeedback) {
+  const feedback = (source, effort, exerciseNotes) => includeFeedback ? [source, effort, exerciseNotes] : [];
   yield ['\uFEFFDate', 'Time', 'Workout', 'Exercise', 'Sets', 'Reps or seconds', 'Measurement',
-    'Weight per dumbbell', 'Weight unit', 'Set number', 'Workout notes'];
-  for (const { date, time, name, notes, exercises } of workouts) {
-    if (!exercises.length) yield [date, time, name, '', '', '', '', '', '', '', notes];
-    for (const { exerciseId, sets, reps, load, setDetails } of exercises) {
+    'Weight per dumbbell', 'Weight unit', 'Set number', 'Workout notes',
+    ...feedback('Session source', 'Perceived effort (1–10)', 'Exercise notes')];
+  for (const { date, time, name, notes, exercises, effort, source } of workouts) {
+    if (!exercises.length) yield [date, time, name, '', '', '', '', '', '', '', notes, ...feedback(source, effort)];
+    for (const { exerciseId, sets, reps, load, setDetails, notes: exerciseNotes } of exercises) {
       const exercise = exercisesById.get(exerciseId);
       const prefix = [date, time, name, exercise?.name ?? exerciseId];
+      const extra = feedback(source, effort, exerciseNotes);
       if (setDetails?.length) {
         for (const [index, set] of setDetails.entries()) {
-          yield [...prefix, 1, set.reps, exercise?.unit, set.load?.value, set.load?.unit, index + 1, notes];
+          yield [...prefix, 1, set.reps, exercise?.unit, set.load?.value, set.load?.unit, index + 1, notes, ...extra];
         }
       } else {
-        yield [...prefix, sets, reps, exercise?.unit, load?.value, load?.unit, '', notes];
+        yield [...prefix, sets, reps, exercise?.unit, load?.value, load?.unit, '', notes, ...extra];
       }
     }
   }
@@ -91,6 +94,6 @@ async function* streamLines(lines, format) {
   if (chunk) yield chunk;
 }
 
-export function workoutHistoryCsv(workouts) {
-  return streamLines(historyRows(workouts), (row) => row.map(csvCell).join(','));
+export function workoutHistoryCsv(workouts, includeFeedback = false) {
+  return streamLines(historyRows(workouts, includeFeedback), (row) => row.map(csvCell).join(','));
 }

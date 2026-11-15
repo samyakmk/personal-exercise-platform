@@ -2,7 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, ChevronDown, ChevronUp, Film, LockKeyhole, Pencil, Play, ScanLine, Search, SearchX, Sparkles, Trash2, Upload, X } from 'lucide-react-native';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { api, RequestError } from '../api';
+import { RequestError } from '../api';
 import { Sheet } from '../components/Sheet';
 import { Button, Copy, Empty, IconButton, Input, Loading, Notice, PageTitle, Panel, SectionTitle, Tag } from '../components/ui';
 import { dateKey, formatDay, workoutTime } from '../dates';
@@ -43,7 +43,7 @@ function clipSize(bytes: number) {
 }
 
 export function FormReview() {
-  const { data, mutate, announce, startReview, cancelReview } = useWorkspace();
+  const { api, data, exerciseRecords, mutate, announce, startReview, cancelReview } = useWorkspace();
   const { draft, exercise, error, progress, pick, chooseExercise, clear: clearVideo, upload, cancel } = useVideoUpload();
   const { intent, clear } = useTrainingNavigation();
   const router = useRouter();
@@ -70,7 +70,6 @@ export function FormReview() {
   if (!data) return null;
 
   const catalog = data.catalog;
-  const titles = new Map(catalog.map(({ id, name }) => [id, name]));
   const selected = data.clips.find((clip) => clip.id === requested);
   const closeVideo = () => router.setParams({ clip: undefined });
   const busy = progress !== null;
@@ -83,7 +82,7 @@ export function FormReview() {
   const ordered = [...catalog].sort((a, b) => Number(recent.has(b.id)) - Number(recent.has(a.id)));
   const terms = clipSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const matching = data.clips.filter((clip) => {
-    const searchText = `${clip.filename} ${titles.get(clip.exerciseId) ?? ''}`.toLowerCase();
+    const searchText = `${clip.filename} ${exerciseRecords.get(clip.exerciseId)?.name ?? ''}`.toLowerCase();
     return terms.every((term) => searchText.includes(term));
   });
 
@@ -177,7 +176,7 @@ export function FormReview() {
         return <View key={clip.id} style={[styles.videoRow, index > 0 && styles.videoRowBorder]}>
           <View style={styles.videoIcon} aria-hidden><Film color={color.plum} size={19} /></View>
           <View style={{ flex: 1, minWidth: 105, gap: 2 }}>
-            <Copy weight="semibold" size={15}>{titles.get(clip.exerciseId) ?? 'Exercise clip'}</Copy>
+            <Copy weight="semibold" size={15}>{exerciseRecords.get(clip.exerciseId)?.name ?? 'Exercise clip'}</Copy>
             <Copy size={12} tone={color.muted} numberOfLines={1}>{clip.filename}</Copy>
           </View>
           {wide && <Copy size={12} tone={color.muted}>{formatDay(date, { month: 'short', day: 'numeric', year: 'numeric' })}</Copy>}
@@ -192,7 +191,7 @@ export function FormReview() {
     {matching.length > clipLimit && <Button onPress={() => setClipLimit((value) => value + 10)}>Show older videos</Button>}
 
     {selected && <SavedClip key={`${selected.id}:${selected.exerciseId}`} clip={selected} catalog={catalog}
-      title={titles.get(selected.exerciseId) ?? 'Exercise video'}
+      title={exerciseRecords.get(selected.exerciseId)?.name ?? 'Exercise video'}
       canReview={data.aiAvailable} reviewVersion={data.reviewVersion} onClose={closeVideo}
       onReview={(start, refresh) => startReview(selected.id, start, refresh)}
       onCancelReview={(sequence) => cancelReview(selected.id, sequence)}
@@ -254,6 +253,7 @@ function SavedClip({ clip, title, catalog, canReview, reviewVersion, onClose, on
   onReview: (startSeconds: number, refresh?: boolean) => Promise<void>; onCancelReview: (sequence: number) => Promise<void>;
   onChangeExercise: (exerciseId: string) => Promise<void>; onDelete: () => Promise<void>;
 }) {
+  const { api } = useWorkspace();
   const [confirm, setConfirm] = useState(false);
   const [editExercise, setEditExercise] = useState(false);
   const [showStart, setShowStart] = useState(false);

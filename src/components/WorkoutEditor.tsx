@@ -7,9 +7,11 @@ import { addDays, dateKey, earliestWorkoutDate, formatDay, isWorkoutDate, latest
 import { ExercisePicker } from '../platform/ExercisePicker';
 import { DateTimeField, SelectField } from '../platform/fields';
 import { color } from '../theme';
-import type { Exercise, ExerciseLoad, ExerciseSet, Movement, Workout, WorkoutStatus } from '../types';
+import type { Exercise, ExerciseLoad, ExerciseSet, Movement, Workout, WorkoutSource, WorkoutStatus } from '../types';
+import { useWorkspace } from '../workspace';
 import { RestTimer } from './RestTimer';
 import { Sheet } from './Sheet';
+import { EffortField, SourceField } from './SessionFeedback';
 import { Button, Chip, Copy, IconButton, Input, Notice, SectionTitle } from './ui';
 import { validWeight, WeightFields } from './WeightFields';
 
@@ -19,10 +21,10 @@ type DraftSet = {
   unit: ExerciseLoad['unit'];
 };
 type DetailedSet = DraftSet & { id: string };
-type DraftEntry = DraftSet & { exerciseId: string; sets: string; details?: DetailedSet[] };
+type DraftEntry = DraftSet & { exerciseId: string; sets: string; details?: DetailedSet[]; notes?: string };
 
 export type WorkoutDraft = {
-  id: string; name: string; day: string; time: string; status: WorkoutStatus; entries: DraftEntry[]; notes?: string; repeatWeeks?: number; revision?: number;
+  id: string; name: string; day: string; time: string; status: WorkoutStatus; entries: DraftEntry[]; notes?: string; effort?: number | null; source?: WorkoutSource; repeatWeeks?: number; revision?: number;
 };
 
 type Props = {
@@ -62,6 +64,7 @@ function wholeNumber(value: string, max: number) {
 }
 
 export function WorkoutEditor({ initial, preset, status, date, copy = false, catalog, suggested, bookmarks, draft, mode, exercisesOnly = false, onClose, onSave, onDelete, onDraftChange }: Props) {
+  const { exerciseRecords } = useWorkspace();
   const loggingPlan = status === 'completed' && initial?.status === 'planned';
   const editing = initial && !copy;
   const sessionLog = mode === 'session';
@@ -77,18 +80,20 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   });
   const [currentStatus, setStatus] = useState(draft?.status ?? status);
   const [notes, setNotes] = useState(draft?.notes ?? initial?.notes ?? '');
+  const [effort, setEffort] = useState(draft?.effort !== undefined ? draft.effort : editing && !loggingPlan ? initial.effort : undefined);
+  const [sessionSource, setSessionSource] = useState(draft?.source ?? (copy ? undefined : initial?.source));
   const [repeatWeeks, setRepeatWeeks] = useState(draft?.repeatWeeks ?? 1);
   const [showOptions, setShowOptions] = useState(Boolean(draft?.notes || initial?.notes || (draft?.repeatWeeks ?? 1) > 1));
   const [entries, setEntries] = useState<DraftEntry[]>(() => {
-    const items = draft?.entries ?? initial?.exercises.map(({ exerciseId, sets, reps, load, setDetails }) => {
+    const items = draft?.entries ?? initial?.exercises.map(({ exerciseId, sets, reps, load, setDetails, notes }) => {
       const planning = status === 'planned';
-      const fallback = catalog.find(({ id }) => id === exerciseId)?.unit === 'seconds' ? 30 : 10;
+      const fallback = exerciseRecords.get(exerciseId)?.unit === 'seconds' ? 30 : 10;
       const base = draftSet({ reps: planning ? reps ?? fallback : reps, load });
       const source = setDetails ?? (sessionLog ? Array.from({ length: sets }, () => ({ reps, load })) : undefined);
       const details = source?.length
         ? source.map((set) => ({ id: createId(), ...draftSet({ ...set, reps: planning ? set.reps ?? fallback : set.reps }) }))
         : source && !planning ? [{ id: createId(), reps: '', load: '', unit: 'lb' as const }] : undefined;
-      return { exerciseId, sets: String(planning && !sets ? 3 : sets), ...base, details };
+      return { exerciseId, sets: String(planning && !sets ? 3 : sets), ...base, details, notes: copy ? undefined : notes };
     }) ?? [];
     return !mode && preset && !items.some((item) => item.exerciseId === preset.id) ? [...items, makeEntry(preset, false)] : items;
   });
@@ -106,9 +111,9 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   const [startedEditing, markEdited] = useState(false);
   useEffect(() => {
     if (startedEditing) onDraftChange?.({
-      id, name, day, time, status: currentStatus, entries, notes, repeatWeeks, revision: initial?.revision,
+      id, name, day, time, status: currentStatus, entries, notes, effort, source: sessionSource, repeatWeeks, revision: initial?.revision,
     });
-  }, [startedEditing, onDraftChange, id, name, day, time, currentStatus, entries, notes, repeatWeeks, initial?.revision]);
+  }, [startedEditing, onDraftChange, id, name, day, time, currentStatus, entries, notes, effort, sessionSource, repeatWeeks, initial?.revision]);
 
   function changeEntries(next: SetStateAction<DraftEntry[]>) {
     markEdited(true);
@@ -192,8 +197,12 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   }
 
   function metadata() {
-    return { id, name: name.trim(), date: day, time, notes: notes.trim(), revision: editing ? initial.revision : undefined };
+    return { id, name: name.trim(), date: day, time, notes: notes.trim(), revision: editing ? initial.revision : undefined,
+      effort: logging ? effort : undefined, source: sessionSource };
   }
+
+  const sourceField = <SourceField value={sessionSource} onChange={(value) => { markEdited(true); setSessionSource(value); }} disabled={busy} />;
+  const effortField = logging && <EffortField value={effort} onChange={(value) => { markEdited(true); setEffort(value); }} disabled={busy} />;
 
   function submit() {
     if (saving.current || !validMetadata()) return;
@@ -225,9 +234,9 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
     void run(() => onSave({
       ...metadata(), status: currentStatus,
       exercises: entries.map((entry): Movement => {
-        if (!entry.details) return { exerciseId: entry.exerciseId, sets: Number(entry.sets), ...toSet(entry) };
+        if (!entry.details) return { exerciseId: entry.exerciseId, sets: Number(entry.sets), ...toSet(entry), notes: entry.notes };
         const setDetails = (optionalSets ? entry.details.filter(({ reps, load }) => reps || load) : entry.details).map(toSet);
-        return { exerciseId: entry.exerciseId, sets: setDetails.length, ...setDetails[0], setDetails };
+        return { exerciseId: entry.exerciseId, sets: setDetails.length, ...setDetails[0], setDetails, notes: entry.notes };
       }),
     }, Boolean(editing), canRepeat ? repeatWeeks : 1));
   }
@@ -246,6 +255,8 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
           onChange={(value) => { markEdited(true); setDay(value); }} />
         <DateTimeField label="Time" kind="time" value={time} disabled={busy} onChange={(value) => { markEdited(true); setTime(value); }} />
       </View>
+      {mode && <View style={styles.actions}>{sourceField}{effortField}</View>}
+      {!mode && logging && <View style={styles.actions}>{sourceField}{effortField}</View>}
       {mode && <Input label="Session notes" value={notes} onChangeText={(value) => { markEdited(true); setNotes(value); }}
         placeholder="Optional" maxLength={1200} multiline numberOfLines={3}
         style={{ minHeight: 74, paddingVertical: 8, textAlignVertical: 'top' }} />}
@@ -253,12 +264,12 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
     {!metadataOnly && <View style={styles.exerciseSection}>
       <SectionTitle title="Exercises" level={3} />
       {entries.map((entry, index) => {
-        const exercise = catalog.find((item) => item.id === entry.exerciseId);
+        const exercise = exerciseRecords.get(entry.exerciseId);
         const measurement = exercise?.unit === 'seconds' ? 'Seconds' : 'Reps';
         const exerciseName = exercise?.name ?? entry.exerciseId;
         const loadType = exercise?.loadType;
         const individual = entry.details;
-        return <View key={entry.exerciseId} style={[styles.entry, (narrow || individual) && { alignItems: 'stretch', flexDirection: 'column' },
+        return <View key={entry.exerciseId} style={[styles.entry, (narrow || individual || logging) && { alignItems: 'stretch', flexDirection: 'column' },
           sessionLog && styles.sessionExercise]}>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
             <Copy size={13} weight="semibold" style={{ flexShrink: 1 }}>{exerciseName}</Copy>
@@ -269,7 +280,7 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
                 <IconButton size={31} icon={ChevronDown} label={`Move ${exerciseName} down`} disabled={index === entries.length - 1}
                   onPress={() => moveExercise(entry.exerciseId, 1)} />
               </>}
-              {(narrow || individual) && <IconButton size={31} icon={X} label={`Remove ${exerciseName}`}
+              {(narrow || individual || logging) && <IconButton size={31} icon={X} label={`Remove ${exerciseName}`}
                 onPress={() => changeEntries((items) => items.filter((item) => item.exerciseId !== entry.exerciseId))} />}
             </View>
           </View>
@@ -304,7 +315,7 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
               <Input label={`${measurement} · ${exerciseName}`} visibleLabel={measurement} style={{ paddingHorizontal: 8 }} value={entry.reps}
                 onChangeText={(reps) => update(entry.exerciseId, { reps })} keyboardType="number-pad" maxLength={3} />
             </View>
-            {!narrow && <IconButton icon={X} label={`Remove ${exerciseName}`}
+            {!narrow && !logging && <IconButton icon={X} label={`Remove ${exerciseName}`}
               onPress={() => changeEntries((items) => items.filter((item) => item.exerciseId !== entry.exerciseId))} />}
             {loadType && <View style={[styles.actions, { flexBasis: narrow ? 'auto' : '100%', alignItems: 'flex-end' }]}>
               <WeightFields label={exerciseName} perDumbbell={loadType === 'per-dumbbell'} set={entry} onChange={(fields) => update(entry.exerciseId, fields)} />
@@ -312,6 +323,11 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
             <Button kind="quiet" compact icon={List} accessibilityLabel={`${logging ? 'Log each set' : 'Plan each set'} · ${exerciseName}`}
               onPress={() => showDetails(entry)}>{logging ? 'Log each set' : 'Plan each set'}</Button>
           </>}
+          {logging && <View style={{ minWidth: 0, alignSelf: 'stretch' }}>
+            <Input label={`Exercise notes · ${exerciseName}`} visibleLabel="Exercise notes (optional)" value={entry.notes ?? ''}
+              onChangeText={(notes) => update(entry.exerciseId, { notes })} maxLength={500} multiline
+              placeholder="A cue, adjustment, or observation" style={{ minHeight: 52, paddingVertical: 8 }} />
+          </View>}
         </View>;
       })}
       {available.length > 0 && <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 7 }}>
@@ -341,6 +357,7 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
               options={Array.from({ length: 12 }, (_, index) => ({ value: String(index + 1), label: index ? `${index + 1} weekly sessions` : 'One session' }))} />
           </View>}
         </View>
+        {!logging && sourceField}
         <Input label="Workout notes" value={notes} onChangeText={(value) => { markEdited(true); setNotes(value); }}
           placeholder={logging ? 'What went well or what to change next time' : 'Plan reminders or exercise cues'}
           maxLength={1200} multiline numberOfLines={3} style={{ minHeight: 74, paddingVertical: 8, textAlignVertical: 'top' }} />

@@ -3,18 +3,18 @@ import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import { Bookmark, History, Plus, Video } from 'lucide-react-native';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { api } from '../api';
 import { Demonstration } from '../platform/Demonstration';
 import { color } from '../theme';
 import type { Exercise } from '../types';
 import { useWorkspace } from '../workspace';
 import { Sheet } from './Sheet';
+import { TechniqueTips } from './TechniqueTips';
 import { Button, Copy, Notice, SectionTitle, Tag } from './ui';
 
 export function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClose: () => void }) {
   const training = useTrainingNavigation();
   const router = useRouter();
-  const { data, mutate, announce } = useWorkspace();
+  const { api, data, mutate, announce } = useWorkspace();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const saving = useRef(false);
@@ -64,16 +64,21 @@ export function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClo
             <Copy tone={color.text} size={13} style={{ flex: 1 }}>{cue}</Copy>
           </View>
         ))}
+        <TechniqueTips exercise={exercise} />
       </View>
     </View>
     <View style={styles.footer}>
       <View style={styles.actions}>
-        <Button kind="primary" icon={Plus} onPress={() => open('add')}>Add to workout</Button>
-        <Button icon={Plus} onPress={() => open('new-session')}>New session</Button>
-        <Button icon={Bookmark} disabled={busy} onPress={() => void toggleBookmark()}>{saved ? 'Remove saved exercise' : 'Save exercise'}</Button>
+        {exercise.demonstration && <>
+          <Button kind="primary" icon={Plus} onPress={() => open('add')}>Add to workout</Button>
+          <Button icon={Plus} onPress={() => open('new-session')}>New session</Button>
+        </>}
+        {(exercise.demonstration || saved) && <Button icon={Bookmark} disabled={busy} onPress={() => void toggleBookmark()}>
+          {saved ? 'Remove saved exercise' : 'Save exercise'}
+        </Button>}
       </View>
       <View style={styles.actions}>
-        <Button icon={Video} kind="quiet" compact onPress={() => open('review')}>Upload my form</Button>
+        {exercise.demonstration && <Button icon={Video} kind="quiet" compact onPress={() => open('review')}>Upload my form</Button>}
         <Button icon={History} kind="quiet" compact onPress={() => {
           onClose();
           router.push({ pathname: '/progress', params: { exercise: exercise.id } });

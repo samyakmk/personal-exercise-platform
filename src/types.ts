@@ -1,3 +1,29 @@
+export type TrainingPreferences = {
+  intake: 'completed' | 'skipped';
+  trainerNotes: string;
+  experience: 'new' | 'regular' | '';
+  priorities: string[];
+  preferred: string[];
+  excluded: string[];
+};
+export type ProfileDetails = { displayName?: string; trainingGoal?: string; trainingPreferences?: TrainingPreferences };
+export type ProfileEdit = Required<Pick<ProfileDetails, 'displayName' | 'trainingGoal'>> & Pick<ProfileDetails, 'trainingPreferences'>;
+export type ProfileRevision = { id: number; savedAt: string; details: ProfileDetails };
+export type CheckInChoice = 'easier' | 'rest' | 'usual';
+export type TrainingCheckIn = {
+  id: string;
+  day: string;
+  text: string;
+  adjustment?: CheckInChoice;
+  reply?: string;
+  savedAt: string;
+};
+export type CheckInState = { entries: TrainingCheckIn[]; day: string; adjustment: CheckInChoice | null };
+export type CheckInInput = Pick<TrainingCheckIn, 'id' | 'text' | 'adjustment'> & { time: string; wantsReply: boolean };
+export type ProfileSummary = { username: string; workspaceKey: string };
+export type Profile = ProfileSummary & { details: ProfileDetails };
+export type ProfileState = { active: Profile | null; profiles: ProfileSummary[]; canImportLegacy: boolean };
+
 export type ExerciseDemonstration = {
   videoId: string;
   creator: string;
@@ -19,10 +45,12 @@ export type Exercise = {
   primaryMuscles?: string[];
   secondaryMuscles?: string[];
   demonstration?: ExerciseDemonstration;
+  technique?: { do: string; avoid: string };
   loadType?: 'per-dumbbell' | 'weight';
 };
 
 export type WorkoutStatus = 'planned' | 'completed';
+export type WorkoutSource = 'manual' | 'trainer' | 'recommended';
 
 export type ExerciseLoad = { value: number; unit: 'kg' | 'lb' };
 export type ExerciseSet = { reps?: number; load?: ExerciseLoad };
@@ -33,6 +61,7 @@ export type Movement = {
   reps?: number;
   load?: ExerciseLoad;
   setDetails?: ExerciseSet[];
+  notes?: string;
 };
 
 export type Workout = {
@@ -42,6 +71,8 @@ export type Workout = {
   time: string;
   status: WorkoutStatus;
   notes?: string;
+  effort?: number | null;
+  source?: WorkoutSource;
   example?: true;
   revision?: number;
   exercises: Movement[];
@@ -58,6 +89,8 @@ export type TrainingSession = {
   suggestedExercise?: string;
   sets: Record<string, ExerciseSet[]>;
   notes: string;
+  effort?: number | null;
+  exerciseNotes?: Record<string, string>;
   restDeadline?: number | null;
   activeExercise?: string;
   setDrafts?: Record<string, TrainingSetDraft>;
@@ -109,6 +142,7 @@ export type WorkspaceChange = Snapshot | Pick<Snapshot, 'equipment'> | Pick<Snap
 export type Workspace = Snapshot & {
   workspaceKey?: string;
   catalog: Exercise[];
+  archivedExercises?: Exercise[];
   muscles: string[];
   equipmentOptions: string[];
   exerciseCategories?: string[];
@@ -120,11 +154,11 @@ export type EquipmentMode = 'all' | 'saved' | 'bodyweight';
 
 export type ExerciseFilters = {
   targets: string[];
+  detail: string | null;
   mode: EquipmentMode;
   query: string;
   level: Exercise['level'] | null;
   category: string | null;
-  withVideo: boolean;
 };
 
 export type SelectedVideo = {

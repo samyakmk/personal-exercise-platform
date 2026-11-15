@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { createContext, useContext, useState } from 'react';
 import type { ReactNode } from 'react';
+import type { Workout } from './types';
 
 type Intent =
   | { type: 'schedule' }
@@ -11,6 +12,7 @@ type Intent =
   | { type: 'resume' }
   | { type: 'add'; exerciseId: string }
   | { type: 'resume-session' }
+  | { type: 'recommended-session'; plan: Workout }
   | { type: 'new-session'; exerciseId?: string }
   | { type: 'review'; exerciseId: string };
 
@@ -28,7 +30,7 @@ export function TrainingNavigation({ children }: { children: ReactNode }) {
     open(next) {
       setIntent(next);
       router.navigate(next.type === 'review' ? '/form-review'
-        : next.type === 'resume-session' || next.type === 'new-session' ? '/sessions' : '/workouts');
+        : next.type === 'resume-session' || next.type === 'new-session' || next.type === 'recommended-session' ? '/sessions' : '/workouts');
     },
     clear: () => setIntent(null),
   }}>{children}</Context.Provider>;

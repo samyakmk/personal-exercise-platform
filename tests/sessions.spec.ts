@@ -1,5 +1,29 @@
-import { expect, test } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
+import { expect, test } from './signed-in';
 import { chooseExercise } from './exercise-picker';
+
+test('an exercise removed from the library remains editable in restored training history', async ({ page }) => {
+  const id = randomUUID();
+  const restored = await page.request.post('/api/workspace/training-backup', { data: {
+    format: 'repform-training', version: 1, equipment: null,
+    workouts: [{ id, name: 'Earlier mobility session', date: '2026-10-20', time: '18:00', status: 'completed',
+      exercises: [{ exerciseId: 'fedb-all-fours-quad-stretch', sets: 1, reps: 20 }] }],
+  } });
+  expect(restored.ok(), await restored.text()).toBe(true);
+  await page.goto(`/sessions?session=${id}`);
+  const sets = page.getByRole('list', { name: 'Sets for All Fours Quad Stretch' });
+  await expect(sets).toContainText('20 sec');
+  await page.getByRole('button', { name: 'Edit session' }).click();
+  const editor = page.getByRole('dialog');
+  await editor.getByLabel('Seconds · Set 1 · All Fours Quad Stretch').fill('25');
+  await editor.getByRole('combobox', { name: 'Choose an exercise' }).fill('All Fours Quad Stretch');
+  await expect(editor.getByRole('status')).toHaveText('No matching exercises');
+  await editor.getByRole('button', { name: 'Save session', exact: true }).click();
+  await expect(sets).toContainText('25 sec');
+  await page.goto('/progress?exercise=fedb-all-fours-quad-stretch');
+  await expect(page.getByRole('combobox', { name: 'Exercise history' })).toHaveValue('All Fours Quad Stretch');
+  await expect(page.getByText('Earlier mobility session', { exact: true })).toBeVisible();
+});
 
 test('manual sessions preserve individual sets, and edits and deletion update the journal', async ({ page }) => {
   await page.goto('/sessions');

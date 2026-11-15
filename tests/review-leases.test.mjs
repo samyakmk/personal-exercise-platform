@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { reviewVersion } from '../server/coaching.mjs';
 import { createLiftmorrowServer } from '../server/index.mjs';
+import { activeWorkspaceId, createTestProfile } from './test-profile.mjs';
 
 const sampleFrames = async () => [{ timestamp: 0, image: Buffer.from('fixture') }];
 const feedback = (summary) => ({ verdict: 'insufficient_visibility', summary, limitations: 'One still frame.', observations: [] });
@@ -47,11 +48,8 @@ async function sharedDatabase(t) {
   };
 }
 
-async function workspace(instance) {
-  const response = await instance.call('workspace');
-  const cookie = response.headers.get('set-cookie').split(';')[0];
-  await response.arrayBuffer();
-  return cookie;
+function workspace(instance) {
+  return createTestProfile((path, options) => instance.call(path, null, options));
 }
 
 async function upload(instance, cookie) {
@@ -251,7 +249,7 @@ test('an attempt row created before lease support stays available to retry', { t
   const cookie = await workspace(peer);
   const clip = await upload(peer, cookie);
   db.prepare('INSERT INTO clip_review_attempt (workspace_id, clip_id, version, sequence) VALUES (?, ?, ?, 4)')
-    .run(cookie.split('=')[1], clip.id, reviewVersion);
+    .run(activeWorkspaceId(db, cookie), clip.id, reviewVersion);
   db.close();
   const failed = await status(peer, cookie, clip, 'failed');
   assert.equal(failed.reviewStatus.sequence, 4);

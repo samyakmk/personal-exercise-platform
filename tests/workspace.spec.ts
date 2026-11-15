@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { expect, test } from '@playwright/test';
+import { createBrowserProfile, expect, test } from './signed-in';
 import { chooseExercise } from './exercise-picker';
 import type { Page } from '@playwright/test';
 
@@ -21,7 +21,7 @@ test('filters, empty state, saved gear, and the YouTube demonstration', async ({
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Training overview' })).toBeVisible();
   await page.getByRole('button', { name: 'Explore exercises' }).click();
-  await expect(page.getByText('880 exercises', { exact: true })).toBeVisible();
+  await expect(page.getByText('689 exercises', { exact: true })).toBeVisible();
   const barbellSquat = page.getByRole('button', { name: /^Barbell Squat Legs/ });
   await expect(barbellSquat).toHaveCount(0);
   for (let pageNumber = 0; pageNumber < 2; pageNumber += 1) {
@@ -31,11 +31,11 @@ test('filters, empty state, saved gear, and the YouTube demonstration', async ({
   await expect(page.getByLabel('Difficulty')).toHaveCount(0);
   await page.getByRole('button', { name: /^Filters/ }).click();
   await page.getByLabel('Difficulty').selectOption('Intermediate');
-  await expect(page.getByText('296 exercises', { exact: true })).toBeVisible();
+  await expect(page.getByText('229 exercises', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Push-Up Chest/ })).toBeVisible();
   await page.getByLabel('Difficulty').selectOption('');
   await page.getByRole('button', { name: 'Bodyweight only' }).click();
-  await expect(page.getByText('168 exercises', { exact: true })).toBeVisible();
+  await expect(page.getByText('131 exercises', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page.getByRole('button', { name: /^Bird Dog\s/ })).toBeVisible();
   await page.getByRole('textbox', { name: 'Search exercises' }).fill('pull-up');
@@ -45,9 +45,9 @@ test('filters, empty state, saved gear, and the YouTube demonstration', async ({
   const equipment = page.getByRole('dialog', { name: 'My equipment' });
   await equipment.getByRole('button', { name: 'Dumbbells', exact: true }).click();
   await equipment.getByRole('button', { name: 'Save equipment' }).click();
-  await expect(page.getByText('251 exercises', { exact: true })).toBeVisible();
+  await expect(page.getByText('202 exercises', { exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByText('251 exercises', { exact: true })).toBeVisible();
+  await expect(page.getByText('202 exercises', { exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: 'Search exercises' }).fill('goblet');
   const card = page.getByRole('button', { name: /^Goblet Squat\s/ });
   await expect(page.getByText('1 exercise', { exact: true })).toBeVisible();
@@ -70,7 +70,6 @@ test('the library filters and opens imported exercise demos with muscle tags and
   await page.route('https://i.vimeocdn.com/**', (route) => route.abort());
   await page.goto('/explore');
   await page.getByRole('button', { name: 'Filters', exact: true }).click();
-  await page.getByRole('button', { name: 'Has video', exact: true }).click();
   await page.getByLabel('Exercise type').selectOption('Strength');
   await page.getByRole('textbox', { name: 'Search exercises' }).fill('barbell squat quadriceps');
   const card = page.getByRole('button', { name: /^Barbell Squat Legs/ });
@@ -90,9 +89,8 @@ test('the library filters and opens imported exercise demos with muscle tags and
   await expect(chinUp.frameLocator('iframe').getByRole('button', { name: 'Play demo' })).toBeVisible();
 
   await page.goto('/explore?exercise=fedb-all-fours-quad-stretch');
-  const stretch = page.getByRole('dialog', { name: 'All Fours Quad Stretch', exact: true });
-  await expect(stretch.getByRole('heading', { name: 'How to do it' })).toBeVisible();
-  await expect(stretch.locator('iframe')).toHaveCount(0);
+  await expect(page.getByText('This exercise is no longer in the library.')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
 test('an exercise picker narrows the catalog while typing and saves an imported exercise', async ({ page }) => {
@@ -234,18 +232,19 @@ test('an exercise demonstration link opens directly and can be closed without cl
   await page.getByRole('button', { name: /^Filters/ }).click();
   await page.getByRole('button', { name: 'Bodyweight only' }).click();
   await page.getByLabel('Difficulty').selectOption('Intermediate');
-  await expect(page.getByText('4 exercises', { exact: true })).toBeVisible();
+  await expect(page.getByText('3 exercises', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: /^Push-Up Chest/ }).click();
   await page.reload();
   const pushup = page.getByRole('dialog', { name: 'Push-Up', exact: true });
   await expect(pushup).toBeVisible();
+  await expect(pushup.getByRole('heading', { name: 'Do and avoid' })).toBeVisible();
   await pushup.getByRole('button', { name: 'Close dialog' }).click();
   await expect(page.getByRole('button', { name: 'Chest', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: 'Filters (2)' })).toHaveAttribute('aria-expanded', 'false');
   await page.getByRole('button', { name: 'Filters (2)' }).click();
   await expect(page.getByRole('button', { name: 'Bodyweight only' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByLabel('Difficulty')).toHaveValue('Intermediate');
-  await expect(page.getByText('4 exercises', { exact: true })).toBeVisible();
+  await expect(page.getByText('3 exercises', { exact: true })).toBeVisible();
 });
 
 test('creates and edits a workout from Explore, logs actual sets, and deletes it', async ({ page }) => {
@@ -719,7 +718,7 @@ test('a training backup downloads and restores in a separate workspace', async (
   await expect(editor).not.toBeVisible();
   await page.getByRole('button', { name: 'Export and backup' }).click();
   const backupDialog = page.getByRole('dialog', { name: 'Export and backup' });
-  await page.route(/\/api\/workspace\/training-backup$/, (route) => route.fulfill({
+  await page.route((url) => url.pathname === '/api/workspace/training-backup', (route) => route.fulfill({
     status: 413, json: { error: 'This workspace is too large for a single training backup. Choose a narrower date range.' },
   }), { times: 1 });
   await backupDialog.getByRole('link', { name: 'Download training backup' }).click();
@@ -744,6 +743,7 @@ test('a training backup downloads and restores in a separate workspace', async (
 
   const other = await browser.newContext();
   try {
+    await createBrowserProfile(other.request, page.url());
     const imported = await other.newPage();
     await imported.goto(new URL('/workouts', page.url()).href);
     await imported.getByRole('button', { name: 'Export and backup' }).click();
@@ -808,7 +808,10 @@ test('previews an upload, retries an API error, reopens privately, and deletes t
   try {
     const outsider = await visitor.request.get(clipUrl);
     expect(outsider.status()).toBe(404);
-    expect((await visitor.request.get(clipUrl + '?download=1')).status()).toBe(404);
+    const downloadUrl = new URL(clipUrl);
+    downloadUrl.searchParams.set('download', '1');
+    expect((await visitor.request.get(downloadUrl.href)).status()).toBe(404);
+    await createBrowserProfile(visitor.request, page.url());
     const guestPage = await visitor.newPage();
     await guestPage.goto(reviewUrl);
     await expect(guestPage.getByText('This video is unavailable in this workspace.')).toBeVisible();
@@ -1146,7 +1149,7 @@ test('AI recommendation failures leave the catalog usable and filter changes cle
   await expect(page.getByText('A bodyweight option for chest.')).toBeVisible();
   await page.getByRole('button', { name: 'All muscles' }).click();
   await expect(page.getByText('A bodyweight option for chest.')).toHaveCount(0);
-  await expect(page.getByText('168 exercises', { exact: true })).toBeVisible();
+  await expect(page.getByText('131 exercises', { exact: true })).toBeVisible();
 });
 
 test('keyboard users can skip navigation and find the current page and filter state', async ({ page }) => {
@@ -1175,7 +1178,7 @@ test('open browser tabs share equipment changes when local storage is blocked', 
     Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('Storage blocked', 'SecurityError'); } });
   });
   await page.goto('/explore');
-  await expect(page.getByText('880 exercises', { exact: true })).toBeVisible();
+  await expect(page.getByText('689 exercises', { exact: true })).toBeVisible();
   const second = await context.newPage();
   try {
     await second.goto('/explore');
@@ -1183,8 +1186,8 @@ test('open browser tabs share equipment changes when local storage is blocked', 
     const dialog = second.getByRole('dialog', { name: 'My equipment' });
     await dialog.getByRole('button', { name: 'Bodyweight only' }).click();
     await dialog.getByRole('button', { name: 'Save equipment' }).click();
-    await expect(second.getByText('168 exercises', { exact: true })).toBeVisible();
-    await expect(page.getByText('168 exercises', { exact: true })).toBeVisible();
+    await expect(second.getByText('131 exercises', { exact: true })).toBeVisible();
+    await expect(page.getByText('131 exercises', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Filters (1)' }).click();
     await expect(page.getByRole('button', { name: 'Bodyweight only' })).toHaveAttribute('aria-pressed', 'true');
   } finally { await second.close(); }

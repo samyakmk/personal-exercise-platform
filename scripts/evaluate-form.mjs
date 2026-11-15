@@ -19,6 +19,7 @@ const safeProviderDiagnostics = new Set([
 ]);
 const attributionFields = ['title', 'creator', 'license', 'excerpt'];
 const caseName = /^[a-z0-9][a-z0-9_-]*$/i;
+const sha256Hex = /^[a-f0-9]{64}$/i;
 const reviewVerdicts = ['observations', 'no_clear_issue', 'insufficient_visibility', 'different_exercise'];
 const squatChecks = ['squat_short_depth'];
 const checksByExercise = new Map([
@@ -81,7 +82,7 @@ function validateManifest(manifest) {
     if (typeof item?.id !== 'string' || !caseName.test(item.id) || ids.has(item.id.toLowerCase())) {
       throw new Error('Use a unique neutral ID for each form evaluation clip, using only letters, numbers, hyphens, and underscores.');
     }
-    const { id, group, exercise = 'push-up', mode, check, verdict, exploratory, provenance } = item;
+    const { id, group, exercise = 'push-up', mode, check, verdict, exploratory, provenance, sourceFamily } = item;
     ids.add(id.toLowerCase());
     if (typeof group !== 'string' || !caseName.test(group)) {
       throw new Error(`Specify a group for ${id} using only letters, numbers, hyphens, and underscores.`);
@@ -113,6 +114,9 @@ function validateManifest(manifest) {
       }
     }
     if (provenance !== undefined) validateProvenance(provenance, id);
+    if (sourceFamily !== undefined && (typeof sourceFamily !== 'string' || !caseName.test(sourceFamily))) {
+      throw new Error(`Use a neutral source family name for ${id}.`);
+    }
   }
 }
 
@@ -122,6 +126,58 @@ function caseProvenance(item, report) {
 
 function fixtureMetadata(item, options) {
   return { ...item, mode: caseMode(item), clipFile: item.id + '.mp4', provenance: caseProvenance(item, options) };
+}
+
+function fixtureSourceFamilies(item, report) {
+  const sourceUrl = URL.parse(caseProvenance(item, report).source);
+  sourceUrl.hash = '';
+  const source = sourceUrl.href;
+  const file = item.preparation?.file;
+  const subject = item.subject ?? (typeof file === 'string' ? /^subject_(\d+)_/i.exec(file)?.[1] : undefined);
+  const inferred = subject !== undefined ? `${source}#subject=${Number(subject)}`
+    : typeof file === 'string' ? `${source}#recording=${file}` : source;
+  return item.sourceFamily ? [inferred, `declared:${item.sourceFamily.toLowerCase()}`] : [inferred];
+}
+
+function sourceCoverage(results, metadata) {
+  const sources = new Set();
+  const byFamily = new Map();
+  for (const item of results) {
+    if (!item.clipSha256) continue;
+    const keys = fixtureSourceFamilies(item, metadata);
+    const connected = new Set(keys.map((key) => byFamily.get(key)).filter(Boolean));
+    const source = { keys: new Set(keys), cases: [item.id] };
+    for (const prior of connected) {
+      for (const key of prior.keys) source.keys.add(key);
+      source.cases.unshift(...prior.cases);
+      sources.delete(prior);
+    }
+    for (const key of source.keys) byFamily.set(key, source);
+    sources.add(source);
+  }
+  return {
+    uniqueClipFiles: new Set(results.map(({ clipSha256 }) => clipSha256).filter(Boolean)).size,
+    sourceFamilies: sources.size,
+    sharedSourceFamilies: [...sources].map(({ cases }) => cases).filter((cases) => cases.length > 1),
+  };
+}
+
+export function assertDisjointFixtures(reference, candidate) {
+  const validFixtures = (report) => Array.isArray(report?.results) && report.results.length > 0
+    && report.results.every((item) => typeof item?.id === 'string' && typeof item.clipSha256 === 'string'
+      && sha256Hex.test(item.clipSha256) && URL.canParse(caseProvenance(item, report).source));
+  if (!validFixtures(reference) || !validFixtures(candidate)) {
+    throw new Error('Disjoint evaluation requires reports with verified fingerprints and source URLs for every case.');
+  }
+  const byId = new Map(reference.results.map((item) => [item.id.toLowerCase(), item]));
+  const byBytes = new Map(reference.results.map((item) => [item.clipSha256.toLowerCase(), item]));
+  const byFamily = new Map(reference.results.flatMap((item) => fixtureSourceFamilies(item, reference).map((key) => [key, item])));
+  const conflicts = candidate.results.flatMap((item) => {
+    const match = byId.get(item.id.toLowerCase()) ?? byBytes.get(item.clipSha256.toLowerCase())
+      ?? fixtureSourceFamilies(item, candidate).map((key) => byFamily.get(key)).find(Boolean);
+    return match ? [`${item.id} with ${match.id}`] : [];
+  });
+  if (conflicts.length) throw new Error(`Evaluation sets overlap by case ID, clip bytes, or source family: ${conflicts.join(', ')}.`);
 }
 
 async function loadClip({ id, subject, label, view = 'side', exercise = 'push-up', movement, provenance }, { clips, dataset }) {
@@ -260,6 +316,21 @@ function errorResult(error) {
     ...(diagnostic !== undefined && { diagnostic }) };
 }
 
+async function preflightCases(cases, options) {
+  const results = [];
+  for (const item of cases) {
+    const fixture = fixtureMetadata(item, options);
+    try {
+      const bytes = await loadClip(item, options);
+      const clipSha256 = createHash('sha256').update(bytes).digest('hex');
+      results.push({ ...fixture, clipSha256, outcome: 'ready' });
+    } catch (error) {
+      results.push({ ...fixture, ...errorResult(error) });
+    }
+  }
+  return results;
+}
+
 export function transientRetryDelay(error) {
   if (!(error instanceof AiError)) return null;
   const { status, diagnostic, retryAfter } = error;
@@ -270,13 +341,16 @@ export function transientRetryDelay(error) {
   return wait <= 5000 ? wait : null;
 }
 
-async function evaluateCase(item, options, respond, repeat, retryTransient) {
+export async function evaluateCase(item, options, respond, repeat = 1, retryTransient = false, logger = console) {
   let clipSha256;
+  let reviewerInvocations = 0;
   const fixture = fixtureMetadata(item, options);
   const { mode } = fixture;
   try {
     const bytes = await loadClip(item, options);
     clipSha256 = createHash('sha256').update(bytes).digest('hex');
+    const expected = options.expectedFingerprints?.get(item.id);
+    if (expected && clipSha256 !== expected) throw new Error(`The video bytes changed for ${item.id} after preflight.`);
     const exercise = exercisesById.get(item.exercise ?? 'push-up');
     const input = await prepareClipReview(bytes, { exercise, mime: 'video/mp4' });
     if (mode === 'measured' && input.coverage === 'unavailable'
@@ -284,43 +358,48 @@ async function evaluateCase(item, options, respond, repeat, retryTransient) {
       throw new Error('MoveNet measurements unavailable. Run npm run setup:pose and retry.');
     }
     const trials = [];
+    const invoke = respond && ((request) => {
+      reviewerInvocations += 1;
+      return respond(request);
+    });
     for (let index = 0; index < repeat; index += 1) {
       let retry;
       try {
         const reviewer = retryTransient ? async (request) => {
           try {
-            return await respond(request);
+            return await invoke(request);
           } catch (error) {
             const wait = transientRetryDelay(error);
             if (wait === null || request.signal?.aborted) throw error;
             retry = { diagnostic: error.diagnostic, delayMs: wait };
-            console.warn(`${item.id} trial ${index + 1}  transient failure (${retry.diagnostic})  retrying once`);
+            logger.warn(`${item.id} trial ${index + 1}  transient failure (${retry.diagnostic})  retrying once`);
             await delay(wait, undefined, { signal: request.signal });
-            return respond(request);
+            return invoke(request);
           }
-        } : respond;
+        } : invoke;
         const scored = scoreCase(item, input, reviewer ? await reviewExercise(reviewer, input) : null);
         trials.push(retry ? { ...scored, retry } : scored);
       } catch (error) {
         const failure = errorResult(error);
         trials.push(retry ? { ...failure, retry } : failure);
-        if (repeat > 1) console.error(`${item.id} trial ${index + 1}  error  ${failure.error}`);
+        if (repeat > 1) logger.error(`${item.id} trial ${index + 1}  error  ${failure.error}`);
       }
     }
     const counts = countOutcomes(trials);
     const outcomes = Object.keys(counts);
     const outcome = outcomes.length === 1 ? outcomes[0] : 'variable';
     const first = trials[0];
-    console.log(`${item.id}  ${outcome}${repeat > 1 ? '  ' + JSON.stringify(counts)
+    logger.log(`${item.id}  ${outcome}${repeat > 1 ? '  ' + JSON.stringify(counts)
       : first.error ? '  ' + first.error : first.additional?.length ? '  ' + first.additional.join(', ') : ''}`);
     return {
       ...fixture, ...first, outcome, clipSha256, coverage: input.coverage, localEvidence: input.evidence,
+      ...(respond && { reviewerInvocations }),
       ...(repeat > 1 && { trials }),
     };
   } catch (error) {
     const result = errorResult(error);
-    console.error(`${item.id}  error  ${result.error}`);
-    return { ...fixture, ...result, clipSha256 };
+    logger.error(`${item.id}  error  ${result.error}`);
+    return { ...fixture, ...result, clipSha256, ...(respond && { reviewerInvocations }) };
   }
 }
 
@@ -335,6 +414,9 @@ async function main() {
       output: { type: 'string' },
       repeat: { type: 'string', default: '1' },
       compare: { type: 'string' },
+      preflight: { type: 'boolean' },
+      'disjoint-from': { type: 'string' },
+      'budget-ledger': { type: 'string' },
       strict: { type: 'boolean' },
     },
     allowPositionals: true,
@@ -348,12 +430,14 @@ async function main() {
     throw new Error('Select a group or case ID from the form evaluation manifest.');
   }
   const retryTransient = Boolean(values['retry-transient']);
+  if (values.preflight && (values.live || values.compare)) throw new Error('Use --preflight as a separate step before a live run or comparison.');
   if (retryTransient && !values.live) throw new Error('Use --retry-transient with --live.');
+  if (values['budget-ledger'] !== undefined && !values.live) throw new Error('Use --budget-ledger with --live.');
   const model = values.live ? openAiModel() : undefined;
   const respond = values.live ? createOpenAi({ model }) : null;
   if (values.live && !respond) throw new Error('Live evaluation requires an OpenAI key configured on this machine.');
-  const selected = respond ? cases : cases.filter((item) => caseMode(item) === 'measured');
-  const skipped = respond ? [] : cases.filter((item) => caseMode(item) === 'visual').map(({ id }) => id);
+  const selected = respond || values.preflight ? cases : cases.filter((item) => caseMode(item) === 'measured');
+  const skipped = respond || values.preflight ? [] : cases.filter((item) => caseMode(item) === 'visual').map(({ id }) => id);
   if (skipped.length && selected.length) console.log(`Skipped ${skipped.length} visual case(s). Add --live to evaluate them.`);
 
   const repeat = Number(values.repeat);
@@ -363,7 +447,7 @@ async function main() {
 
   const { source, license } = manifest;
   const options = { clips: resolve(values.clips), dataset: values.dataset, source, license };
-  const mode = respond ? 'live' : 'local';
+  const mode = values.preflight ? 'preflight' : respond ? 'live' : 'local';
   const metadata = { source, license, mode, repeat, gradingVersion, reviewVersion,
     ...(model && { model: /^[\w.:-]{1,128}$/.test(model) && !/(^|:)sk[-_]/i.test(model) ? model : 'custom' }),
     ...(respond && { retryPolicy: retryTransient ? retryPolicy : 'none' }) };
@@ -372,31 +456,63 @@ async function main() {
     baseline = JSON.parse(await readFile(resolve(values.compare), 'utf8'));
     const inputs = selected.map((item) => fixtureMetadata(item, options));
     compareReports(baseline, { ...metadata, results: inputs });
-    const baselineById = new Map(baseline.results.map((item) => [item.id, item]));
-    // Read one file at a time. Refuse incomparable inputs before scoring or calling the provider.
-    for (const [index, item] of selected.entries()) {
-      if (!baselineById.get(item.id).clipSha256) continue;
-      const bytes = await loadClip(item, options);
-      inputs[index].clipSha256 = createHash('sha256').update(bytes).digest('hex');
-    }
-    compareReports(baseline, { ...metadata, results: inputs });
   }
+  const reference = values['disjoint-from'] ? JSON.parse(await readFile(resolve(values['disjoint-from']), 'utf8')) : null;
+  const needsPreflight = respond || values.preflight || baseline || reference;
+  const prepared = needsPreflight ? await preflightCases(selected, options) : [];
+  const preflightFailed = prepared.some(({ outcome }) => outcome === 'error');
+  if (!preflightFailed && baseline) compareReports(baseline, { ...metadata, results: prepared });
+  if (!preflightFailed && reference) assertDisjointFixtures(reference, { ...metadata, results: prepared });
   const results = [];
-  for (const item of selected) results.push(await evaluateCase(item, options, respond, repeat, retryTransient));
+  let budget;
+  if (preflightFailed || values.preflight) {
+    for (const item of prepared) {
+      if (item.error) console.error(`${item.id}  error  ${item.error}`);
+      results.push(item);
+    }
+    if (preflightFailed && respond) console.error('Live evaluation stopped before contacting the provider. Fix the fixture errors and retry.');
+  } else {
+    const expectedFingerprints = new Map(prepared.map(({ id, clipSha256 }) => [id, clipSha256]));
+    let meter;
+    try {
+      if (values['budget-ledger'] !== undefined) {
+        const { openEvalMeter } = await import('./llm-eval-budget.mjs');
+        meter = openEvalMeter(resolve(values['budget-ledger']));
+      }
+      const reviewer = meter ? createOpenAi({ model, fetchImpl: meter.fetch }) : respond;
+      for (const item of selected) {
+        results.push(await evaluateCase(item, { ...options, expectedFingerprints }, reviewer, repeat, retryTransient));
+      }
+      if (meter) {
+        const { limits, totals } = meter.receipt();
+        budget = { limits, totals };
+      }
+    } finally {
+      meter?.close();
+    }
+  }
   const totals = countOutcomes(results);
   const duplicates = duplicateClips(results);
-  const report = { ...metadata, totals, results, skipped, duplicateClips: duplicates };
+  const report = {
+    ...metadata, totals, results, skipped, duplicateClips: duplicates,
+    sourceCoverage: sourceCoverage(results, metadata),
+    ...(respond && { reviewerInvocations: results.reduce((sum, item) => sum + (item.reviewerInvocations ?? 0), 0) }),
+    ...(budget && { budget }),
+  };
   for (const { caseIds } of duplicates) {
     console.warn(`Identical clip bytes for ${caseIds.join(', ')}. Check provenance before counting them as independent clips.`);
   }
   console.log(totals);
-  if (baseline) {
+  if (baseline && !preflightFailed) {
     const { changes, missingFingerprints } = compareReports(baseline, report);
     if ((baseline.gradingVersion ?? 1) !== gradingVersion) {
       console.warn('Grading rules differ from the baseline. Re-run it to isolate changes in the reviewer.');
     }
     if (baseline.retryPolicy !== undefined && baseline.retryPolicy !== report.retryPolicy) {
       console.warn('Retry policy differs from the baseline. Review transient failures before comparing outcomes.');
+    }
+    if (report.mode === 'live' && baseline.model !== report.model) {
+      console.warn('The configured model differs from the baseline or was not recorded. Output changes may include differences in model behavior.');
     }
     if (missingFingerprints) console.warn(`Comparison could not verify clip bytes for ${missingFingerprints} case(s).`);
     for (const { id, before, after } of changes) console.log(`Changed ${id}  ${before} → ${after}`);
@@ -411,7 +527,7 @@ async function main() {
       await rm(temporary, { force: true });
     }
   }
-  process.exitCode = results.length ? evaluationExitCode(results, values.strict) : 1;
+  process.exitCode = results.length ? evaluationExitCode(results, values.strict && !values.preflight) : 1;
   if (!results.length) console.error('These cases check visual feedback. Add --live to run them.');
   if (process.exitCode === 2) console.error('Strict grading failed. Check the case outcomes above.');
 }

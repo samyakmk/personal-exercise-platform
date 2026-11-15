@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { AiError, createOpenAi } from '../server/ai.mjs';
 import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTestProfile } from './test-profile.mjs';
 
 async function start(t, options = {}) {
   const server = createLiftmorrowServer({ database: ':memory:', respond: null, ...options });
@@ -17,10 +18,9 @@ async function start(t, options = {}) {
   t.after(() => new Promise((done) => server.close(done)));
   const root = `http://127.0.0.1:${server.address().port}/api/`;
   async function session(previousCookie) {
-    const response = await fetch(root + 'workspace?today=2026-11-12', {
-      headers: previousCookie ? { cookie: previousCookie } : {},
-    });
-    const cookie = previousCookie ?? response.headers.get('set-cookie').split(';')[0];
+    const cookie = previousCookie?.startsWith('liftmorrow_browser=') ? previousCookie
+      : await createTestProfile((path, init) => fetch(root + path, init), previousCookie);
+    const response = await fetch(root + 'workspace?today=2026-11-12', { headers: { cookie } });
     return {
       cookie,
       data: await response.json(),
@@ -39,7 +39,8 @@ function payload(method, body) {
 test('filters require all exercise equipment, match multiple muscles, and persist preferences', async (t) => {
   const { session } = await start(t);
   const browser = await session();
-  assert.equal(browser.data.catalog.length, 880);
+  assert.equal(browser.data.catalog.length, 689);
+  assert.equal(browser.data.archivedExercises.length, 191);
   assert.equal(new Set(browser.data.catalog.map(({ id }) => id)).size, browser.data.catalog.length);
   assert.ok(browser.data.catalog.every(({ primaryMuscles, category, cues }) =>
     primaryMuscles.length > 0 && browser.data.exerciseCategories.includes(category) && cues.length > 0));
@@ -79,12 +80,34 @@ test('filters require all exercise equipment, match multiple muscles, and persis
   assert.equal((await browser.call('exercises?equipment=all&muscle=Unknown')).status, 400);
 });
 
+test('a heat map muscle matches exact primary or secondary catalog tags', async (t) => {
+  const { session } = await start(t);
+  const browser = await session();
+  for (const muscle of new Set(browser.data.catalog.flatMap(({ primaryMuscles, secondaryMuscles }) =>
+    [...primaryMuscles, ...secondaryMuscles]))) {
+    const response = await browser.call('exercises?' + new URLSearchParams({ equipment: 'all', detail: muscle }));
+    assert.equal(response.status, 200);
+    const matches = await response.json();
+    assert.deepEqual(new Set(matches.map(({ id }) => id)), new Set(browser.data.catalog
+      .filter(({ primaryMuscles, secondaryMuscles }) => primaryMuscles.includes(muscle) || secondaryMuscles.includes(muscle))
+      .map(({ id }) => id)));
+  }
+  const filtered = await (await browser.call('exercises?equipment=bodyweight&muscle=Chest&detail=Triceps&q=push')).json();
+  assert.ok(filtered.some(({ id }) => id === 'push-up'));
+  assert.ok(filtered.every(({ muscles, equipment }) => muscles.includes('Chest') && equipment.length === 0));
+  assert.equal((await browser.call('exercises?equipment=all&detail=Unknown')).status, 400);
+});
+
 test('exercise types, detailed muscles, and demonstration availability can be searched together', async (t) => {
   const { session } = await start(t);
   const browser = await session();
   const videos = browser.data.catalog.filter(({ demonstration }) => demonstration);
-  assert.ok(videos.length >= 650 && videos.length < browser.data.catalog.length);
+  assert.equal(videos.length, browser.data.catalog.length);
   assert.equal(new Set(videos.map(({ demonstration }) => demonstration.videoId)).size, videos.length);
+  assert.ok(videos.every(({ demonstration }) => demonstration.creator !== 'Bodymaster'));
+  assert.ok(videos.some(({ id }) => id === 'fedb-arm-circles'));
+  assert.ok(videos.some(({ id }) => id === 'fedb-side-jackknife'));
+  assert.ok(videos.every(({ demonstration }) => demonstration.videoId !== 'e3IN2_QYcQA'));
   for (const { id, demonstration } of videos) {
     if (demonstration.provider === 'vimeo') {
       assert.match(demonstration.videoId, /^\d+$/);
@@ -101,7 +124,10 @@ test('exercise types, detailed muscles, and demonstration availability can be se
   assert.ok(matches.some(({ id }) => id === 'fedb-barbell-squat'));
   assert.ok(matches.every(({ category, demonstration }) => category === 'Strength' && demonstration));
   const stretches = await (await browser.call('exercises?equipment=all&category=Stretching')).json();
-  assert.ok(stretches.some(({ id, demonstration }) => id === 'fedb-all-fours-quad-stretch' && !demonstration));
+  assert.ok(stretches.length > 0 && stretches.every(({ demonstration }) => demonstration));
+  assert.ok(browser.data.archivedExercises.some(({ id }) => id === 'fedb-all-fours-quad-stretch'));
+  const all = await (await browser.call('exercises?equipment=all')).json();
+  assert.deepEqual(new Set(all.map(({ id }) => id)), new Set(videos.map(({ id }) => id)));
   assert.equal((await browser.call('exercises?equipment=all&category=unknown')).status, 400);
   assert.equal((await browser.call('exercises?equipment=all&video=true')).status, 400);
 });
@@ -679,43 +705,60 @@ test('disconnecting during an upload releases its slot and leaves no partial vid
 test('AI recommendations use only filtered catalog IDs and omit workout names', async (t) => {
   let request;
   let calls = 0;
+  function readCandidates({ candidates, candidateColumns }) {
+    return candidates.map((row) => Object.fromEntries(candidateColumns.map((column, index) => [column, row[index]])));
+  }
   const { session } = await start(t, { respond: async (input) => {
     calls += 1;
     request = input;
-    const { candidates, limit } = JSON.parse(input.content[0].text);
-    return { recommendations: candidates.slice(0, limit).map(({ id }) => ({ exerciseId: id, reason: 'A bodyweight chest press.' })) };
+    const payload = JSON.parse(input.content[0].text);
+    return { recommendations: readCandidates(payload).slice(0, payload.limit).map(({ id }) => ({ exerciseId: id, reasonCode: 'target' })) };
   } });
   const browser = await session();
   assert.equal(browser.data.aiAvailable, true);
   await browser.call('workspace/example-workouts', payload('POST', { today: '2026-11-12' }));
   const post = { method: 'POST' };
   assert.deepEqual(await (await browser.call('exercises/recommendations?equipment=bodyweight&muscle=Back&q=deadlift', post)).json(), []);
+  const single = await browser.call('exercises/recommendations?equipment=all&q=single+arm+dumbbell+row', post);
+  assert.equal(single.status, 200);
+  assert.deepEqual((await single.json()).map(({ exerciseId }) => exerciseId), ['dumbbell-row']);
   assert.equal(calls, 0);
   const result = await browser.call('exercises/recommendations?equipment=bodyweight&muscle=Chest', post);
   assert.equal(result.status, 200);
   assert.equal((await result.json())[0].exerciseId, 'push-up');
   const input = JSON.parse(request.content[0].text);
   assert.ok(input.candidates.length > 3);
-  assert.ok(input.candidates.every(({ equipment, muscles }) => equipment.length === 0 && muscles.includes('Chest')));
+  assert.ok(readCandidates(input).every(({ equipment, muscles }) => equipment.length === 0 && muscles.includes('Chest')));
   assert.equal(input.completedSessionsByExercise['push-up'], undefined);
   assert.ok(!request.content[0].text.includes('Full Body Foundations'));
   for (const [time, name] of [['07:15', 'Before now'], ['20:30', 'Later today']]) {
     const added = await browser.call('workouts', payload('POST', {
       id: randomUUID(), name, date: '2026-11-12', time, status: 'completed',
-      exercises: [{ exerciseId: 'push-up', sets: 2, reps: 8 }],
+      notes: 'Private session note',
+      exercises: [{ exerciseId: 'push-up', sets: 2, reps: 8, notes: 'Private exercise note' },
+        { exerciseId: 'fedb-push-up-wide', setDetails: [] }],
     }));
     assert.equal(added.status, 200);
   }
   const withHistory = await browser.call('exercises/recommendations?equipment=bodyweight&muscle=Chest&today=2026-11-12&now=10:00', post);
   assert.equal(withHistory.status, 200);
   assert.equal(JSON.parse(request.content[0].text).completedSessionsByExercise['push-up'], 1);
+  assert.equal(JSON.parse(request.content[0].text).completedSessionsByExercise['fedb-push-up-wide'], undefined);
   assert.ok(!request.content[0].text.includes('Before now'));
+  assert.ok(!request.content[0].text.includes('Private session note'));
+  assert.ok(!request.content[0].text.includes('Private exercise note'));
   assert.equal(calls, 2);
   assert.equal((await browser.call('exercises/recommendations?equipment=bodyweight&muscle=Chest&today=2026-11-12&now=10:01', post)).status, 200);
   assert.equal(calls, 2);
   const broad = await browser.call('exercises/recommendations?equipment=all', post);
   assert.equal(broad.status, 200);
   assert.equal(JSON.parse(request.content[0].text).candidates.length, 50);
+  const exact = await browser.call('exercises/recommendations?equipment=bodyweight&muscle=Arms&detail=Triceps', post);
+  assert.equal(exact.status, 200);
+  const exactInput = JSON.parse(request.content[0].text);
+  assert.deepEqual(exactInput.targets, ['Arms']);
+  assert.equal(exactInput.detail, 'Triceps');
+  assert.ok(readCandidates(exactInput)[0].primaryMuscles.includes('Triceps'));
 });
 
 test('OpenAI responses request disables storage and upstream errors do not expose the provider body', async () => {
@@ -768,7 +811,7 @@ test('form reviews coalesce concurrent requests, persist, and enforce clip owner
       await wait;
       return {
         verdict: 'observations', summary: 'The exercise is visible.', limitations: 'The camera shows one side.',
-        observations: [{ frame: 2, kind: 'strength', observation: 'The body looks aligned.', cue: 'Keep the same position.' }],
+        observations: [{ frame: 2, comparisonFrame: 1, kind: 'strength', observation: 'The body looks aligned.', cue: 'Keep the same position.' }],
       };
     },
   });
@@ -789,6 +832,7 @@ test('form reviews coalesce concurrent requests, persist, and enforce clip owner
   assert.deepEqual(results.map((response) => response.status), [200, 200]);
   const feedback = await results[0].json();
   assert.equal(feedback.observations[0].timestamp, 0.5);
+  assert.equal(feedback.observations[0].comparisonTimestamp, 0);
   assert.deepEqual(await results[1].json(), feedback);
   assert.deepEqual((await (await browser.call('workspace')).json()).clips[0].review, feedback);
   assert.deepEqual(await (await browser.call(path, post)).json(), feedback);
@@ -877,11 +921,11 @@ test('reviewing another video segment preserves the earlier result until the new
     sampleFrames: async (bytes, { startSeconds }) => {
       startTimes.push(startSeconds);
       if (startSeconds === 10) await wait;
-      return [{ timestamp: startSeconds + 0.5, image: Buffer.from('fixture') }];
+      return [0.5, 1.25].map((time) => ({ timestamp: startSeconds + time, image: Buffer.from('fixture') }));
     },
     respond: async () => ({
       verdict: 'observations', summary: 'The exercise is visible.', limitations: 'Only one side.',
-      observations: [{ frame: 1, kind: 'strength', observation: 'Your elbows are extended at the top.', cue: 'Keep the same finish.' }],
+      observations: [{ frame: 1, comparisonFrame: 2, kind: 'strength', observation: 'Your elbows are extended at the top.', cue: 'Keep the same finish.' }],
     }),
   });
   t.after(release);
@@ -905,6 +949,7 @@ test('reviewing another video segment preserves the earlier result until the new
   release();
   const updated = await waitForState(status, 'complete');
   assert.equal(updated.review.observations[0].timestamp, 10.5);
+  assert.equal(updated.review.observations[0].comparisonTimestamp, 11.25);
   assert.equal(updated.review.startSeconds, 10);
   assert.equal((await begin('10')).status, 200);
   assert.deepEqual(startTimes, [0, 10]);
@@ -1081,19 +1126,20 @@ test('static serving rejects environment-file and other hidden paths', async (t)
   }
 });
 
-test('the local server rejects unconfigured hosts before creating a workspace', async (t) => {
+test('the local server rejects unconfigured hosts before accepting sign-up', async (t) => {
   const { url } = await start(t);
-  const target = url + '/api/workspace';
+  const target = url + '/api/profiles';
+  const init = payload('POST', { username: 'test-user' });
   const response = await new Promise((resolve, reject) => {
     httpRequest(target, {
-      headers: { Host: 'rebound.example', Origin: 'http://rebound.example' },
-    }, (result) => { result.resume(); resolve(result); }).on('error', reject).end();
+      method: 'POST', headers: { ...init.headers, Host: 'rebound.example', Origin: 'http://rebound.example' },
+    }, (result) => { result.resume(); resolve(result); }).on('error', reject).end(init.body);
   });
   assert.equal(response.statusCode, 421);
   assert.equal(response.headers['set-cookie'], undefined);
   assert.equal(response.headers['access-control-allow-origin'], undefined);
-  assert.equal((await fetch(target, { headers: { Origin: 'https://foreign.example' } })).status, 403);
-  assert.equal((await fetch(target)).status, 200);
+  assert.equal((await fetch(target, { ...init, headers: { ...init.headers, Origin: 'https://foreign.example' } })).status, 403);
+  assert.equal((await fetch(target, init)).status, 201);
 });
 
 test('the web server contains symlinks, validates shell freshness, and compresses fingerprinted assets', async (t) => {
@@ -1135,4 +1181,36 @@ test('the web server contains symlinks, validates shell freshness, and compresse
   assert.equal(raw.headers.get('content-encoding'), null);
   assert.notEqual(raw.headers.get('etag'), compressed.headers.get('etag'));
   assert.equal(await raw.text(), body);
+});
+
+test('exercise notes, effort and trainer origin survive retries and training backup restore', async (t) => {
+  const { session } = await start(t);
+  const author = await session();
+  const destination = await session();
+  const delta = 'workouts?response=delta';
+  const workout = { id: randomUUID(), name: 'Coach session', date: '2026-11-14', time: '10:00', status: 'completed',
+    effort: 8, source: 'trainer', notes: 'Review technique.',
+    exercises: [{ exerciseId: 'reverse-lunge', sets: 2, reps: 6, notes: 'Use a steady tempo.' }] };
+  for (const patch of [{ effort: '8' }, { effort: 0 }, { effort: 10.5 }, { effort: 11 }, { status: 'planned' }, { source: 'unknown' },
+    { exercises: [{ ...workout.exercises[0], notes: 'x'.repeat(501) }] }]) {
+    assert.equal((await author.call(delta, payload('POST', { ...workout, ...patch }))).status, 400);
+  }
+  const save = () => author.call(delta, payload('POST', workout));
+  const saved = (await (await save()).json()).workouts.upsert[0];
+  assert.deepEqual(saved, { ...workout, revision: 1 });
+  assert.equal((await save()).status, 200);
+  const csv = await (await author.call('workouts/history.csv?feedback=1')).text();
+  assert.match(csv, /Session source,Perceived effort \(1–10\),Exercise notes/);
+  assert.match(csv, /Review technique\.,trainer,8,Use a steady tempo\./);
+  const backup = await (await author.call('workspace/training-backup')).json();
+  const restored = await (await destination.call('workspace/training-backup', payload('POST', backup))).json();
+  assert.deepEqual(restored.workouts[0], saved);
+  const editPath = 'workouts/' + workout.id + '?response=delta';
+  const edit = { ...saved, effort: null, operationId: randomUUID() };
+  const request = () => author.call(editPath, payload('PUT', edit));
+  const cleared = (await (await request()).json()).workouts.upsert[0];
+  assert.equal(cleared.effort, undefined);
+  assert.equal(cleared.source, 'trainer');
+  assert.equal(cleared.revision, 2);
+  assert.equal((await request()).status, 200);
 });

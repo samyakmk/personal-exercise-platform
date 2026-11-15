@@ -1,14 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { api, RequestError } from './api';
+import { createWorkspaceApi, RequestError } from './api';
 import { compareWorkoutTime, workoutTime } from './dates';
 import { signalWorkspaceUpdate, watchWorkspaceUpdates } from './platform/workspaceUpdates';
 import { completedWorkouts } from './trainingProgress';
-import type { Clip, ClipReview, Snapshot, Workspace, WorkspaceChange } from './types';
+import type { Clip, ClipReview, Exercise, Snapshot, Workspace, WorkspaceChange } from './types';
 import { useLocalClock } from './useLocalClock';
 
 type WorkspaceState = {
+  api: ReturnType<typeof createWorkspaceApi>;
   data: Workspace | null;
+  exerciseRecords: ReadonlyMap<string, Exercise>;
   error: string;
   reload: () => void;
   mutate: (operation: () => Promise<WorkspaceChange>) => Promise<void>;
@@ -64,7 +66,12 @@ function applyWorkspaceChange(current: Workspace, change: WorkspaceChange): Work
     || (a.id === b.id ? 0 : a.id < b.id ? -1 : 1)) };
 }
 
-export function WorkspaceProvider({ children }: { children: ReactNode }) {
+export function WorkspaceProvider({ workspaceKey, refreshProfile, children }: {
+  workspaceKey: string;
+  refreshProfile: () => void;
+  children: ReactNode;
+}) {
+  const api = useMemo(() => createWorkspaceApi(workspaceKey), [workspaceKey]);
   const now = useLocalClock();
   const [data, setData] = useState<Workspace | null>(null);
   const [error, setError] = useState('');
@@ -87,17 +94,27 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           const { workspace, etag } = await api.workspace(snapshotTag.current);
           setError('');
           if (!workspace) continue;
+          if (workspace.workspaceKey !== workspaceKey) {
+            setData(null);
+            refreshProfile();
+            continue;
+          }
           snapshotTag.current = generation === reviewGeneration.current ? etag : undefined;
           setData((current) => current && current.workspaceKey === workspace.workspaceKey
             ? { ...workspace, clips: mergeClips(current.clips, workspace.clips) }
             : workspace);
         } catch (failure) {
+          if (failure instanceof RequestError && [404, 409].includes(failure.status)) {
+            setData(null);
+            snapshotTag.current = undefined;
+            refreshProfile();
+          }
           setError((failure as Error).message);
         }
       }
     }).finally(() => { refreshing.current = false; });
     queue.current = refresh;
-  }, []);
+  }, [api, refreshProfile, workspaceKey]);
 
   useEffect(() => {
     reload();
@@ -138,7 +155,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       }
     });
     return !missing;
-  }, [mutate]);
+  }, [api, mutate]);
 
   const refreshAfterRestore = useCallback((changed: boolean) => {
     reload();
@@ -162,7 +179,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (!(failure instanceof RequestError) || [404, 408, 409].includes(failure.status)) reload();
       throw failure;
     }
-  }, [reload, updateReview]);
+  }, [api, reload, updateReview]);
 
   const cancelReview = useCallback(async (id: string, sequence: number) => {
     try {
@@ -172,7 +189,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (!(failure instanceof RequestError) || [404, 408, 409].includes(failure.status)) reload();
       throw failure;
     }
-  }, [reload, updateReview]);
+  }, [api, reload, updateReview]);
 
   const running = data?.clips.filter(({ reviewStatus }) => reviewStatus.state === 'running').map(({ id }) => id).join(',') ?? '';
   useEffect(() => {
@@ -203,7 +220,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [running, reload, updateReview]);
+  }, [api, running, reload, updateReview]);
 
   const recommendationContext = useMemo(() => {
     const recent = data && completedWorkouts(data.workouts, workoutTime(now), 5)
@@ -211,9 +228,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return JSON.stringify([data?.equipment, recent, data?.catalog.map(({ id }) => id)]);
   }, [data?.equipment, data?.workouts, data?.catalog, now]);
 
+  const catalog = data?.catalog;
+  const archivedExercises = data?.archivedExercises;
+  const exerciseRecords = useMemo(() => new Map(
+    [...(catalog ?? []), ...(archivedExercises ?? [])].map((exercise) => [exercise.id, exercise]),
+  ), [catalog, archivedExercises]);
   const value = useMemo(() => ({
-    data, error, reload, mutate, transferClip, refreshAfterRestore, recommendationContext, startReview, cancelReview, notice: notice?.message ?? '', announce,
-  }), [data, error, reload, mutate, transferClip, refreshAfterRestore, recommendationContext, startReview, cancelReview, notice, announce]);
+    api, data, exerciseRecords, error, reload, mutate, transferClip, refreshAfterRestore, recommendationContext, startReview, cancelReview,
+    notice: notice?.message ?? '', announce,
+  }), [api, data, exerciseRecords, error, reload, mutate, transferClip, refreshAfterRestore, recommendationContext, startReview, cancelReview, notice, announce]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

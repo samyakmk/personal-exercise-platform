@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createLiftmorrowServer } from '../server/index.mjs';
+import { activeWorkspaceId, createTestProfile } from './test-profile.mjs';
 
 test('legacy reads honor byte ranges, buffer limits, and deletion while backpressured', { timeout: 8000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'liftmorrow-legacy-video-'));
@@ -19,10 +20,7 @@ test('legacy reads honor byte ranges, buffer limits, and deletion while backpres
   await once(server, 'listening');
   const origin = `http://127.0.0.1:${server.address().port}/api/`;
   try {
-    const session = await fetch(origin + 'workspace');
-    const cookie = session.headers.get('set-cookie').split(';')[0];
-    await session.arrayBuffer();
-    const workspace = cookie.split('=')[1];
+    const cookie = await createTestProfile((path, init) => fetch(origin + path, init));
     const headers = { Cookie: cookie };
     const id = randomUUID();
     const clip = origin + 'clips/' + id;
@@ -36,7 +34,7 @@ test('legacy reads honor byte ranges, buffer limits, and deletion while backpres
     try {
       db.prepare(`INSERT INTO clip (workspace_id,id,exerciseId,filename,mime,size,uploadedAt,bytes,representation)
         VALUES (?,?,'push-up','legacy.mp4','video/mp4',?,?,?,?)`)
-        .run(workspace, id, bytes.length, new Date().toISOString(), bytes, 'legacy-test-token');
+        .run(activeWorkspaceId(db, cookie), id, bytes.length, new Date().toISOString(), bytes, 'legacy-test-token');
     } finally {
       db.close();
     }

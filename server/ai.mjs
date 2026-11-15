@@ -153,36 +153,95 @@ function validText(value, max) {
 }
 
 const incidentalScene = /\b(?:bystanders?|passersby|background (?:people|activity|objects|equipment|clutter)|(?:people|others|someone) in the background|other people|reflections?)\b/i;
+// Reject explicit high-risk claims and instructions even when the response meets its JSON schema.
+// This is a narrow backstop, not a way to verify what is visible in a frame.
+const unsafeFormClaims = [
+  /\b(?:ibuprofen|acetaminophen|paracetamol|naproxen|aspirin|opioids?|painkillers?|NSAIDs?)\b/i,
+  /\b(?:push|press|train|work|lift|exercise|keep going)\s+(?:through|despite)\s+(?:(?:the|your|any|sharp)\s+){0,2}(?:pain|injur(?:y|ies))\b/i,
+  /\b(?:you (?:have|suffer from)|this (?:is|shows|confirms)|i (?:can )?diagnose)\b[^.!?]{0,70}\b(?:herniat\w*|slipped disc|tend(?:onitis|initis|inopathy)|sprain\w*|fractur\w*|scoliosis|tear|torn|impingement|arthritis|injur\w*)\b/i,
+  /\b(?:will|is going to|guaranteed to)\s+(?:injure|damage|tear|prevent injur\w*|cause (?:an? )?injur\w*)\b/i,
+  /\b(?:perfect(?:ly)?|completely|guaranteed|100%)\s+(?:safe|form)\b|\bsafe to (?:continue|train|lift|exercise|add weight|keep going)\b/i,
+  /\b(?:this|that|the) (?:movement|exercise|technique|form|variation|position) (?:is (?:always )?safe|can be performed safely)\b/i,
+];
+const acceptableFormText = (value) => !incidentalScene.test(value) && !unsafeFormClaims.some((rule) => rule.test(value));
 const noClearCorrection = 'I didn’t see a clear correction to make in the movement shown.';
 
 function invalidOutput() {
   return new AiError(502, 'OpenAI returned feedback this app could not display. Try again.', 'output_validation');
 }
 
-export async function rankExercises(respond, { candidates, targets, available, history }) {
-  const ids = new Set(candidates.map((exercise) => exercise.id));
-  const limit = Math.min(3, ids.size);
+const recommendationReasons = ['target', 'equipment', 'familiar', 'variety'];
+const recommendationColumns = ['id', 'name', 'muscles', 'primaryMuscles', 'secondaryMuscles', 'equipment', 'level', 'category'];
+export const recommendationCandidateLimit = 50;
+
+function recommendationReason(exercise, { targets, detail, available, history }, code) {
+  const { id, muscles, primaryMuscles, secondaryMuscles, equipment, level } = exercise;
+  const groups = targets.filter((target) => muscles.includes(target));
+  const reasons = {
+    target: primaryMuscles.includes(detail) ? `${detail} is a primary muscle for this exercise.`
+      : secondaryMuscles.includes(detail) ? `${detail} is a secondary muscle for this exercise.`
+      : groups.length ? `Matches your ${groups.join(' and ')} ${groups.length === 1 ? 'filter' : 'filters'}.` : null,
+    equipment: available !== null && equipment.every((item) => available.includes(item))
+      ? equipment.length ? `Matches your available equipment (${equipment.join(', ')}).` : 'No equipment needed.' : null,
+    familiar: history[id] > 0 ? 'You’ve logged this exercise recently.' : null,
+    variety: !history[id] && Object.keys(history).length ? 'Adds an option outside your recent exercise log.' : null,
+  };
+  return (recommendationReasons.includes(code) && reasons[code])
+    || reasons.target || reasons.equipment || reasons.familiar || reasons.variety
+    || (primaryMuscles[0] ? `Primary muscle: ${primaryMuscles[0]}.` : `Listed as ${level.toLowerCase()} in the catalog.`);
+}
+
+export async function rankExercises(respond, { candidates, targets, detail = null, available, history }) {
+  const byId = new Map(candidates.map((exercise) => [exercise.id, exercise]));
+  const limit = Math.min(3, byId.size);
+  const context = { targets, detail, available, history };
+  if (!limit) return [];
+  if (limit === 1) {
+    const [exercise] = byId.values();
+    return [{ exerciseId: exercise.id, reason: recommendationReason(exercise, context) }];
+  }
   const schema = object({
-    recommendations: array(object({ exerciseId: { type: 'string', enum: [...ids] }, reason: string })),
+    recommendations: { ...array(object({
+      exerciseId: { type: 'string', enum: [...byId.keys()] },
+      reasonCode: { type: 'string', enum: recommendationReasons },
+    })), minItems: limit, maxItems: limit },
   });
   const result = await respond({
     name: 'exercise_recommendations',
     schema,
-    instructions: 'Rank the supplied exercise IDs for the stated targets and available equipment. Use training history to balance familiar movements with variety, and prioritize primary muscle matches. Choose exactly the requested number of distinct IDs in order. Give each a specific, practical one-sentence reason (under 160 characters). Use only the supplied catalog. Do not prescribe a training load or make medical claims.',
+    instructions: [
+      'Read each catalog row in candidateColumns order. Rank only the filtered IDs and return limit distinct picks.',
+      'Put a primary match to detail first if available. For multiple muscle groups, cover different groups and favor primary matches. Prefer meaningfully different movements and balance familiarity with variety.',
+      'Use reasonCode target for a matching muscle or group, equipment when available is non-null, familiar for a positive recent count, or variety for an unlogged option when another candidate has a recent count.',
+    ].join(' '),
     content: [{
       type: 'input_text',
       text: JSON.stringify({
-        targets, available, limit,
-        candidates: candidates.map(({ id, name, muscles, equipment, level }) => ({ id, name, muscles, equipment, level })),
+        targets, detail, available, limit,
+        candidateColumns: recommendationColumns,
+        candidates: [...byId.values()].map((exercise) => recommendationColumns.map((column) => exercise[column])),
         completedSessionsByExercise: history,
       }),
     }],
   });
-  const list = result?.recommendations;
-  if (!Array.isArray(list) || list.length !== limit
-    || list.some((item) => !ids.has(item?.exerciseId) || !validText(item.reason, 260))
-    || new Set(list.map((item) => item.exerciseId)).size !== list.length) throw invalidOutput();
-  return list.map(({ exerciseId, reason }) => ({ exerciseId, reason }));
+
+  const selected = new Map();
+  for (const item of Array.isArray(result?.recommendations) ? result.recommendations : []) {
+    if (byId.has(item?.exerciseId) && !selected.has(item.exerciseId)) selected.set(item.exerciseId, item.reasonCode);
+    if (selected.size === limit) break;
+  }
+  // A completed response may still contain duplicate IDs or omit a pick. Keep its usable
+  // order, then fill from the already-filtered catalog without another provider request.
+  for (const id of byId.keys()) if (!selected.has(id)) selected.set(id, undefined);
+  const ordered = [...selected.keys()];
+  if (detail) {
+    const firstPrimary = ordered.findIndex((id) => byId.get(id).primaryMuscles.includes(detail));
+    if (firstPrimary > 0) ordered.unshift(...ordered.splice(firstPrimary, 1));
+  }
+  return ordered.slice(0, limit).map((exerciseId) => ({
+    exerciseId,
+    reason: recommendationReason(byId.get(exerciseId), context, selected.get(exerciseId)),
+  }));
 }
 
 const measuredVerification = {
@@ -211,10 +270,6 @@ const measuredReviewNames = {
 };
 
 const corePatterns = {
-  quadruped_leg_only: 'Local tracking found both wrists staying under the shoulders while one knee lifts, a pattern consistent with a leg-only quadruped movement.',
-  double_knee_to_chest: 'Local tracking found both knees drawing in together while both hands stay near the shins, a pattern consistent with a double knee-to-chest stretch.',
-  single_straight_leg_raise: 'Local tracking found one leg lifting with the knee nearly straight while the other leg stays extended on the support surface.',
-  paired_knee_rotation: 'Local tracking found both knees and ankles moving together as the bent knees lower to one side.',
   synchronous_toe_touch: 'Local tracking found both legs staying raised together while the shoulders lift and both hands reach in the same direction, a pattern consistent with a toe-touch crunch.',
   straight_leg_flutter: 'Local tracking found both knees staying nearly straight as the feet switch heights while both hands stay by the hips, a pattern consistent with flutter kicks.',
   lower_body_obscured: 'Local tracking could not establish a continuous shoulder, hip, knee, and ankle on either side in most of the sampled positions.',
@@ -229,6 +284,20 @@ const trackedMismatches = {
 };
 
 export async function reviewExercise(respond, { exercise, frames, signal, evidence = [], coverage = 'unavailable', lungeMotion, coreMotion }) {
+  signal?.throwIfAborted();
+  const context = { limitations: '', framesReviewed: frames.length };
+  if (Object.hasOwn(trackedMismatches, coreMotion)) {
+    return { ...context, verdict: 'different_exercise', summary: trackedMismatches[coreMotion], observations: [] };
+  }
+  if (exercise.id === 'dumbbell-shoulder-press' && coverage === 'compound_press') {
+    return {
+      ...context,
+      verdict: 'different_exercise',
+      summary: 'The sampled positions show a step into a lowered split stance before pressing overhead. This looks like a lunge with an overhead press.',
+      observations: [],
+    };
+  }
+
   const pushUp = exercise.id === 'push-up';
   const squat = exercise.id === 'bodyweight-squat' || exercise.id === 'goblet-squat';
   const shoulderPress = exercise.id === 'dumbbell-shoulder-press';
@@ -264,7 +333,7 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
         ? verification + ' Use observations as the verdict when the selected exercise and required joints are visible. Local measurements supply any corrections. ' + (evidence.length
           ? 'Return an empty observations array.'
           : 'You may return one concrete strength with two supporting working frames at least half a second apart. Leave the list empty if there is no useful strength to point out.')
-        : 'When the exercise is visible, give the single most useful point for the next repetition. If several adjustments are supported, choose the one that matters most for this movement. Treat normal variation as acceptable. If a small refinement is worthwhile only for a specific goal, frame it as optional. If there is no clear correction, share one specific thing to keep doing when supported. Leave the list empty if you have no useful point. Cite the exact supporting frame. For an adjustment, cite a comparisonFrame at least half a second away showing the same issue or a contrasting working position. For a strength, use null for comparisonFrame unless a second frame adds useful evidence.',
+        : 'When the exercise is visible, give the single most useful point for the next repetition. Treat normal variation as acceptable. If there is no clear correction, share one specific thing to keep doing when supported. For either kind, cite two working frames at least half a second apart. Use the frame with the clearest visible evidence first, and a comparisonFrame showing a second instance or a relevant contrast. The same working joints or equipment must be visible in both. If no pair supports the point, leave observations empty.',
       'Use insufficient_visibility when the exerciser, exercise, or required joints are ambiguous. For insufficient_visibility, return zero observations and give one specific filming instruction in summary. For different_exercise, return zero observations and name the movement or variation in summary. For observations, set summary to an empty string.',
       'Do not infer pain, diagnose, promise safety, certify form, or speculate about joints outside the frame, precise angles, speed, or motion between frames. Use neutral, specific language. Keep summary under 300 characters and observations and cues under 200 each.',
       'For a single side view, avoid claims about exact hand width, the far-side elbow path, or hidden foot contact.',
@@ -279,9 +348,6 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
         ...(!measured && { referenceCues: exercise.cues }),
         ...(shoulderPress && evidence.length > 0 && {
           comparison: 'Local joint tracking found repeated arm movement. Compare the selected overhead positions. A complete descent to shoulder height is not required to identify a partial press.',
-        }),
-        ...(shoulderPress && coverage === 'compound_press' && {
-          comparison: 'Compare the narrow standing position with the lowered split stance during the overhead press. The ankle and hip positions show a step into the press.',
         }),
         ...(lunge && { stepMotion: {
           reverse_lunge: 'One ankle moved backward relative to the direction the person was facing, then returned. The other stayed near its starting position.',
@@ -302,18 +368,6 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
     || ((!measured || !evidence.length) && result.observations.some((item) => !item || !Number.isInteger(item.frame) || !frames[item.frame - 1]
       || !['strength', 'adjustment'].includes(item.kind) || !validText(item.observation, 300) || !validText(item.cue, 300)))) {
     throw invalidOutput();
-  }
-  const context = { limitations: '', framesReviewed: frames.length };
-  if (Object.hasOwn(trackedMismatches, coreMotion) && result.verdict !== 'different_exercise') {
-    return { ...context, verdict: 'different_exercise', summary: trackedMismatches[coreMotion], observations: [] };
-  }
-  if (shoulderPress && coverage === 'compound_press' && result.verdict !== 'different_exercise') {
-    return {
-      ...context,
-      verdict: 'different_exercise',
-      summary: 'The sampled positions show a step into a lowered split stance before pressing overhead. This looks like a lunge with an overhead press.',
-      observations: [],
-    };
   }
   if (corePattern && result.verdict === 'observations') {
     return {
@@ -383,14 +437,14 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
     const fallback = result.verdict === 'insufficient_visibility'
       ? 'Film the exercise again with your working joints visible throughout the movement.'
       : 'The movement shown appears to differ from your selection. Choose the exercise you performed.';
-    return { ...context, verdict: result.verdict, summary: incidentalScene.test(result.summary) ? fallback : result.summary,
+    return { ...context, verdict: result.verdict, summary: acceptableFormText(result.summary) ? result.summary : fallback,
       observations: [] };
   }
   const point = result.observations.find(({ frame, kind, comparisonFrame, check, observation, cue }) => {
-    if (incidentalScene.test(observation) || incidentalScene.test(cue)) return false;
+    if (!acceptableFormText(observation) || !acceptableFormText(cue)) return false;
     const hasComparison = Number.isInteger(comparisonFrame) && frames[comparisonFrame - 1]
       && Math.abs(frames[comparisonFrame - 1].timestamp - frames[frame - 1].timestamp) >= 0.5;
-    if (kind === 'strength') return !measured || hasComparison;
+    if (kind === 'strength') return hasComparison;
     if (measured || !hasComparison) return false;
     if (coreChecks && (!Object.hasOwn(coreChecks, check)
       || !/\b(?:head|shoulders?|ribs?|ribcage|trunk|torso)\b/i.test(observation)

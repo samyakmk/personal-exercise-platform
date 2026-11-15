@@ -2,8 +2,9 @@ import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowRight, CalendarDays, ChartNoAxesColumnIncreasing, ChevronDown, ChevronUp, Clock3, Plus } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { Button, Copy, Display, Empty, PageTitle, Panel, SectionTitle } from '../components/ui';
-import { formatDay, formatTime, workoutTime } from '../dates';
+import { MuscleHeatMap } from '../components/MuscleHeatMap';
+import { Button, Chip, Copy, Display, Empty, PageTitle, Panel, SectionTitle } from '../components/ui';
+import { addDays, formatDay, formatTime, workoutTime } from '../dates';
 import { useTrainingNavigation } from '../navigation';
 import { ExercisePicker } from '../platform/ExercisePicker';
 import { color } from '../theme';
@@ -14,27 +15,31 @@ import { useLocalClock } from '../useLocalClock';
 import { useWorkspace } from '../workspace';
 
 export function Progress() {
-  const { data } = useWorkspace();
+  const { data, exerciseRecords } = useWorkspace();
   const training = useTrainingNavigation();
   const router = useRouter();
-  const { exercise: requested } = useLocalSearchParams<{ exercise?: string }>();
+  const { exercise: requested, session: requestedSession } = useLocalSearchParams<{ exercise?: string; session?: string }>();
   const now = useLocalClock();
   const split = useWindowDimensions().width >= 1230;
   if (!data) return null;
 
   const current = workoutTime(now);
   const workouts = completedWorkouts(data.workouts, current);
-  const options = data.catalog.map(({ id, name }) => ({ value: id, label: name }));
-  const requestedId = options.find(({ value }) => value === requested)?.value;
+  const session = workouts.find(({ id }) => id === requestedSession);
   const loggedIds = new Set(workouts.flatMap(({ exercises }) => exercises.map(({ exerciseId }) => exerciseId)));
+  const options = [...data.catalog, ...(data.archivedExercises ?? []).filter(({ id }) => loggedIds.has(id))]
+    .map(({ id, name }) => ({ value: id, label: name }));
+  const requestedId = options.find(({ value }) => value === requested)?.value;
   const orderedOptions = [...options].sort((a, b) => Number(loggedIds.has(b.value)) - Number(loggedIds.has(a.value)))
     .map(({ value, label }) => ({ value, label, detail: loggedIds.has(value) ? 'Logged' : undefined }));
   const initialId = requestedId ?? workouts.find(({ exercises }) => exercises.length)?.exercises[0].exerciseId ?? options[0]?.value;
-  const exercise = data.catalog.find(({ id }) => id === initialId);
+  const exercise = initialId && exerciseRecords.get(initialId);
 
   return <View style={styles.page}>
-    <PageTitle title="Training progress" summary="See how often you train and look back at each exercise."
+    <PageTitle title="Training progress" summary="See which muscles you trained and look back at your workouts."
       action={<Button kind="primary" icon={Plus} onPress={() => training.open({ type: 'new-session' })}>New session</Button>} />
+    <MuscleActivity key={requestedSession ?? 'recent'} workouts={workouts} catalog={exerciseRecords}
+      today={current.date} session={session} missingSession={Boolean(requestedSession && !session)} />
     {!workouts.length && !requestedId ? <Empty icon={ChartNoAxesColumnIncreasing} title="Your first workout goes here"
       message="Log a completed workout to see your weekly activity and exercise history."
       /> : <View style={[styles.progressLayout, split && styles.progressSplit]}>
@@ -50,6 +55,31 @@ export function Progress() {
       </View>}
     </View>}
   </View>;
+}
+
+function MuscleActivity({ workouts, catalog, today, session, missingSession }: {
+  workouts: Workout[]; catalog: ReadonlyMap<string, Exercise>; today: string; session?: Workout; missingSession: boolean;
+}) {
+  const [range, setRange] = useState<'session' | 7 | 30>(session ? 'session' : 7);
+  const selectedSession = range === 'session' ? session : undefined;
+  const days = range === 30 ? 30 : 7;
+  const from = addDays(today, 1 - days);
+  const selection = selectedSession ? [selectedSession] : workouts.filter(({ date }) => date >= from);
+  const label = selectedSession
+    ? `${selectedSession.name} · ${formatDay(selectedSession.date)}`
+    : `${formatDay(from, { month: 'short', day: 'numeric' })} – ${formatDay(today, { month: 'short', day: 'numeric' })} · ${selection.length} completed ${selection.length === 1 ? 'workout' : 'workouts'}`;
+
+  return <Panel style={styles.panel}>
+    <SectionTitle title="Muscle heat map" summary={label} action={
+      <View role="group" accessibilityLabel="Muscle heat map period" style={styles.period}>
+        {session && <Chip label="This session" selected={range === 'session'} onPress={() => setRange('session')} />}
+        <Chip label="Past 7 days" selected={range === 7} onPress={() => setRange(7)} />
+        <Chip label="Past 30 days" selected={range === 30} onPress={() => setRange(30)} />
+      </View>
+    } />
+    {missingSession && <Copy tone={color.muted} size={13}>The requested session is no longer available.</Copy>}
+    <MuscleHeatMap workouts={selection} catalog={catalog} />
+  </Panel>;
 }
 
 function WeeklyActivity({ workouts, today }: { workouts: Workout[]; today: string }) {
@@ -180,6 +210,7 @@ const styles = StyleSheet.create({
   activityColumn: { flex: 1, minWidth: 0 },
   exerciseColumn: { gap: 12, minWidth: 0 },
   panel: { padding: 18, gap: 13 },
+  period: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   activityTotal: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
   picker: { width: '100%', maxWidth: 380 },
   chart: { flexDirection: 'row', gap: 14, paddingTop: 4 },

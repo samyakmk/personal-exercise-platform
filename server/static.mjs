@@ -12,7 +12,7 @@ const types = {
   '.png': 'image/png', '.ttf': 'font/ttf', '.mp4': 'video/mp4', '.ico': 'image/x-icon',
 };
 const compressible = new Set(['.html', '.js', '.css', '.json']);
-const spaPaths = new Set(['/', '/explore', '/workouts', '/sessions', '/progress', '/form-review', '/photo-credits']);
+const spaPaths = new Set(['/', '/explore', '/workouts', '/sessions', '/progress', '/form-review', '/photo-credits', '/profile']);
 const fingerprint = /(?:[.-])[\da-f]{32}\.[a-z]+$/i;
 const brotli = promisify(brotliCompress);
 const zipped = promisify(gzip);

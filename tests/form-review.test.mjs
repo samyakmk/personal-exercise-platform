@@ -145,13 +145,13 @@ test('vision-only adjustments require a second valid frame and preserve both tim
 
 test('vision feedback keeps supported strengths in a no-clear-correction review', async () => {
   const exercise = exercisesById.get('dead-bug');
-  const frames = [{ timestamp: 2, image: Buffer.from('frame') }];
-  const strength = { frame: 1, comparisonFrame: null, kind: 'strength', observation: 'Your trunk stays steady.', cue: 'Keep the torso quiet.' };
+  const frames = [2, 3].map((timestamp) => ({ timestamp, image: Buffer.from('frame') }));
+  const strength = { frame: 1, comparisonFrame: 2, kind: 'strength', observation: 'Your trunk stays steady.', cue: 'Keep the torso quiet.' };
   const review = await reviewExercise(async () => ({
     verdict: 'observations', summary: 'A bird dog hold is visible.', limitations: 'One side is visible.', observations: [strength],
   }), { exercise, frames });
   assert.equal(review.verdict, 'no_clear_issue');
-  assert.deepEqual(review.observations, [{ timestamp: 2, kind: strength.kind, observation: strength.observation, cue: strength.cue }]);
+  assert.deepEqual(review.observations, [{ timestamp: 2, comparisonTimestamp: 3, kind: strength.kind, observation: strength.observation, cue: strength.cue }]);
 });
 
 test('review keeps one useful point and drops incidental scene commentary', async () => {
@@ -244,20 +244,29 @@ test('core movement checks distinguish planted-hand lifts from a visible arm rea
   assert.equal(assessCoreMotion('bird-dog', sequence('occluded')), null);
 });
 
-test('a tracked leg-only movement cannot receive bird-dog form feedback', async () => {
-  const exercise = exercisesById.get('bird-dog');
+test('authoritative local core mismatches return without calling the provider', async () => {
   const frames = [0, 1].map((timestamp) => ({ timestamp, image: Buffer.from('frame') }));
-  for (const verdict of ['observations', 'insufficient_visibility', 'different_exercise']) {
-    const review = await reviewExercise(async () => ({
-      verdict, summary: 'Sampled position.', limitations: 'One side is visible.', observations: [],
-    }), { exercise, frames, coreMotion: 'quadruped_leg_only', coverage: 'measured' });
+  const respond = async () => assert.fail('Local mismatch should not call the provider');
+  for (const [exerciseId, coreMotion, summary] of [
+    ['bird-dog', 'quadruped_leg_only', /Both hands stay down/],
+    ['dead-bug', 'double_knee_to_chest', /knee-to-chest stretch/],
+    ['dead-bug', 'single_straight_leg_raise', /straight-leg raise/],
+    ['dead-bug', 'paired_knee_rotation', /lying rotation stretch/],
+  ]) {
+    const exercise = exercisesById.get(exerciseId);
+    const review = await reviewExercise(respond, { exercise, frames, coreMotion, coverage: 'measured' });
     assert.equal(review.verdict, 'different_exercise');
-    if (verdict !== 'different_exercise') assert.match(review.summary, /Both hands stay down/);
+    assert.match(review.summary, summary);
     assert.deepEqual(review.observations, []);
   }
+  const reason = new Error('Cancelled');
+  await assert.rejects(reviewExercise(respond, {
+    exercise: exercisesById.get('bird-dog'), frames, coreMotion: 'quadruped_leg_only',
+    signal: AbortSignal.abort(reason),
+  }), (error) => error === reason);
 });
 
-test('a two-leg tuck with a sustained hold is distinguished from alternating dead-bug reaches', async () => {
+test('a two-leg tuck with a sustained hold is distinguished from alternating dead-bug reaches', () => {
   function sequence(alternates, mirror) {
     return Array.from({ length: 20 }, (_, index) => {
       const tucked = index >= 6;
@@ -281,16 +290,6 @@ test('a two-leg tuck with a sustained hold is distinguished from alternating dea
     assert.equal(assessCoreMotion('dead-bug', sequence(true, mirror)), null);
     assert.equal(assessCoreMotion('dead-bug', sequence(false, mirror).slice(7)).variant, 'missing_raised_knee');
   }
-  const review = await reviewExercise(async ({ content }) => {
-    assert.match(content[0].text, /knee-to-chest stretch/);
-    return { verdict: 'observations', summary: 'The exercise appears visible.', limitations: 'Side view.', observations: [] };
-  }, {
-    exercise: exercisesById.get('dead-bug'),
-    frames: [0, 3].map((timestamp) => ({ timestamp, image: Buffer.from('frame') })),
-    coreMotion: 'double_knee_to_chest',
-  });
-  assert.equal(review.verdict, 'different_exercise');
-  assert.deepEqual(review.observations, []);
 });
 
 test('a straight-leg raise needs one visibly extended leg throughout the other leg’s lift', () => {
@@ -577,9 +576,9 @@ test('a standing press is separated from a step into a lowered split stance with
   const assessed = assessShoulderPress(frames(true));
   assert.equal(assessed.coverage, 'compound_press');
   assert.notEqual(assessShoulderPress(frames(false)).coverage, 'compound_press');
-  const review = await reviewExercise(async () => ({
-    verdict: 'observations', summary: 'The upper body shows a press.', limitations: 'Side angle.', observations: [],
-  }), { exercise: exercisesById.get('dumbbell-shoulder-press'), frames: [{ timestamp: 0, image: Buffer.from('frame') }], ...assessed });
+  const review = await reviewExercise(async () => assert.fail('Local mismatch should not call the provider'), {
+    exercise: exercisesById.get('dumbbell-shoulder-press'), frames: [{ timestamp: 0, image: Buffer.from('frame') }], ...assessed,
+  });
   assert.equal(review.verdict, 'different_exercise');
   assert.match(review.summary, /lunge with an overhead press/);
 });

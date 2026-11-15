@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTestProfile } from './test-profile.mjs';
 
 const endpoint = 'workspace/training-backup';
 
@@ -12,9 +13,7 @@ async function start(t) {
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const root = `http://127.0.0.1:${server.address().port}/api/`;
   return async () => {
-    const response = await fetch(root + 'workspace');
-    const cookie = response.headers.get('set-cookie').split(';')[0];
-    await response.arrayBuffer();
+    const cookie = await createTestProfile((path, init) => fetch(root + path, init));
     return (path, options) => fetch(root + path, { ...options, headers: { Cookie: cookie, ...options?.headers } });
   };
 }

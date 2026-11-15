@@ -3,8 +3,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, CalendarDays, ClipboardList, Dumbbell, Pencil, Play, Plus, RotateCcw, Search, X } from 'lucide-react-native';
 import { Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useActiveSession } from '../activeSession';
-import { api, createId } from '../api';
+import { createId } from '../api';
 import { exercisePhotos } from '../assets';
+import { sessionSourceLabel } from '../components/SessionFeedback';
+import { SessionHeatMapLink } from '../components/MuscleHeatMap';
 import { Sheet } from '../components/Sheet';
 import { TrainingSession } from '../components/TrainingSession';
 import { WorkoutEditor } from '../components/WorkoutEditor';
@@ -25,7 +27,7 @@ type StartChoice = { plan: Workout; adHoc: boolean };
 const pageSize = 12;
 
 export function Sessions() {
-  const { data, mutate, reload, announce } = useWorkspace();
+  const { api, data, exerciseRecords: catalog, mutate, reload, announce } = useWorkspace();
   const { session, keepSession } = useActiveSession();
   const { intent, clear } = useTrainingNavigation();
   const router = useRouter();
@@ -37,7 +39,8 @@ export function Sessions() {
   const [query, setQuery] = useState('');
   const [limit, setLimit] = useState(pageSize);
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [trainingOpen, setTrainingOpen] = useState(false);
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  const trainingOpen = Boolean(session && session.logId === openSessionId);
   const [confirm, setConfirm] = useState<StartChoice | 'discard' | null>(null);
   const workspaceKey = data?.workspaceKey;
   const [storedDraft, setStoredDraft] = useState<WorkoutDraft | null>(() => workspaceKey ? readWorkoutDraft(workspaceKey, 'session') : null);
@@ -45,7 +48,7 @@ export function Sessions() {
   useEffect(() => {
     setStoredDraft(workspaceKey ? readWorkoutDraft(workspaceKey, 'session') : null);
     setEditor(null);
-    setTrainingOpen(false);
+    setOpenSessionId(null);
     setConfirm(null);
   }, [workspaceKey]);
 
@@ -64,23 +67,25 @@ export function Sessions() {
   }
 
   const begin = useCallback(({ plan, adHoc }: StartChoice) => {
-    keepSession({ plan, ...(adHoc && { adHoc: true }),
-      logId: createId(), startedAt: Date.now(), sets: {}, notes: plan.notes ?? '' });
-    setTrainingOpen(true);
+    const logId = createId();
+    keepSession({ plan, ...(adHoc && { adHoc: true }), logId, startedAt: Date.now(), sets: {}, notes: plan.notes ?? '' });
+    setOpenSessionId(logId);
   }, [keepSession]);
 
   const start = useCallback((choice: StartChoice) => {
     setEditor(null);
     if (!session) begin(choice);
-    else if (!choice.adHoc && session.plan.id === choice.plan.id) setTrainingOpen(true);
+    else if (session.plan.id === choice.plan.id) setOpenSessionId(session.logId);
     else setConfirm(choice);
   }, [begin, session]);
 
   useEffect(() => {
     if (!data || !intent) return;
     if (intent.type === 'resume-session') {
-      if (session) setTrainingOpen(true);
+      if (session) setOpenSessionId(session.logId);
       else return;
+    } else if (intent.type === 'recommended-session') {
+      start({ plan: intent.plan, adHoc: true });
     } else if (intent.type === 'new-session') {
       const preset = data.catalog.find(({ id }) => id === intent.exerciseId);
       setEditor({ preset, keepDraft: !draft });
@@ -88,15 +93,10 @@ export function Sessions() {
       return;
     }
     clear();
-  }, [data, intent, clear, session, draft]);
-
-  useEffect(() => {
-    if (!session) setTrainingOpen(false);
-  }, [session]);
+  }, [data, intent, clear, session, draft, start]);
 
   if (!data) return null;
 
-  const catalog = new Map(data.catalog.map((exercise) => [exercise.id, exercise]));
   const logs = data.workouts.filter(({ status, example }) => status === 'completed' && !example).reverse();
   const recent = completedWorkouts(data.workouts, current);
   const plans = data.workouts.filter(({ status }) => status === 'planned');
@@ -104,7 +104,7 @@ export function Sessions() {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const filtered = logs.filter((log) => {
     if (!terms.length) return true;
-    const text = [log.name, log.notes, ...log.exercises.map(({ exerciseId }) => catalog.get(exerciseId)?.name ?? exerciseId)]
+    const text = [log.name, log.notes, ...log.exercises.flatMap(({ exerciseId, notes }) => [catalog.get(exerciseId)?.name ?? exerciseId, notes]), sessionSourceLabel(log.source)]
       .join(' ').toLowerCase();
     return terms.every((term) => text.includes(term));
   });
@@ -123,10 +123,10 @@ export function Sessions() {
   function repeat(workout: Workout) {
     const exercises = workout.exercises.map((movement) => {
       const fallback = catalog.get(movement.exerciseId)?.unit === 'seconds' ? 30 : 10;
-      return { ...movement, sets: movement.sets || 3, reps: movement.reps ?? fallback,
+      return { ...movement, notes: undefined, sets: movement.sets || 3, reps: movement.reps ?? fallback,
         setDetails: movement.setDetails?.length ? movement.setDetails.map((set) => ({ ...set, reps: set.reps ?? fallback })) : undefined };
     });
-    start({ plan: { ...workout, exercises, id: createId(), status: 'planned', revision: undefined, notes: undefined }, adHoc: true });
+    start({ plan: { ...workout, exercises, id: createId(), status: 'planned', revision: undefined, notes: undefined, effort: undefined, source: undefined }, adHoc: true });
   }
 
   function showSaved(workout: Workout) {
@@ -155,7 +155,7 @@ export function Sessions() {
         </Copy>
       </View>
       {session ? <View style={styles.actions}>
-        <Button compact icon={Play} onPress={() => setTrainingOpen(true)}>Resume session</Button>
+        <Button compact icon={Play} onPress={() => setOpenSessionId(session.logId)}>Resume session</Button>
         <Button compact onPress={() => setConfirm('discard')}>Discard active session</Button>
       </View> : nextPlan && <Button icon={Play} onPress={() => start({ plan: nextPlan, adHoc: false })}>Train scheduled workout</Button>}
     </View>}
@@ -215,7 +215,7 @@ export function Sessions() {
     {confirm && session && <Sheet title={confirm === 'discard' ? 'Discard this session?' : 'Start a different session?'}
       detail={`The unsaved sets and inputs for “${session.plan.name}” will be removed.`} onClose={() => setConfirm(null)}>
       <View style={styles.actions}>
-        <Button onPress={() => { setConfirm(null); setTrainingOpen(true); }}>Resume current session</Button>
+        <Button onPress={() => { setConfirm(null); setOpenSessionId(session.logId); }}>Resume current session</Button>
         <Button kind="danger" onPress={() => {
           if (confirm === 'discard') keepSession(null);
           else begin(confirm);
@@ -225,10 +225,10 @@ export function Sessions() {
     </Sheet>}
 
     {session && trainingOpen && <TrainingSession key={session.logId} session={session} catalog={data.catalog}
-      recentMovements={recentMovements} planCurrent={planCurrent} onChange={keepSession} onClose={() => setTrainingOpen(false)}
+      recentMovements={recentMovements} planCurrent={planCurrent} onChange={keepSession} onClose={() => setOpenSessionId(null)}
       onSave={async (workout, existing) => {
         await saveWorkout(workout, existing);
-        setTrainingOpen(false);
+        setOpenSessionId(null);
         keepSession(null);
         showSaved(workout);
       }} />}
@@ -247,7 +247,7 @@ export function Sessions() {
           });
           if (!saved) throw new Error('Could not open the saved session. Try again.');
           const carriedDraft = editor.draft?.entries.length ? {
-            ...editor.draft, name: saved.name, day: saved.date, time: saved.time, notes: saved.notes, revision: saved.revision,
+            ...editor.draft, name: saved.name, day: saved.date, time: saved.time, notes: saved.notes, effort: saved.effort, source: saved.source, revision: saved.revision,
           } : undefined;
           if (carriedDraft) saveDraft(carriedDraft);
           else if (storedDraft?.id === workout.id) clearDraft();
@@ -271,7 +271,7 @@ export function Sessions() {
 }
 
 function SessionDetails({ workout, catalog, onAdd, onEdit, onRepeat }: {
-  workout: Workout; catalog: Map<string, Exercise>; onAdd: () => void; onEdit: () => void; onRepeat: () => void;
+  workout: Workout; catalog: ReadonlyMap<string, Exercise>; onAdd: () => void; onEdit: () => void; onRepeat: () => void;
 }) {
   const sets = workout.exercises.reduce((total, movement) => total + movement.sets, 0);
   return <Panel style={styles.detail}>
@@ -279,9 +279,12 @@ function SessionDetails({ workout, catalog, onAdd, onEdit, onRepeat }: {
       <View style={styles.rowBody}>
         <Copy tone={color.plum} size={12} weight="semibold">{formatDay(workout.date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} · {formatTime(workout.time)}</Copy>
         <Display accessibilityRole="header" aria-level={3} size={37}>{workout.name}</Display>
+        {sessionSourceLabel(workout.source) ? <Copy size={12} weight="semibold" tone={color.plum}>{sessionSourceLabel(workout.source)}</Copy> : null}
+        {workout.effort ? <Copy size={13} weight="semibold">Perceived effort · {workout.effort}/10</Copy> : null}
         <Copy tone={color.muted} size={13}>{workout.exercises.length} {workout.exercises.length === 1 ? 'exercise' : 'exercises'} · {sets} {sets === 1 ? 'set' : 'sets'}</Copy>
       </View>
       <View style={styles.actions}>
+        <SessionHeatMapLink workoutId={workout.id} />
         {workout.exercises.length > 0 && <Button icon={RotateCcw} kind="quiet" compact onPress={onRepeat}>Train again</Button>}
         <Button icon={Pencil} compact onPress={onEdit}>Edit session</Button>
       </View>
@@ -306,6 +309,10 @@ function SessionDetails({ workout, catalog, onAdd, onEdit, onRepeat }: {
             <Copy size={13} weight="semibold">{performedSetSummary(exercise, set)}</Copy>
           </View>)}
         </View> : <Copy tone={color.muted} size={12}>No sets recorded.</Copy>}
+        {movement.notes && <View style={styles.notes}>
+          <Copy weight="semibold" size={12}>Exercise notes</Copy>
+          <Copy tone={color.muted} size={13}>{movement.notes}</Copy>
+        </View>}
       </View>;
     })}
     {workout.notes && <View style={styles.notes}>

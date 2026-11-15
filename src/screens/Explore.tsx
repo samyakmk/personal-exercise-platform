@@ -2,11 +2,12 @@ import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, ChevronDown, Dumbbell, Search, SearchX, SlidersHorizontal, Sparkles, X } from 'lucide-react-native';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { api, RequestError } from '../api';
+import { RequestError } from '../api';
 import { ExerciseCard } from '../components/ExerciseCard';
 import { ExerciseSheet } from '../components/ExerciseSheet';
 import { Sheet } from '../components/Sheet';
 import { Button, Chip, Copy, Empty, IconButton, Input, Loading, Notice, PageTitle, Panel, ViewTab } from '../components/ui';
+import { muscleNames } from '../muscleWork';
 import { SelectField } from '../platform/fields';
 import { color } from '../theme';
 import type { EquipmentMode, Exercise, ExerciseFilters, Recommendation } from '../types';
@@ -15,25 +16,25 @@ import { useWorkspace } from '../workspace';
 const pageSize = 30;
 
 export function Explore() {
-  const { data, mutate, recommendationContext, announce } = useWorkspace();
+  const { api, data, mutate, recommendationContext, announce } = useWorkspace();
   const router = useRouter();
-  const { exercise: requested, muscles, equipment, level: difficulty, saved: savedFilter, category: categoryParam, video } = useLocalSearchParams<{
-    exercise?: string; muscles?: string; equipment?: string; level?: string; saved?: string; category?: string; video?: string;
+  const { exercise: requested, muscles, detail: detailParam, equipment, level: difficulty, saved: savedFilter, category: categoryParam } = useLocalSearchParams<{
+    exercise?: string; muscles?: string; detail?: string; equipment?: string; level?: string; saved?: string; category?: string;
   }>();
   const muscleOptions = data?.muscles;
   const targets = useMemo(() => {
     const requestedTargets = typeof muscles === 'string' ? muscles.split(',') : [];
     return muscleOptions?.filter((muscle) => requestedTargets.includes(muscle)) ?? [];
   }, [muscles, muscleOptions]);
+  const detail = muscleNames.find((muscle) => muscle === detailParam) ?? null;
   const modeOverride = equipment === 'all' || equipment === 'saved' || equipment === 'bodyweight' ? equipment : null;
   const preferredMode = data?.equipment == null ? 'all' : data.equipment.length ? 'saved' : 'bodyweight';
   const mode = modeOverride === 'saved' && preferredMode !== 'saved' ? preferredMode : modeOverride ?? preferredMode;
   const [search, setSearch] = useState('');
   const level = difficulty === 'Beginner' || difficulty === 'Intermediate' || difficulty === 'Advanced' ? difficulty : null;
   const category = categoryParam && data?.exerciseCategories?.includes(categoryParam) ? categoryParam : null;
-  const withVideo = video === '1';
-  const filters = useMemo<ExerciseFilters>(() => ({ targets, mode, query: search, level, category, withVideo }),
-    [targets, mode, search, level, category, withVideo]);
+  const filters = useMemo<ExerciseFilters>(() => ({ targets, detail, mode, query: search, level, category }),
+    [targets, detail, mode, search, level, category]);
   const savedOnly = savedFilter === '1';
   const [result, setResult] = useState<{ key: string; items: Exercise[] } | null>(null);
   const [coaching, setCoaching] = useState<{ key: string; pending?: boolean; error?: string; picks?: Recommendation[]; retryAt?: number } | null>(null);
@@ -41,8 +42,11 @@ export function Explore() {
   const equipmentKey = JSON.stringify(data?.equipment);
   const selectionKey = JSON.stringify([filters, equipmentKey]);
   const coachingKey = JSON.stringify([selectionKey, recommendationContext]);
-  const saved = data?.bookmarks ?? [];
-  const results = result?.key === selectionKey ? result.items.filter(({ id }) => !savedOnly || saved.includes(id)) : null;
+  const saved = useMemo(() => {
+    const bookmarks = new Set(data?.bookmarks);
+    return new Set(data?.catalog.filter(({ id }) => bookmarks.has(id)).map(({ id }) => id));
+  }, [data?.catalog, data?.bookmarks]);
+  const results = result?.key === selectionKey ? result.items.filter(({ id }) => !savedOnly || saved.has(id)) : null;
   const resultKey = JSON.stringify([selectionKey, savedOnly]);
   const [shown, setShown] = useState({ key: '', count: pageSize });
   const showCount = shown.key === resultKey ? shown.count : pageSize;
@@ -122,7 +126,7 @@ export function Explore() {
 
   function reset() {
     setSearch('');
-    router.setParams({ muscles: undefined, equipment: preferredMode === 'all' ? undefined : 'all',
+    router.setParams({ muscles: undefined, detail: undefined, equipment: preferredMode === 'all' ? undefined : 'all',
       level: undefined, category: undefined, video: undefined });
   }
 
@@ -133,11 +137,14 @@ export function Explore() {
 
   const showAllExercises = () => router.setParams({ saved: undefined });
 
-  const filterCount = Number(mode !== 'all') + Number(Boolean(level)) + Number(Boolean(category)) + Number(withVideo);
-  const filtered = Boolean(search.trim() || targets.length || filterCount);
+  const filterCount = Number(mode !== 'all') + Number(Boolean(level)) + Number(Boolean(category));
+  const filtered = Boolean(search.trim() || targets.length || detail || filterCount);
 
   return <View style={styles.page}>
     <PageTitle title="Exercise library" summary="Find a movement that fits your training and equipment." />
+    {requested && !selected && <Notice action={<Button compact kind="quiet" onPress={closeExercise}>Dismiss</Button>}>
+      This exercise is no longer in the library.
+    </Notice>}
 
     <View style={styles.controls}>
       <View style={styles.toolbar}>
@@ -154,11 +161,16 @@ export function Explore() {
       </View>
 
       <View accessibilityLabel="Target muscles" role="group" style={styles.chips}>
-        <Chip label="All muscles" selected={!targets.length} onPress={() => router.setParams({ muscles: undefined })} />
+        <Chip label="All muscles" selected={!targets.length && !detail}
+          onPress={() => router.setParams({ muscles: undefined, detail: undefined })} />
         {data.muscles.map((muscle) => (
           <Chip key={muscle} label={muscle} selected={targets.includes(muscle)} onPress={() => toggleTarget(muscle)} />
         ))}
       </View>
+      {detail && <View style={styles.chips}>
+        <Button compact end={X} accessibilityLabel={`Clear ${detail} filter`}
+          onPress={() => router.setParams({ detail: undefined })}>{detail}</Button>
+      </View>}
 
       {showFilters && <Panel style={styles.advanced}>
         <View style={styles.filterRow}>
@@ -178,14 +190,13 @@ export function Explore() {
             <SelectField label="Exercise type" value={category ?? ''} onChange={(value) => router.setParams({ category: value || undefined })}
               options={[{ label: 'Any type', value: '' }, ...data.exerciseCategories.map((value) => ({ label: value, value }))]} />
           </View>}
-          <Chip label="Has video" selected={withVideo} onPress={() => router.setParams({ video: withVideo ? undefined : '1' })} />
         </View>
       </Panel>}
 
       <View style={styles.resultsBar}>
         <View role="group" accessibilityLabel="Library view" style={styles.tabs}>
           <ViewTab label="All exercises" selected={!savedOnly} onPress={showAllExercises} />
-          <ViewTab label={`Saved exercises (${saved.length})`} selected={savedOnly} onPress={() => router.setParams({ saved: '1' })} />
+          <ViewTab label={`Saved exercises (${saved.size})`} selected={savedOnly} onPress={() => router.setParams({ saved: '1' })} />
         </View>
         {data.aiAvailable && !savedOnly && !hasPicks && <Button icon={Sparkles} kind="quiet" compact
           disabled={currentCoaching?.pending || Boolean(retryAt) || !results?.length}
@@ -214,9 +225,9 @@ export function Explore() {
 
     {error ? <Notice error action={<Button compact onPress={() => setRetry((value) => value + 1)}>Retry</Button>}>{error}</Notice>
       : results === null ? <Loading label="Finding exercises…" />
-      : results.length === 0 ? <Empty icon={SearchX} title={savedOnly && !saved.length ? 'No saved exercises yet' : 'No matching exercises'}
-        message={savedOnly && !saved.length ? 'Save the exercises you want to practice again.' : 'Try a different muscle group, equipment filter, or search.'}
-        action={savedOnly && !saved.length ? <Button compact onPress={showAllExercises}>Browse exercises</Button>
+      : results.length === 0 ? <Empty icon={SearchX} title={savedOnly && !saved.size ? 'No saved exercises yet' : 'No matching exercises'}
+        message={savedOnly && !saved.size ? 'Save the exercises you want to practice again.' : 'Try a different muscle group, equipment filter, or search.'}
+        action={savedOnly && !saved.size ? <Button compact onPress={showAllExercises}>Browse exercises</Button>
           : <Button compact onPress={reset}>Clear filters</Button>} />
       : <View style={{ gap: 10 }}>
         <View style={styles.resultMeta}>
@@ -225,7 +236,7 @@ export function Explore() {
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
           {visibleResults.map((exercise) => <View key={exercise.id} style={{ flexBasis: cardBasis, flexGrow: 1, minWidth: 0 }}>
-            <ExerciseCard exercise={exercise} saved={saved.includes(exercise.id)} onPress={() => openExercise(exercise)} />
+            <ExerciseCard exercise={exercise} saved={saved.has(exercise.id)} onPress={() => openExercise(exercise)} />
           </View>)}
           {Array.from({ length: (columns - visibleResults.length % columns) % columns }, (_, index) =>
             <View key={`space-${index}`} aria-hidden style={{ flexBasis: cardBasis, flexGrow: 1, minWidth: 0 }} />)}

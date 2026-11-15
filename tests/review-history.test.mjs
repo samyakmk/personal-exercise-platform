@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { AiError } from '../server/ai.mjs';
 import { reviewVersion } from '../server/coaching.mjs';
 import { createLiftmorrowServer } from '../server/index.mjs';
+import { activeWorkspaceId, createTestProfile } from './test-profile.mjs';
 
 const feedback = (summary) => ({ verdict: 'insufficient_visibility', summary, limitations: 'Single frame.', observations: [] });
 
@@ -28,9 +29,7 @@ async function setup(t, respond, database = ':memory:') {
   await once(server, 'listening');
   const api = `http://127.0.0.1:${server.address().port}/api/`;
   async function workspace() {
-    const response = await fetch(api + 'workspace');
-    const cookie = response.headers.get('set-cookie').split(';')[0];
-    await response.arrayBuffer();
+    const cookie = await createTestProfile((path, init) => fetch(api + path, init));
     return { cookie, call: (path, options) => fetch(api + path, { ...options, headers: { Cookie: cookie, ...options?.headers } }) };
   }
   const owner = await workspace();
@@ -123,7 +122,7 @@ test('review history includes a pre-migration review, stores only ten sections, 
   const legacy = { ...feedback('Pre-migration result.'), framesReviewed: 1, windowSeconds: 20, reviewedAt: '2026-11-13T00:00:00Z', version: reviewVersion - 1 };
   const db = new DatabaseSync(database);
   t.after(() => db.close());
-  const workspaceId = owner.cookie.split('=')[1];
+  const workspaceId = activeWorkspaceId(db, owner.cookie);
   db.prepare('INSERT INTO clip_review VALUES (?, ?, ?)').run(workspaceId, id, JSON.stringify(legacy));
   assert.deepEqual(await reviews(owner, history), [legacy]);
   for (let offset = 1; offset <= 6; offset += 1) {

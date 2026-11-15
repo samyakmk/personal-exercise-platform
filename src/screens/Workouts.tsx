@@ -2,9 +2,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Archive, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Dumbbell, History, Pencil, Play, Plus, Repeat2, Search, SearchX, X } from 'lucide-react-native';
 import { Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { api, createId } from '../api';
+import { createId } from '../api';
 import { useActiveSession } from '../activeSession';
 import { addDays, asDate, compareWorkoutTime, dateKey, earliestWorkoutDate, formatDay, formatTime, isWorkoutDate, latestWorkoutDate, weekStart, workoutDay, workoutTime } from '../dates';
+import { SessionHeatMapLink } from '../components/MuscleHeatMap';
 import { Sheet } from '../components/Sheet';
 import { TrainingBackup } from '../components/TrainingBackup';
 import { TrainingSession } from '../components/TrainingSession';
@@ -25,7 +26,7 @@ import { useSaveWorkout } from '../useSaveWorkout';
 type Editor = { initial?: Workout; preset?: Exercise; status: WorkoutStatus; date: string; copy?: boolean; draft?: WorkoutDraft; keepDraft?: boolean };
 
 export function Workouts() {
-  const { data, mutate, announce, reload } = useWorkspace();
+  const { api, data, exerciseRecords: exercises, mutate, announce, reload } = useWorkspace();
   const { intent, clear, open } = useTrainingNavigation();
   const router = useRouter();
   const { view, week, day, scope, logged } = useLocalSearchParams<{
@@ -101,7 +102,7 @@ export function Workouts() {
 
   useEffect(() => {
     if (!data || !intent || intent.type === 'review' || intent.type === 'new-session'
-      || intent.type === 'resume-session') return;
+      || intent.type === 'resume-session' || intent.type === 'recommended-session') return;
     if (intent.type === 'schedule') {
       setAddExercise(null);
       setEditor({ status: 'planned', date: dateKey(), keepDraft: !draft });
@@ -138,7 +139,6 @@ export function Workouts() {
   const history = data.workouts.filter((item) => item.status === 'completed').reverse();
   const scheduled = planned.filter((item) => compareWorkoutTime(item, current) >= 0);
   const past = planned.filter((item) => compareWorkoutTime(item, current) < 0).reverse();
-  const exercises = new Map(data.catalog.map((exercise) => [exercise.id, exercise]));
   const terms = tab === 'completed' ? historySearch.trim().toLowerCase().split(/\s+/).filter(Boolean) : [];
   const completed = completedWorkouts(data.workouts, current, loggedOnly || sessionOpen ? undefined : 5);
   const displayed = tab === 'planned' ? [...scheduled, ...past] : loggedOnly ? completed : history;
@@ -172,7 +172,7 @@ export function Workouts() {
       for (const movement of workout.exercises) {
         if (!recentMovements.has(movement.exerciseId)) recentMovements.set(movement.exerciseId, movement);
       }
-      if (recentMovements.size === data.catalog.length) break;
+      if (recentMovements.size === exercises.size) break;
     }
   }
   const originalPlan = session && data.workouts.find(({ id }) => id === session.plan.id);
@@ -324,6 +324,7 @@ export function Workouts() {
                   accessibilityLabel={`Download calendar file · ${workout.name}`} />}
               {!isPlanned && <Button compact kind="quiet" icon={Repeat2} accessibilityLabel={`Repeat workout · ${workout.name}`}
                 onPress={() => setEditor({ initial: workout, status: 'planned', date: today, copy: true })}>Repeat workout</Button>}
+              {!isPlanned && !workout.example && <SessionHeatMapLink workoutId={workout.id} />}
             </View>
           </View>}
         </View>;

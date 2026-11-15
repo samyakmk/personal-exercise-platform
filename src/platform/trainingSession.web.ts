@@ -29,6 +29,11 @@ export function readTrainingSession(workspace: string): TrainingSession | null {
       || !session.plan.exercises.every((item) => isSet(item) && typeof item.exerciseId === 'string'
         && Number.isInteger(item.sets) && item.sets >= 1 && item.sets <= 30
         && (item.setDetails === undefined || Array.isArray(item.setDetails) && item.setDetails.length === item.sets && item.setDetails.every((set) => isSet(set))))
+      || session.plan.source !== undefined && !['manual', 'trainer', 'recommended'].includes(session.plan.source)
+      || session.effort != null && (!Number.isInteger(session.effort) || session.effort < 1 || session.effort > 10)
+      || session.exerciseNotes !== undefined && (session.exerciseNotes === null || typeof session.exerciseNotes !== 'object'
+        || Array.isArray(session.exerciseNotes) || Object.entries(session.exerciseNotes).some(([id, notes]) =>
+          typeof notes !== 'string' || notes.length > 500 || !session.plan.exercises.some(({ exerciseId }) => exerciseId === id)))
       || typeof session.notes !== 'string' || session.notes.length > 1200
       || !session.sets || typeof session.sets !== 'object' || Array.isArray(session.sets)
       || !Object.values(session.sets).every((sets) => Array.isArray(sets) && sets.length <= 30 && sets.every((set) => isSet(set, Boolean(session.adHoc))))) return null;

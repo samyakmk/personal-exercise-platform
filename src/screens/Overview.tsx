@@ -1,22 +1,26 @@
 import { Link, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Image, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { ArrowRight, ArrowUpRight, CalendarDays, Check, ChevronDown, ChevronRight, Dumbbell, Play, Plus, ScanLine } from 'lucide-react-native';
+import { ArrowRight, ArrowUpRight, CalendarDays, Check, ChevronDown, ChevronRight, MessageSquare, Play, Plus, ScanLine, Sparkles } from 'lucide-react-native';
+import { buildTodayPlan } from '../../shared/today-plan.mjs';
+import { createId } from '../api';
 import { exercisePhotos, hero } from '../assets';
 import { useActiveSession } from '../activeSession';
-import { api } from '../api';
 import { addDays, compareWorkoutTime, formatDay, formatTime, workoutDay, workoutTime } from '../dates';
 import { ExerciseSheet } from '../components/ExerciseSheet';
+import { TrainingCheckIn, useCheckIns } from '../components/TrainingCheckIn';
+import { emptyPreferences } from '../components/TrainingPreferences';
 import { Button, Copy, Display, Notice, Panel, SectionTitle, Tag } from '../components/ui';
 import { useTrainingNavigation } from '../navigation';
+import { useProfiles } from '../profiles';
 import { color } from '../theme';
 import { completedWorkouts, movementSummary } from '../trainingProgress';
-import type { Exercise } from '../types';
+import type { Exercise, Workout } from '../types';
 import { useLocalClock } from '../useLocalClock';
 import { useWorkspace } from '../workspace';
 
 export function Overview() {
-  const { data, mutate, announce } = useWorkspace();
+  const { api, data, exerciseRecords, mutate, announce } = useWorkspace();
   const router = useRouter();
   const training = useTrainingNavigation();
   const { width } = useWindowDimensions();
@@ -28,20 +32,61 @@ export function Overview() {
   const [loadingExamples, setLoadingExamples] = useState(false);
   const [exampleError, setExampleError] = useState('');
   const { session: paused } = useActiveSession();
-  if (!data) return null;
-
+  const { state, save, busy } = useProfiles();
+  const profile = state?.active;
+  const [checkInOpen, setCheckInOpen] = useState(false);
+  const [preferSuggestion, setPreferSuggestion] = useState(false);
+  const [intakeError, setIntakeError] = useState('');
   const current = workoutTime(now);
   const today = current.date;
+  const journal = useCheckIns(today);
+  const catalog = data?.catalog;
+  const workouts = data?.workouts;
+  const equipment = data?.equipment;
+  const timingDay = current.date;
+  const timingTime = current.time;
+  const preferences = profile?.details.trainingPreferences;
+  const suggestion = useMemo(() => catalog && workouts && buildTodayPlan({
+    current: { date: timingDay, time: timingTime }, catalog, workouts, equipment: equipment ?? null,
+    preferences, adjustment: journal.state?.adjustment,
+  }), [catalog, workouts, equipment, preferences, timingDay, timingTime, journal.state?.adjustment]);
+  if (!data || !suggestion) return null;
+
   const next = data.workouts.find((item) => item.status === 'planned' && compareWorkoutTime(item, current) >= 0);
+  const todayPlan = data.workouts.find((item) => item.status === 'planned' && item.date === today && !item.example);
   const overdue = data.workouts.filter((item) => item.status === 'planned' && compareWorkoutTime(item, current) < 0).length;
-  const plan = paused?.plan ?? next;
-  const movements = plan?.exercises.flatMap((movement) => {
-    const exercise = data.catalog.find(({ id }) => id === movement.exerciseId);
-    return exercise ? [{ exercise, movement }] : [];
-  }) ?? [];
-  const detailKey = plan?.id ?? 'empty';
-  const open = details === detailKey;
   const completed = completedWorkouts(data.workouts, current);
+  const scheduled = todayPlan && !completed.some(({ date }) => date === today) && journal.state?.adjustment !== 'rest' ? todayPlan : undefined;
+  const recommendationReady = Boolean(journal.state);
+  const canCompare = Boolean(scheduled && recommendationReady && suggestion.kind === 'train');
+  const plan = paused?.plan ?? (preferSuggestion && canCompare ? undefined : scheduled);
+  const lastTrainer = completed.find(({ source }) => source === 'trainer');
+  const isSuggestion = !plan && recommendationReady && suggestion.kind === 'train';
+  const movements = (plan?.exercises ?? (isSuggestion ? suggestion.exercises : [])).flatMap((movement) => {
+    const exercise = exerciseRecords.get(movement.exerciseId);
+    return exercise ? [{ exercise, movement }] : [];
+  });
+  const detailKey = plan?.id ?? (isSuggestion ? 'suggested-' + today : 'empty');
+  const open = details === detailKey;
+
+  function startSuggestion() {
+    if (!suggestion || suggestion.kind !== 'train') return;
+    const plan: Workout = { ...current, id: createId(), name: suggestion.name, source: 'recommended',
+      status: 'planned', exercises: suggestion.exercises };
+    training.open({ type: 'recommended-session', plan });
+  }
+
+  async function skipIntake() {
+    if (!profile || busy) return;
+    setIntakeError('');
+    try {
+      await save(profile.workspaceKey, { displayName: profile.details.displayName ?? '', trainingGoal: profile.details.trainingGoal ?? '',
+        trainingPreferences: emptyPreferences });
+    } catch (error) {
+      setIntakeError((error as Error).message);
+    }
+  }
+
   const lastSeven = completed.filter(({ date }) => date >= addDays(today, -6));
   const byDate = new Map<string, number>();
   for (const { date } of lastSeven) byDate.set(date, (byDate.get(date) ?? 0) + 1);
@@ -64,7 +109,7 @@ export function Overview() {
     <View style={styles.intro}>
       <View style={{ gap: 4, flexShrink: 1 }}>
         <Display accessibilityRole="header" aria-level={1} size={width < 570 ? 46 : 66}>Training overview</Display>
-        <Copy tone={color.muted} size={14}>Your next workout and recent training.</Copy>
+        <Copy tone={color.muted} size={14}>Your next step between trainer sessions.</Copy>
       </View>
       <Copy size={12} weight="medium" tone={color.muted}>
         {formatDay(today, { weekday: 'long', month: 'long', day: 'numeric' })}
@@ -80,33 +125,45 @@ export function Overview() {
           </>}
           <View style={[styles.featureBody, showPhoto && { width: '64%' }]}>
             <View style={styles.eyebrow}>
-              {paused ? <Play aria-hidden size={15} color={color.accent} /> : <CalendarDays aria-hidden size={15} color={color.accent} />}
+              {paused ? <Play aria-hidden size={15} color={color.accent} /> : plan
+                ? <CalendarDays aria-hidden size={15} color={color.accent} /> : <Sparkles aria-hidden size={15} color={color.accent} />}
               <Copy accessibilityRole="header" aria-level={2} size={12} weight="semibold" tone={color.onInk}>
-                {paused ? 'Current session' : 'Next workout'}
+                {paused ? 'Current session' : plan ? 'On your schedule today' : 'Today’s suggestion'}
               </Copy>
             </View>
-            <Display size={width < 570 ? 39 : 50} tone={color.surface}>{plan?.name ?? 'Plan your next workout'}</Display>
-            <Copy size={13} tone={color.onInk}>{paused ? 'Paused in this tab' : next
-              ? `${workoutDay(next.date, today)} · ${formatTime(next.time)} · ${movements.length} ${movements.length === 1 ? 'exercise' : 'exercises'}`
-              : 'Choose exercises and set a time to train.'}</Copy>
-            {plan?.example && <Tag style={{ backgroundColor: color.inkHover }} tone={color.onInk}>Sample workout</Tag>}
+            <Display size={width < 570 ? 39 : 50} tone={color.surface}>
+              {plan?.name ?? (recommendationReady ? suggestion.name : journal.error ? 'Suggestion unavailable' : 'Getting today ready…')}
+            </Display>
+            <Copy size={13} tone={color.onInk}>{paused ? 'Paused in this tab' : plan
+              ? `${formatTime(plan.time)} · ${movements.length} ${movements.length === 1 ? 'exercise' : 'exercises'}`
+              : recommendationReady ? suggestion.summary : journal.error ? 'Refresh to check for your latest training adjustments.' : 'Checking your recent training.'}</Copy>
             <View style={styles.featureActions}>
               {paused ? <Button kind="primary" icon={Play} onPress={() => training.open({ type: paused.adHoc ? 'resume-session' : 'resume' })}>Resume session</Button>
-                : next ? <Button kind="primary" icon={Play} onPress={() => training.open({ type: 'train', workoutId: next.id })}>Start session</Button>
-                  : <Button kind="primary" icon={Plus} onPress={() => training.open({ type: 'schedule' })}>Schedule a workout</Button>}
+                : plan ? <Button kind="primary" icon={Play} onPress={() => training.open({ type: 'train', workoutId: plan.id })}>Start session</Button>
+                : isSuggestion ? <Button kind="primary" icon={Play} onPress={startSuggestion}>Start suggested session</Button>
+                : journal.error && !recommendationReady ? <Button kind="primary" onPress={journal.refresh}>Retry suggestion</Button>
+                : recommendationReady ? <Button kind="primary" icon={MessageSquare} onPress={() => setCheckInOpen(true)}>Open check-in</Button> : null}
             </View>
           </View>
         </View>
 
+        {!plan && recommendationReady && <View style={styles.reason}>
+          <Copy weight="semibold" size={12}>Why this today</Copy>
+          {suggestion.reasons.map((reason) => <Copy key={reason} size={12} tone={color.muted}>{reason}</Copy>)}
+        </View>}
         <View style={styles.featureFooter}>
-          {plan && <Button kind="quiet" compact end={ChevronDown} aria-expanded={open} onPress={() => setDetails(open ? null : detailKey)}>
+          {movements.length > 0 && <Button kind="quiet" compact end={ChevronDown} aria-expanded={open} onPress={() => setDetails(open ? null : detailKey)}>
             {open ? 'Hide workout details' : 'Workout details'}
           </Button>}
-          {!plan && <Button kind="quiet" compact icon={Check} onPress={() => training.open({ type: 'new-session' })}>New session</Button>}
+          {!paused && <Button kind="quiet" compact icon={Plus} onPress={() => training.open({ type: 'new-session' })}>Log a session</Button>}
+          <Button kind="quiet" compact icon={MessageSquare} onPress={() => setCheckInOpen(true)}>Training check-in</Button>
+          {!paused && canCompare && <Button kind="quiet" compact icon={Sparkles} onPress={() => setPreferSuggestion(!preferSuggestion)}>
+            {preferSuggestion ? 'Show scheduled workout' : 'Show suggested session'}
+          </Button>}
           <Button kind="quiet" compact end={ArrowRight} onPress={() => router.push('/workouts')}>View schedule</Button>
           <Button kind="quiet" compact end={ArrowRight} onPress={() => router.push('/sessions')}>View sessions</Button>
         </View>
-        {plan && open && <View style={styles.details}>
+        {movements.length > 0 && open && <View style={styles.details}>
           {movements.map(({ exercise, movement }) => <Pressable key={exercise.id} accessibilityRole="button"
             onPress={() => setSelected(exercise)} style={({ hovered }) => [styles.movement, hovered && { backgroundColor: color.soft }]}>
             <Image aria-hidden source={exercisePhotos[exercise.id]} style={styles.thumb} />
@@ -114,9 +171,9 @@ export function Overview() {
             <Copy size={12} tone={color.muted} style={{ flexShrink: 1, textAlign: 'right' }}>{movementSummary(exercise, movement)}</Copy>
             <ChevronRight aria-hidden size={15} color={color.plum} />
           </Pressable>)}
-          {next && !paused && <View style={styles.detailActions}>
-            <Button compact icon={Check} onPress={() => training.open({ type: 'log-plan', workoutId: next.id })}>Log this workout</Button>
-            <Button compact onPress={() => training.open({ type: 'edit', workoutId: next.id })}>Edit schedule</Button>
+          {plan && scheduled && !paused && <View style={styles.detailActions}>
+            <Button compact icon={Check} onPress={() => training.open({ type: 'log-plan', workoutId: scheduled.id })}>Log this workout</Button>
+            <Button compact onPress={() => training.open({ type: 'edit', workoutId: scheduled.id })}>Edit schedule</Button>
           </View>}
         </View>}
       </View>
@@ -152,6 +209,15 @@ export function Overview() {
             <Button kind="quiet" compact end={ArrowRight} onPress={() => router.push('/progress')}>View progress</Button>
           </View>
         </Panel>
+        {lastTrainer && <Panel style={styles.trainer}>
+          <SectionTitle title="Last trainer session" />
+          <Copy size={14} weight="semibold">{lastTrainer.name}</Copy>
+          <Copy size={12} tone={color.muted}>{formatDay(lastTrainer.date)}{lastTrainer.effort ? ` · Effort ${lastTrainer.effort}/10` : ''}</Copy>
+          {!!lastTrainer.notes && <Copy size={12} numberOfLines={2} tone={color.muted}>{lastTrainer.notes}</Copy>}
+          <Button compact kind="quiet" end={ArrowRight} onPress={() => router.push({ pathname: '/sessions', params: { session: lastTrainer.id } })}>
+            View trainer session
+          </Button>
+        </Panel>}
         <Link href="/form-review" asChild>
           <Pressable accessibilityRole="link" style={styles.review}>
             <View aria-hidden style={styles.reviewIcon}><ScanLine color={color.plum} size={21} /></View>
@@ -164,6 +230,27 @@ export function Overview() {
         </Link>
       </View>
     </View>
+
+    {next && plan?.id !== next.id && <Panel style={styles.intake}>
+      <View style={{ gap: 4, flexShrink: 1 }}>
+        <Copy size={12} weight="semibold" tone={color.plum}>Next on your schedule{next.example ? ' · Sample workout' : ''}</Copy>
+        <Copy size={15} weight="bold">{next.name}</Copy>
+        <Copy size={12} tone={color.muted}>{workoutDay(next.date, today)} · {formatTime(next.time)}</Copy>
+      </View>
+      <Button compact kind="quiet" end={ArrowRight} onPress={() => router.push('/workouts')}>Open schedule</Button>
+    </Panel>}
+
+    {!preferences && <Panel style={styles.intake}>
+      <View style={{ gap: 4, flexShrink: 1 }}>
+        <Copy size={15} weight="semibold">What are you working on?</Copy>
+        <Copy size={13} tone={color.muted}>Add your goals and trainer’s guidance so future sessions fit you.</Copy>
+        {intakeError && <Notice error>{intakeError}</Notice>}
+      </View>
+      <View style={styles.detailActions}>
+        <Button compact end={ArrowRight} onPress={() => router.push('/profile')}>Set up training</Button>
+        <Button compact kind="quiet" disabled={busy} onPress={() => void skipIntake()}>Skip for now</Button>
+      </View>
+    </Panel>}
 
     {overdue > 0 && <View style={styles.overdue}>
       <Copy size={12} tone={color.muted}>{overdue === 1 ? '1 past workout is still on your schedule.' : `${overdue} past workouts are still on your schedule.`}</Copy>
@@ -193,6 +280,7 @@ export function Overview() {
       </Link>
     </View>
     {exampleError && <Notice error>{exampleError}</Notice>}
+    {checkInOpen && <TrainingCheckIn key={today} journal={journal} currentTime={current.time} onClose={() => setCheckInOpen(false)} />}
     {selected && <ExerciseSheet exercise={selected} onClose={() => setSelected(null)} />}
   </View>;
 }
@@ -207,12 +295,15 @@ const styles = StyleSheet.create({
   eyebrow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   featureActions: { marginTop: 5, alignItems: 'flex-start' },
   photo: { position: 'absolute', right: 0, top: 0, bottom: 0, height: '100%', width: '39%', opacity: 0.88 },
+  reason: { gap: 4, paddingHorizontal: 17, paddingVertical: 12, backgroundColor: color.tint },
+  intake: { padding: 16, gap: 10, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' },
   featureFooter: { paddingHorizontal: 15, paddingVertical: 9, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 4 },
   details: { paddingHorizontal: 16, paddingBottom: 14, gap: 5 },
   movement: { flexDirection: 'row', alignItems: 'center', minHeight: 40, gap: 8, borderTopWidth: 1, borderColor: color.line, paddingHorizontal: 2 },
   thumb: { width: 34, height: 26, borderRadius: 4, backgroundColor: color.soft },
   detailActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingTop: 5 },
   secondary: { gap: 12, minWidth: 0 },
+  trainer: { gap: 5, alignItems: 'flex-start', padding: 14 },
   week: { padding: 17, gap: 11 },
   count: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
   days: { flexDirection: 'row', gap: 3 },

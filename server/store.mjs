@@ -2,6 +2,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { closeSync, mkdirSync, openSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { createLocalProfiles } from './local-profiles.mjs';
+import { createCheckIns } from './check-ins.mjs';
 import { trainingBackupFormat } from '../shared/training-backup.mjs';
 
 const chunkSize = 256 * 1024;
@@ -18,7 +20,7 @@ const revisionValue = 'lower(hex(randomblob(16)))';
 function workspaceRevisionTriggers() {
   // Expiry is checked at read time. Lease heartbeats do not change the public snapshot.
   const updateColumns = {
-    workout: 'workspace_id, id, name, date, time, status, exercises, notes, is_example, revision',
+    workout: 'workspace_id, id, name, date, time, status, exercises, notes, is_example, revision, effort, source',
     exercise_bookmark: 'workspace_id, exercise_id',
     clip: 'workspace_id, id, exerciseId, filename, mime, size, uploadedAt',
     clip_review: 'workspace_id, clip_id, review',
@@ -165,6 +167,8 @@ export function createStore(path) {
     ['workout', 'is_example', 'INTEGER NOT NULL DEFAULT 0'],
     ['workout', 'revision', 'INTEGER NOT NULL DEFAULT 1'],
     ['workout', 'notes', "TEXT NOT NULL DEFAULT ''"],
+    ['workout', 'effort', 'INTEGER CHECK (effort IS NULL OR effort BETWEEN 1 AND 10)'],
+    ['workout', 'source', "TEXT CHECK (source IS NULL OR source IN ('manual', 'trainer', 'recommended'))"],
     ['clip', 'digest', 'TEXT'],
     ['clip_review_attempt', 'start_seconds', 'INTEGER NOT NULL DEFAULT 0'],
     ['clip_review_attempt', 'error_status', 'INTEGER'],
@@ -209,21 +213,21 @@ export function createStore(path) {
     throw error;
   }
 
+  const profiles = createLocalProfiles(db);
+  const checkIns = createCheckIns(db);
   const statements = {
-    workspace: db.prepare('SELECT * FROM workspace WHERE id = ?'),
     workspaceRevision: db.prepare('SELECT snapshot_revision AS revision FROM workspace WHERE id = ?'),
     liveReviewIds: db.prepare('SELECT clip_id AS id FROM clip_review_attempt WHERE lease_until > ? AND workspace_id = ? ORDER BY clip_id'),
     getEquipment: db.prepare('SELECT equipment FROM workspace WHERE id = ?'),
-    create: db.prepare('INSERT INTO workspace (id) VALUES (?)'),
     equipment: db.prepare('UPDATE workspace SET equipment = ? WHERE id = ?'),
     importEquipment: db.prepare('UPDATE workspace SET equipment = ? WHERE id = ? AND equipment IS NULL'),
     bookmarks: db.prepare('SELECT exercise_id AS id FROM exercise_bookmark WHERE workspace_id = ? ORDER BY exercise_id'),
     addBookmark: db.prepare('INSERT OR IGNORE INTO exercise_bookmark (workspace_id, exercise_id) VALUES (?, ?)'),
     removeBookmark: db.prepare('DELETE FROM exercise_bookmark WHERE workspace_id = ? AND exercise_id = ?'),
-    workouts: db.prepare('SELECT id, name, date, time, status, notes, exercises, is_example, revision FROM workout WHERE workspace_id = ? ORDER BY date, time, id'),
-    backupWorkouts: db.prepare(`SELECT id, name, date, time, status, notes, exercises FROM workout
+    workouts: db.prepare('SELECT id, name, date, time, status, notes, exercises, is_example, revision, effort, source FROM workout WHERE workspace_id = ? ORDER BY date, time, id'),
+    backupWorkouts: db.prepare(`SELECT id, name, date, time, status, notes, exercises, effort, source FROM workout
       WHERE workspace_id = ? AND is_example = 0 AND date >= ? AND date < ? ORDER BY date, time, id LIMIT ?`),
-    workoutsById: db.prepare(`SELECT workout.id, name, date, time, status, notes, exercises, is_example, revision
+    workoutsById: db.prepare(`SELECT workout.id, name, date, time, status, notes, exercises, is_example, revision, effort, source
       FROM json_each(?) AS ids CROSS JOIN workout ON workout.workspace_id = ? AND workout.id = ids.value
       ORDER BY date, time, workout.id`),
     workoutRevision: db.prepare('SELECT revision FROM workout WHERE workspace_id = ? AND id = ?'),
@@ -233,16 +237,18 @@ export function createStore(path) {
       ORDER BY date DESC, time DESC, id DESC LIMIT 5
     `),
     insertWorkout: db.prepare(`
-      INSERT INTO workout (workspace_id, id, name, date, time, status, exercises, is_example, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (workspace_id, id) DO NOTHING
+      INSERT INTO workout (workspace_id, id, name, date, time, status, exercises, is_example, notes, effort, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (workspace_id, id) DO NOTHING
     `),
-    existingWorkout: db.prepare('SELECT name, date, time, status, notes, exercises FROM workout WHERE workspace_id = ? AND id = ?'),
+    existingWorkout: db.prepare('SELECT name, date, time, status, notes, exercises, effort, source FROM workout WHERE workspace_id = ? AND id = ?'),
     workoutSeries: db.prepare('SELECT digest FROM workout_series_receipt WHERE workspace_id = ? AND id = ?'),
     addWorkoutSeries: db.prepare('INSERT INTO workout_series_receipt (workspace_id, id, digest) VALUES (?, ?, ?)'),
     workoutEdit: db.prepare('SELECT digest FROM workout_edit_receipt WHERE workspace_id = ? AND id = ?'),
     addWorkoutEdit: db.prepare('INSERT INTO workout_edit_receipt (workspace_id, id, digest) VALUES (?, ?, ?)'),
     updateWorkout: db.prepare(`
-      UPDATE workout SET name = ?, date = ?, time = ?, status = ?, exercises = ?, notes = COALESCE(?, notes), is_example = 0, revision = revision + 1
+      UPDATE workout SET name = ?, date = ?, time = ?, status = ?, exercises = ?, notes = COALESCE(?, notes),
+      effort = CASE WHEN ? IS NOT NULL THEN ? WHEN ? = 'planned' THEN NULL ELSE effort END,
+      source = COALESCE(?, source), is_example = 0, revision = revision + 1
       WHERE workspace_id = ? AND id = ? AND (revision = ? OR ? IS NULL)
     `),
     removeWorkout: db.prepare('DELETE FROM workout WHERE workspace_id = ? AND id = ? AND (revision = ? OR ? IS NULL)'),
@@ -251,7 +257,7 @@ export function createStore(path) {
       WHERE workspace_id = ? AND id = ? AND status = 'planned' AND is_example = 0`),
     calendarWorkouts: db.prepare(`SELECT id, name, date, time, notes, exercises FROM workout
       WHERE workspace_id = ? AND status = 'planned' AND is_example = 0 ORDER BY date, time, id`),
-    historyWorkouts: db.prepare(`SELECT name, date, time, notes, exercises FROM workout
+    historyWorkouts: db.prepare(`SELECT name, date, time, notes, exercises, effort, source FROM workout
       WHERE workspace_id = ? AND status = 'completed' AND is_example = 0 ORDER BY date DESC, time DESC, id DESC`),
     clips: db.prepare(`
       SELECT ${clipColumns} ${clipReviewQuery}
@@ -330,12 +336,6 @@ export function createStore(path) {
     removeClip: db.prepare('DELETE FROM clip WHERE workspace_id = ? AND id = ?'),
   };
 
-  function createWorkspace() {
-    const id = randomUUID();
-    statements.create.run(id);
-    return id;
-  }
-
   function addExampleWorkouts(id, today) {
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -351,7 +351,7 @@ export function createStore(path) {
         [-5, '08:00', 'Core & Stability', 'completed', [movement('forearm-plank', 30), movement('reverse-lunge')]],
       ];
       for (const [offset, time, name, status, exercises] of examples) {
-        statements.insertWorkout.run(id, randomUUID(), name, relativeDay(today, offset), time, status, JSON.stringify(exercises), 1, '');
+        statements.insertWorkout.run(id, randomUUID(), name, relativeDay(today, offset), time, status, JSON.stringify(exercises), 1, '', null, null);
       }
       db.exec('COMMIT');
     } catch (error) {
@@ -405,8 +405,8 @@ export function createStore(path) {
     }
   }
 
-  function workoutRecord({ is_example, exercises, notes, ...row }) {
-    return { ...row, exercises: JSON.parse(exercises), ...(notes && { notes }), ...(is_example ? { example: true } : {}) };
+  function workoutRecord({ is_example, exercises, notes, effort, source, ...row }) {
+    return { ...row, exercises: JSON.parse(exercises), ...(notes && { notes }), ...(effort != null && { effort }), ...(source && { source }), ...(is_example ? { example: true } : {}) };
   }
 
   function workouts(id) {
@@ -415,26 +415,26 @@ export function createStore(path) {
 
   const bookmarks = (id) => statements.bookmarks.all(id).map((row) => row.id);
 
-  function insertWorkout(workspace, { id, name, date, time, status, exercises, notes = '' }) {
+  function insertWorkout(workspace, { id, name, date, time, status, exercises, notes = '', effort = null, source = null }) {
     if (statements.workoutSeries.get(workspace, id)) return false;
     const serialized = JSON.stringify(exercises);
-    const insert = statements.insertWorkout.run(workspace, id, name, date, time, status, serialized, 0, notes);
+    const insert = statements.insertWorkout.run(workspace, id, name, date, time, status, serialized, 0, notes, effort, source);
     if (insert.changes) return true;
     const current = statements.existingWorkout.get(workspace, id);
     return current?.name === name && current.date === date && current.time === time
-      && current.status === status && current.exercises === serialized && current.notes === notes;
+      && current.status === status && current.exercises === serialized && current.notes === notes && current.effort === effort && current.source === source;
   }
 
-  function updateWorkout(workspace, id, { name, date, time, status, exercises, notes }, revision, operationId) {
+  function updateWorkout(workspace, id, { name, date, time, status, exercises, notes, effort, source }, revision, operationId) {
     const values = [name, date, time, status, JSON.stringify(exercises), notes ?? null];
     const update = () => {
-      const result = statements.updateWorkout.run(...values, workspace, id, revision, revision);
+      const result = statements.updateWorkout.run(...values, effort === undefined ? null : 1, effort ?? null, status, source ?? null, workspace, id, revision, revision);
       if (result.changes) return 'saved';
       return statements.workoutRevision.get(workspace, id) ? 'conflict' : 'missing';
     };
     if (!operationId) return update();
 
-    const digest = createHash('sha256').update(JSON.stringify([id, revision, values])).digest('hex');
+    const digest = createHash('sha256').update(JSON.stringify([id, revision, values, ...(effort !== undefined || source !== undefined ? [{ effort, source }] : [])])).digest('hex');
     db.exec('BEGIN IMMEDIATE');
     try {
       const receipt = statements.workoutEdit.get(workspace, operationId);
@@ -454,10 +454,10 @@ export function createStore(path) {
   }
 
   return {
-    createWorkspace,
+    profiles,
+    checkIns,
     addExampleWorkouts,
     removeExampleWorkouts: (id) => statements.removeExampleWorkouts.run(id),
-    workspace: (id) => statements.workspace.get(id),
     readWorkspace(id, read) {
       db.exec('BEGIN');
       try {
@@ -484,9 +484,10 @@ export function createStore(path) {
         const parts = [JSON.stringify(settings).slice(0, -1) + ',"workouts":['];
         let length = Buffer.byteLength(parts[0]) + 2;
         let count = 0;
-        for (const { id, name, date, time, status, notes, exercises } of statements.backupWorkouts.iterate(workspace, from, before, maxWorkouts + 1)) {
+        for (const { id, name, date, time, status, notes, exercises, effort, source } of statements.backupWorkouts.iterate(workspace, from, before, maxWorkouts + 1)) {
           if (++count > maxWorkouts) break;
-          const record = { id, name, date, time, status, notes: notes || undefined, exercises: JSON.parse(exercises) };
+          const record = { id, name, date, time, status, notes: notes || undefined, exercises: JSON.parse(exercises),
+            ...(effort != null && { effort }), ...(source && { source }) };
           const part = (count === 1 ? '' : ',') + JSON.stringify(record);
           length += Buffer.byteLength(part);
           if (length > maxBytes) break;

@@ -8,8 +8,11 @@ import { color } from '../theme';
 import { movementSummary, performedSetSummary, trainingLog } from '../trainingProgress';
 import type { Exercise, ExerciseSet, TrainingSession as Session, TrainingSetDraft, Workout } from '../types';
 import { useRestTimer } from '../useRestTimer';
+import { useWorkspace } from '../workspace';
 import { RestTimer } from './RestTimer';
 import { Sheet } from './Sheet';
+import { TechniqueTips } from './TechniqueTips';
+import { EffortField } from './SessionFeedback';
 import { Button, Chip, Copy, IconButton, Input, Notice, SectionTitle } from './ui';
 import { validWeight, WeightFields } from './WeightFields';
 
@@ -24,11 +27,13 @@ type Props = {
 };
 
 export function TrainingSession({ session, catalog, recentMovements, planCurrent, onChange, onClose, onSave }: Props) {
+  const { exerciseRecords } = useWorkspace();
   const movements = session.plan.exercises;
   const active = movements.findIndex(({ exerciseId }) => exerciseId === session.activeExercise);
   const remaining = movements.findIndex(({ exerciseId, sets }) => (session.sets[exerciseId]?.length ?? 0) < sets);
   const position = active >= 0 ? active : remaining >= 0 ? remaining : movements.length - 1;
   const [finish, setFinish] = useState(false);
+  const [noting, setNoting] = useState<string | null>(null);
   const [demonstrating, setDemonstrating] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
@@ -39,7 +44,7 @@ export function TrainingSession({ session, catalog, recentMovements, planCurrent
   const saving = useRef(false);
   const current = movements[position];
   const exerciseId = current?.exerciseId ?? '';
-  const exercise = catalog.find(({ id }) => id === exerciseId);
+  const exercise = exerciseRecords.get(exerciseId);
   const name = exercise?.name ?? exerciseId;
   const performed = session.sets[exerciseId] ?? [];
   const recent = recentMovements.get(exerciseId);
@@ -103,10 +108,11 @@ export function TrainingSession({ session, catalog, recentMovements, planCurrent
       {separateLog && !session.adHoc && <Notice>The original workout changed. Save these sets as a separate workout log.</Notice>}
       <View style={{ gap: 6 }}>
         {movements.map(({ exerciseId, sets }) => <View key={exerciseId} style={styles.summaryRow}>
-          <Copy weight="semibold" size={13}>{catalog.find(({ id }) => id === exerciseId)?.name ?? exerciseId}</Copy>
+          <Copy weight="semibold" size={13}>{exerciseRecords.get(exerciseId)?.name ?? exerciseId}</Copy>
           <Copy size={12} tone={color.muted}>{`${session.sets[exerciseId]?.length ?? 0} recorded${liveLog ? '' : ` · ${sets} planned`}`}</Copy>
         </View>)}
       </View>
+      <EffortField value={session.effort} onChange={(effort) => onChange({ ...session, effort })} disabled={busy} />
       <Input label={session.adHoc ? 'Session notes' : 'Workout notes'} value={session.notes} onChangeText={(notes) => onChange({ ...session, notes })}
         placeholder="Optional · What went well or what to change next time" multiline numberOfLines={3} maxLength={1200}
         style={{ minHeight: 76, paddingVertical: 8, textAlignVertical: 'top' }} />
@@ -130,7 +136,7 @@ export function TrainingSession({ session, catalog, recentMovements, planCurrent
           <SectionTitle title="Exercises" level={3} />
           <View style={styles.actions}>
             {movements.map(({ exerciseId, sets }, index) => <Chip key={exerciseId}
-              label={`${catalog.find(({ id }) => id === exerciseId)?.name ?? exerciseId} · ${session.sets[exerciseId]?.length ?? 0}${liveLog ? '' : `/${sets}`}`}
+              label={`${exerciseRecords.get(exerciseId)?.name ?? exerciseId} · ${session.sets[exerciseId]?.length ?? 0}${liveLog ? '' : `/${sets}`}`}
               selected={position === index} onPress={() => moveTo(index)} />)}
           </View>
           {available.length > 0 && <Button compact kind="quiet" icon={Plus} aria-expanded={adding}
@@ -154,9 +160,11 @@ export function TrainingSession({ session, catalog, recentMovements, planCurrent
             </Button>}
           </View>
           {recent && <Copy size={12} tone={color.muted}>{`Last session · ${movementSummary(exercise ?? { unit: 'reps' }, recent)}`}</Copy>}
+          {recent?.notes && <Copy size={12} tone={color.muted}>Last exercise note · {recent.notes}</Copy>}
           {exercise && showDemonstration && <View style={{ gap: 8 }}>
             <Demonstration exercise={exercise} />
             {exercise.cues.map((cue) => <Copy key={cue} tone={color.muted} size={13}>{cue}</Copy>)}
+            <TechniqueTips exercise={exercise} />
           </View>}
           {performed.length < 30 && <SetInput key={current.exerciseId} exercise={exercise} name={name}
             planned={current.setDetails?.[performed.length] ?? performed.at(-1) ?? (liveLog ? undefined : current)} next={performed.length + 1}
@@ -170,6 +178,14 @@ export function TrainingSession({ session, catalog, recentMovements, planCurrent
               setDrafts: { ...session.setDrafts, [current.exerciseId]: fields },
               hold: resetHold && session.hold?.exerciseId === current.exerciseId ? undefined : session.hold })}
             extra={!liveLog && performed.length >= current.sets} onRecord={(set) => updateSets([...performed, set])} />}
+          <Button compact kind="quiet" aria-expanded={noting === exerciseId}
+            onPress={() => setNoting(noting === exerciseId ? null : exerciseId)}>
+            {noting === exerciseId ? 'Hide exercise notes' : session.exerciseNotes?.[exerciseId] ? 'Edit exercise notes' : 'Add exercise notes'}
+          </Button>
+          {noting === exerciseId && <Input label={`Exercise notes · ${name}`} visibleLabel="Exercise notes (optional)"
+            value={session.exerciseNotes?.[exerciseId] ?? current.notes ?? ''} multiline maxLength={500}
+            onChangeText={(notes) => onChange({ ...session, exerciseNotes: { ...session.exerciseNotes, [exerciseId]: notes } })}
+            style={{ minHeight: 60, paddingVertical: 8 }} />}
           {!!performed.length && <View style={{ gap: 6 }}>
             {performed.map((set, index) => <View key={index} style={styles.summaryRow}>
               <Copy size={12}>{`Set ${index + 1}`}</Copy>

@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { isTrainingBackupFormat } from '../../shared/training-backup.mjs';
-import { api } from '../api';
 import { earliestWorkoutDate, isWorkoutDate, latestWorkoutDate } from '../dates';
 import { BackupPicker } from '../platform/BackupPicker';
 import type { BackupFile } from '../platform/BackupPicker';
@@ -13,7 +12,7 @@ import { Sheet } from './Sheet';
 import { Button, Copy, Notice, SectionTitle } from './ui';
 
 export function TrainingBackup({ onClose }: { onClose: () => void }) {
-  const { data, refreshAfterRestore, announce } = useWorkspace();
+  const { api, data, refreshAfterRestore, announce } = useWorkspace();
   const [selected, setSelected] = useState<{ name: string; contents: string; workouts: number; equipment: boolean; bookmarks: number } | null>(null);
   const [error, setError] = useState('');
   const [downloadError, setDownloadError] = useState('');

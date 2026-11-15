@@ -1,19 +1,22 @@
-import { Slot } from 'expo-router';
+import { Navigator } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { StyleSheet, View } from 'react-native';
 import { ActiveSessionProvider } from '../src/activeSession';
 import { Shell } from '../src/components/Shell';
 import { Loading } from '../src/components/ui';
 import { TrainingNavigation } from '../src/navigation';
+import { ProfilesProvider, useProfiles } from '../src/profiles';
+import { ProfileGate } from '../src/screens/Profile';
 import { color } from '../src/theme';
 import { WorkspaceProvider } from '../src/workspace';
 import { VideoUploadProvider } from '../src/videoUpload';
 
 export default function RootLayout() {
-  return <WorkspaceProvider><WorkspaceLayout /></WorkspaceProvider>;
+  return <Navigator><ProfilesProvider><WorkspaceLayout /></ProfilesProvider></Navigator>;
 }
 
 function WorkspaceLayout() {
+  const { state, reload } = useProfiles();
   const [loaded, error] = useFonts({
     InstrumentSerif: require('../assets/fonts/InstrumentSerif-Regular.ttf'),
     InterRegular: require('../assets/fonts/Inter-Regular.ttf'),
@@ -24,7 +27,11 @@ function WorkspaceLayout() {
   });
   if (!loaded && !error) return <View style={styles.loading}><Loading label="Loading Liftmorrow…" /></View>;
 
-  return <TrainingNavigation><ActiveSessionProvider><VideoUploadProvider><Shell><Slot /></Shell></VideoUploadProvider></ActiveSessionProvider></TrainingNavigation>;
+  if (!state?.active) return <ProfileGate />;
+  const key = state.active.workspaceKey;
+  return <WorkspaceProvider key={key} workspaceKey={key} refreshProfile={reload}>
+    <TrainingNavigation><ActiveSessionProvider><VideoUploadProvider><Shell><Navigator.Slot /></Shell></VideoUploadProvider></ActiveSessionProvider></TrainingNavigation>
+  </WorkspaceProvider>;
 }
 
 const styles = StyleSheet.create({

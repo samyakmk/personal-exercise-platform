@@ -1,0 +1,61 @@
+[
+  {
+    "id": "triceps-bodyweight",
+    "group": "development",
+    "filters": { "detail": "Triceps", "available": [], "category": "Strength" },
+    "recent": { "push-up": 3 }
+  },
+  {
+    "id": "chest-and-back",
+    "group": "development",
+    "filters": { "targets": ["Chest", "Back"], "available": ["Bench", "Dumbbells"], "category": "Strength" },
+    "primaryCoverage": [["Chest"], ["Lats", "Mid-back"]]
+  },
+  {
+    "id": "shoulder-stretching",
+    "group": "development",
+    "filters": { "targets": ["Shoulders"], "available": [], "category": "Stretching" }
+  },
+  {
+    "id": "unrestricted-equipment",
+    "group": "development",
+    "filters": {},
+    "recent": { "bodyweight-squat": 4, "push-up": 2 }
+  },
+  {
+    "id": "single-search-result",
+    "group": "holdout",
+    "filters": { "query": "single arm dumbbell row", "available": ["Bench", "Dumbbells"] },
+    "exactCount": 1
+  },
+  {
+    "id": "no-match",
+    "group": "holdout",
+    "filters": { "targets": ["Neck"], "detail": "Biceps", "available": [], "category": "Powerlifting" },
+    "exactCount": 0
+  },
+  {
+    "id": "biceps-with-dumbbells",
+    "group": "holdout",
+    "filters": { "detail": "Biceps", "available": ["Dumbbells"], "level": "Beginner", "category": "Strength" },
+    "recent": { "dumbbell-curl": 4, "dumbbell-row": 1 }
+  },
+  {
+    "id": "calves-without-gear",
+    "group": "holdout",
+    "filters": { "targets": ["Legs"], "detail": "Calves", "available": [], "category": "Strength" },
+    "exactCount": 2
+  },
+  {
+    "id": "back-with-cable",
+    "group": "holdout",
+    "filters": { "targets": ["Back"], "detail": "Lats", "available": ["Cable machine"], "level": "Beginner", "category": "Strength" },
+    "recent": { "dumbbell-row": 5 }
+  },
+  {
+    "id": "legs-and-core",
+    "group": "holdout",
+    "filters": { "targets": ["Legs", "Core"], "available": [], "level": "Beginner", "category": "Strength" },
+    "primaryCoverage": [["Quadriceps", "Calves", "Hamstrings"], ["Abdominals"]]
+  }
+]

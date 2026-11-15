@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './signed-in';
 import type { Locator } from '@playwright/test';
 
 async function activate(control: Locator) {

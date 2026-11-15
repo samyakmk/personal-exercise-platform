@@ -1,12 +1,14 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
 import { isTrainingBackupFormat } from '../shared/training-backup.mjs';
-import { AiError } from './ai.mjs';
+import { broadPriorities, buildTodayPlan, checkInReply, isPlannableExercise } from '../shared/today-plan.mjs';
+import { AiError, recommendationCandidateLimit } from './ai.mjs';
 import { reviewVersion } from './coaching.mjs';
-import { catalog, categories, equipment, exercisesById, levels, muscles, recommend } from './catalog.mjs';
+import { archivedExercises, catalog, categories, detailedMuscles, equipment, exercisesById, levels, muscles, recommend } from './catalog.mjs';
+import { hashBrowserToken, workspaceKeyFor } from './local-profiles.mjs';
 import { convertQuickTime } from './quicktime.mjs';
 import { hasVideoTrack } from './video-container.mjs';
 import { workoutCalendar, workoutHistoryCsv } from './workout-exports.mjs';
@@ -17,11 +19,15 @@ const maxBackupBytes = 8 * 1024 * 1024;
 const maxBackupWorkouts = 10_000;
 const uuidPattern = /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
 const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
-const cookieName = 'liftmorrow_workspace';
-const previousCookieName = 'repform_workspace';
+const browserCookie = 'liftmorrow_browser';
+const legacyCookies = ['liftmorrow_workspace', 'repform_workspace'];
+const profileHeader = 'x-liftmorrow-profile';
+const profileChanged = 'The active profile changed. Open your profile again and retry.';
 const videoTypes = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
-const workspaceResponseVersion = 1;
+const workspaceResponseVersion = 2;
 const compress = promisify(gzip);
+const plannableExerciseIds = new Set(catalog.filter(isPlannableExercise).map(({ id }) => id));
+const exerciseNames = new Map(catalog.map(({ id, name }) => [id, name]));
 
 class ApiError extends Error {
   constructor(status, message) {
@@ -34,16 +40,49 @@ function requireValue(condition, message, status = 400) {
   if (!condition) throw new ApiError(status, message);
 }
 
+function usernameField(value) {
+  const username = typeof value === 'string' ? value.trim() : '';
+  requireValue(/^[a-z0-9][a-z0-9_-]{2,23}$/i.test(username),
+    'Use 3–24 letters, numbers, underscores, or hyphens. Start with a letter or number.');
+  return username;
+}
+
+function profileDetails({ displayName, trainingGoal, trainingPreferences }) {
+  const field = (value, limit, message) => {
+    requireValue(typeof value === 'string' && value.trim().length <= limit, message);
+    return value.trim().toWellFormed();
+  };
+  if (trainingPreferences !== undefined) {
+    requireValue(trainingPreferences && typeof trainingPreferences === 'object' && !Array.isArray(trainingPreferences), 'Invalid training preferences.');
+    const { intake, trainerNotes, experience, priorities, preferred, excluded } = trainingPreferences;
+    requireValue(['completed', 'skipped'].includes(intake), 'Choose whether to finish or skip the intake.');
+    requireValue(['', 'new', 'regular'].includes(experience), 'Choose your current training experience.');
+    requireValue(optionList(priorities, [...new Set([...muscles, ...detailedMuscles, ...broadPriorities])]), 'Choose priorities from the muscle list.');
+    const validExercises = (value) => Array.isArray(value) && value.length <= 20
+      && new Set(value).size === value.length && value.every((id) => plannableExerciseIds.has(id));
+    requireValue(validExercises(preferred) && validExercises(excluded) && !preferred.some((id) => excluded.includes(id)),
+      'Choose up to 20 distinct exercises per list. An exercise cannot be preferred and excluded.');
+    trainingPreferences = { intake, trainerNotes: field(trainerNotes, 1200, 'Keep trainer notes to 1200 characters.'),
+      experience, priorities, preferred, excluded };
+  }
+  return {
+    displayName: field(displayName, 60, 'Keep your display name to 60 characters.'),
+    trainingGoal: field(trainingGoal, 240, 'Keep your training goal to 240 characters.'),
+    ...(trainingPreferences !== undefined && { trainingPreferences }),
+  };
+}
+
 function json(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(data));
 }
 
-async function catalogJson(req, res, data) {
+async function catalogJson(req, res, data, verify) {
   const jsonBody = JSON.stringify(data);
   const encoding = jsonBody.length >= 16 * 1024 && preferredEncoding(req.headers['accept-encoding'], ['gzip']);
   const body = encoding ? await compress(jsonBody, { level: 3 }) : jsonBody;
   if (res.destroyed) return;
+  verify();
   const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) };
   if (encoding) headers['Content-Encoding'] = encoding;
   res.writeHead(200, headers).end(body);
@@ -99,25 +138,33 @@ async function readJson(req, res, limit = 48 * 1024) {
 }
 
 function workoutFields(body) {
-  const { name, date, time, status, exercises, notes } = body;
+  const { name, date, time, status, exercises, notes, effort, source } = body;
   requireValue(typeof name === 'string' && name.trim().length > 0 && name.trim().length <= 70, 'Enter a workout name of 1–70 characters.');
   requireValue(validDate(date), 'Choose a valid workout date.');
   requireValue(typeof time === 'string' && timePattern.test(time), 'Choose a valid workout time.');
   requireValue(['planned', 'completed'].includes(status), 'Choose a workout status.');
   requireValue(notes === undefined || typeof notes === 'string' && notes.length <= 1200, 'Keep workout notes to 1200 characters.');
   const completed = status === 'completed';
-  requireValue(Array.isArray(exercises) && exercises.length <= catalog.length && (completed || exercises.length > 0),
+  requireValue(effort === undefined || effort === null || completed && Number.isInteger(effort) && effort >= 1 && effort <= 10,
+    'Perceived effort must be a whole number from 1 to 10, or blank.');
+  requireValue(source === undefined || ['manual', 'trainer', 'recommended'].includes(source), 'Choose a valid session source.');
+  requireValue(Array.isArray(exercises) && exercises.length <= exercisesById.size && (completed || exercises.length > 0),
     'Add at least one exercise.');
   requireValue(exercises.every((entry) => entry && exercisesById.has(entry.exerciseId)), 'Choose an exercise from the library.');
   requireValue(new Set(exercises.map((entry) => entry.exerciseId)).size === exercises.length, 'Use each exercise once per workout.');
   return {
     name: name.trim().toWellFormed(), date, time, status,
     ...(notes !== undefined && { notes: notes.trim().toWellFormed() }),
+    ...(effort !== undefined && { effort }),
+    ...(source !== undefined && { source }),
     exercises: exercises.map((movement) => movementFields(movement, completed)),
   };
 }
 
-function movementFields({ exerciseId, sets, reps, load, setDetails }, completed) {
+function movementFields({ exerciseId, sets, reps, load, setDetails, notes }, completed) {
+  requireValue(notes === undefined || typeof notes === 'string' && notes.length <= 500, 'Keep exercise notes to 500 characters.');
+  const annotation = notes?.trim().toWellFormed();
+  const movement = { exerciseId, ...(annotation && { notes: annotation }) };
   const weighted = exercisesById.get(exerciseId).loadType;
   function setFields(item, optionalReps = false) {
     const reps = item?.reps;
@@ -134,10 +181,10 @@ function movementFields({ exerciseId, sets, reps, load, setDetails }, completed)
     requireValue(Array.isArray(setDetails) && setDetails.length <= 30 && (completed || setDetails.length >= 1),
       'Enter between 1 and 30 sets for each exercise.');
     const details = setDetails.map((set) => setFields(set, completed));
-    return { exerciseId, sets: details.length, ...details[0], setDetails: details };
+    return { ...movement, sets: details.length, ...details[0], setDetails: details };
   }
   requireValue(Number.isInteger(sets) && sets >= 1 && sets <= 30, 'Enter between 1 and 30 sets for each exercise.');
-  return { exerciseId, sets, ...setFields({ reps, load }) };
+  return { ...movement, sets, ...setFields({ reps, load }) };
 }
 
 function workoutRevision(value) {
@@ -229,8 +276,10 @@ async function sendVideo(req, res, store, workspace, id, download, legacyReads) 
 
 function exerciseSelection(store, workspace, url) {
   const targets = url.searchParams.getAll('muscle');
+  const detail = url.searchParams.get('detail');
   const mode = url.searchParams.get('equipment');
   requireValue(optionList(targets, muscles), 'Invalid muscle groups.');
+  requireValue(detail === null || detailedMuscles.includes(detail), 'Invalid target muscle.');
   requireValue(mode === 'all' || mode === 'saved' || mode === 'bodyweight', 'Invalid equipment filter.');
   const query = url.searchParams.get('q') ?? '';
   requireValue(query.length <= 100, 'Keep the search to 100 characters.');
@@ -247,9 +296,12 @@ function exerciseSelection(store, workspace, url) {
   requireValue(validDate(day) && timePattern.test(time), 'Choose a valid local date and time.');
   const history = new Map();
   for (const exercises of store.recentWorkouts(workspace, day, time)) {
-    for (const { exerciseId } of exercises) history.set(exerciseId, (history.get(exerciseId) ?? 0) + 1);
+    for (const { exerciseId, sets, setDetails } of exercises) {
+      if ((setDetails?.length ?? sets) > 0) history.set(exerciseId, (history.get(exerciseId) ?? 0) + 1);
+    }
   }
-  return { targets, available, history, candidates: recommend({ targets, available, recent: history, query, level, category, withVideo: video === '1' }) };
+  return { targets, detail, available, history,
+    candidates: recommend({ targets, detail, available, recent: history, query, level, category }) };
 }
 
 export function createApi(store, {
@@ -258,7 +310,8 @@ export function createApi(store, {
 } = {}) {
   const uploading = new Set();
   const legacyReads = { used: 0, limit: legacyReadBudgetBytes };
-  const workspaceConfig = { catalog, muscles, equipmentOptions: equipment, exerciseCategories: categories, aiAvailable: coaching.available, reviewVersion };
+  const workspaceConfig = { catalog, archivedExercises, muscles, equipmentOptions: equipment, exerciseCategories: categories,
+    aiAvailable: coaching.available, reviewVersion };
   const workspaceSchema = createHash('sha256').update(JSON.stringify([workspaceResponseVersion, workspaceConfig])).digest('hex');
   return async function api(req, res, url) {
     const method = req.method;
@@ -278,7 +331,7 @@ export function createApi(store, {
       if (method === 'OPTIONS') {
         res.writeHead(204, {
           'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, X-Clip-Name, If-None-Match, If-Range, Range',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Clip-Name, X-Liftmorrow-Profile, If-None-Match, If-Range, Range',
         });
         res.end();
         return;
@@ -289,37 +342,101 @@ export function createApi(store, {
       const wantsDelta = url.searchParams.get('response') === 'delta';
       const cookies = (req.headers.cookie ?? '').split(';').map((value) => value.trim());
       const readCookie = (name) => cookies.find((value) => value.startsWith(name + '='))?.slice(name.length + 1);
-      const currentCookie = readCookie(cookieName);
-      const previousCookie = readCookie(previousCookieName);
-      let workspace = currentCookie ?? previousCookie;
-      if (workspace && (!uuidPattern.test(workspace) || !store.workspace(workspace))) workspace = undefined;
+      const rawToken = readCookie(browserCookie);
+      const browserId = /^[a-f0-9]{64}$/.test(rawToken ?? '') ? hashBrowserToken(rawToken) : null;
+      const legacyCookie = readCookie(legacyCookies[0]) ?? readCookie(legacyCookies[1]);
+      const legacy = uuidPattern.test(legacyCookie ?? '') ? legacyCookie : null;
+      const workspace = store.profiles.active(browserId);
+      const workspaceKey = workspace && workspaceKeyFor(workspace);
+      const expected = req.headers[profileHeader] ?? url.searchParams.get('profile');
+      const requireCurrent = () => requireValue(store.profiles.active(browserId) === workspace, profileChanged, 409);
+
+      if (resource === 'profiles' && !action) {
+        if (!id && method === 'GET') return json(res, 200, store.profiles.state(browserId, legacy));
+        if (!id && method === 'POST') {
+          const { username: entered } = await readJson(req, res, 2048);
+          const username = usernameField(entered);
+          const knownBrowser = store.profiles.hasBrowser(browserId);
+          const token = knownBrowser ? rawToken : randomBytes(32).toString('hex');
+          const owner = knownBrowser ? browserId : hashBrowserToken(token);
+          const result = store.profiles.create(owner, username, legacy);
+          requireValue(result !== 'active', 'Sign out before creating another profile.', 409);
+          requireValue(result !== 'duplicate', 'That username already has a profile in this browser.', 409);
+          const cookieOptions = `Path=/; HttpOnly; SameSite=Lax${secureCookies ? '; Secure' : ''}`;
+          const updates = knownBrowser ? [] : [`${browserCookie}=${token}; ${cookieOptions}; Max-Age=31536000`];
+          for (const name of legacyCookies) {
+            if (readCookie(name) !== undefined) updates.push(`${name}=; ${cookieOptions}; Max-Age=0`);
+          }
+          if (updates.length) res.setHeader('Set-Cookie', updates);
+          return json(res, 201, store.profiles.state(owner, null));
+        }
+        if (id === 'login' && method === 'POST') {
+          const { username: entered } = await readJson(req, res, 2048);
+          const username = usernameField(entered);
+          const result = browserId ? store.profiles.signIn(browserId, username) : 'missing';
+          requireValue(result !== 'active', 'Sign out before switching profiles.', 409);
+          requireValue(result === 'selected', 'This profile was not found in this browser.', 404);
+          return json(res, 200, store.profiles.state(browserId, null));
+        }
+        if ((id === 'current' && ['PUT', 'DELETE'].includes(method)) || (id === 'logout' && method === 'POST')) {
+          requireValue(workspace && expected === workspaceKey, profileChanged, 409);
+          const operation = id === 'logout' ? 'logout' : method === 'PUT' ? 'update' : 'delete';
+          const details = operation === 'update' ? profileDetails(await readJson(req, res, 16 * 1024)) : undefined;
+          requireValue(store.profiles.changeActive(browserId, workspace, operation, details), profileChanged, 409);
+          if (operation === 'delete') coaching.removeWorkspace(workspace);
+          return json(res, 200, store.profiles.state(browserId, null));
+        }
+        throw new ApiError(404, 'Endpoint not found.');
+      }
+
+      requireValue(workspace, 'Sign in to open your workspace.', 404);
+      requireValue(expected === null || expected === workspaceKey, profileChanged, 409);
+
+      if (resource === 'companion' && !action) {
+        requireValue(expected === workspaceKey, profileChanged, 409);
+        if (id === 'profile-history' && method === 'GET') return json(res, 200, store.profiles.history(workspace));
+        const day = url.searchParams.get('day');
+        requireValue(validDate(day), 'Choose a valid check-in date.');
+        if (!id && method === 'GET') return json(res, 200, store.checkIns.state(workspace, day));
+        if (!id && method === 'POST') {
+          const body = await readJson(req, res, 8192);
+          requireValue(typeof body.id === 'string' && uuidPattern.test(body.id), 'Invalid check-in ID.');
+          requireValue(typeof body.time === 'string' && timePattern.test(body.time), 'Choose a valid check-in time.');
+          requireValue(body.adjustment === undefined || ['easier', 'rest', 'usual'].includes(body.adjustment), 'Choose a valid adjustment.');
+          requireValue(typeof body.wantsReply === 'boolean', 'Choose whether to request a reply.');
+          requireValue(typeof body.text === 'string' && body.text.length <= 1200 && (body.text.trim() || body.adjustment),
+            'Enter a note of up to 1200 characters or choose an adjustment.');
+          requireCurrent();
+          const entry = { id: body.id, day, text: body.text.trim().toWellFormed(), adjustment: body.adjustment ?? null, wantsReply: body.wantsReply };
+          const result = store.checkIns.save(workspace, entry, () => {
+            const adjustment = entry.adjustment ?? store.checkIns.state(workspace, day).adjustment;
+            const plan = buildTodayPlan({
+              current: { date: day, time: body.time }, workouts: store.workouts(workspace), catalog,
+              equipment: store.equipment(workspace), preferences: store.profiles.details(workspace).trainingPreferences, adjustment,
+            });
+            return checkInReply(entry.text, plan, exerciseNames, entry.adjustment);
+          });
+          requireValue(result, 'This check-in was already saved with different details.', 409);
+          return json(res, 200, result);
+        }
+        if (id && uuidPattern.test(id) && method === 'DELETE') return json(res, 200, store.checkIns.remove(workspace, id, day));
+      }
 
       if (resource === 'workspace' && method === 'GET' && !id) {
-        const existing = Boolean(workspace);
-        workspace ??= store.createWorkspace();
-        const cookieOptions = `Path=/; HttpOnly; SameSite=Lax${secureCookies ? '; Secure' : ''}`;
-        const updates = [];
-        if (!existing || currentCookie === undefined) {
-          updates.push(`${cookieName}=${workspace}; ${cookieOptions}; Max-Age=31536000`);
-        }
-        if (previousCookie !== undefined) updates.push(`${previousCookieName}=; ${cookieOptions}; Max-Age=0`);
-        if (updates.length) res.setHeader('Set-Cookie', updates);
-        // The key links existing drafts and in-progress sessions to this workspace.
-        const workspaceKey = createHash('sha256').update('repform-local-drafts:' + workspace).digest('hex').slice(0, 24);
         res.setHeader('Vary', origin && originAllowed ? 'Origin, Cookie, Accept-Encoding' : 'Cookie, Accept-Encoding');
         const { tag, data } = store.readWorkspace(workspace, (revision, liveReviews, now) => {
+          requireValue(revision !== undefined, profileChanged, 409);
           const fingerprint = createHash('sha256').update(JSON.stringify([workspaceSchema, workspaceKey, revision, liveReviews])).digest('hex');
           const tag = '"' + fingerprint + '"';
-          const matches = existing && revision && matchesWorkspaceTag(req.headers['if-none-match'], tag);
+          const matches = revision && matchesWorkspaceTag(req.headers['if-none-match'], tag);
           return { tag, data: matches ? null : { ...coaching.snapshot(workspace, now), workspaceKey, ...workspaceConfig } };
         });
         res.setHeader('ETag', 'W/' + tag);
         closeAfterResponse(req, res);
         if (!data) return res.writeHead(304).end();
-        return await catalogJson(req, res, data);
+        return await catalogJson(req, res, data, requireCurrent);
       }
 
-      requireValue(workspace, 'Workspace not found. Reload the page and try again.', 404);
       if (resource === 'workspace' && id === 'training-backup' && !action) {
         if (method === 'GET') {
           const from = url.searchParams.get('from');
@@ -335,11 +452,12 @@ export function createApi(store, {
         }
         if (method === 'POST') {
           const backup = await readJson(req, res, maxBackupBytes);
+          requireCurrent();
           requireValue(isTrainingBackupFormat(backup.format) && backup.version === 1,
             'Choose a Liftmorrow training backup in the current format.');
           requireValue(backup.equipment === null || optionList(backup.equipment, equipment), 'This backup contains invalid equipment options.');
           const bookmarks = backup.bookmarks === undefined ? [] : backup.bookmarks;
-          requireValue(Array.isArray(bookmarks) && bookmarks.length <= catalog.length && new Set(bookmarks).size === bookmarks.length
+          requireValue(Array.isArray(bookmarks) && bookmarks.length <= exercisesById.size && new Set(bookmarks).size === bookmarks.length
             && bookmarks.every((id) => exercisesById.has(id)), 'This backup contains invalid saved exercises.');
           requireValue(Array.isArray(backup.workouts) && backup.workouts.length <= maxBackupWorkouts, 'A backup can contain up to 10,000 workouts.');
           const ids = new Set();
@@ -357,6 +475,7 @@ export function createApi(store, {
       }
       if (resource === 'workspace' && id === 'example-workouts' && method === 'POST' && !action) {
         const { today } = await readJson(req, res);
+        requireCurrent();
         requireValue(validDate(today), 'Choose a valid date.');
         store.addExampleWorkouts(workspace, today);
         return json(res, 200, coaching.snapshot(workspace));
@@ -367,7 +486,7 @@ export function createApi(store, {
       }
       if (resource === 'exercises' && method === 'GET' && !id) {
         res.setHeader('Vary', origin && originAllowed ? 'Origin, Accept-Encoding' : 'Accept-Encoding');
-        return await catalogJson(req, res, exerciseSelection(store, workspace, url).candidates);
+        return await catalogJson(req, res, exerciseSelection(store, workspace, url).candidates, requireCurrent);
       }
       if (resource === 'exercises' && action === 'bookmark' && ['PUT', 'DELETE'].includes(method)) {
         requireValue(exercisesById.has(id), 'Exercise not found.', 404);
@@ -376,11 +495,14 @@ export function createApi(store, {
       }
       if (resource === 'exercises' && id === 'recommendations' && method === 'POST' && !action) {
         const selection = exerciseSelection(store, workspace, url);
-        return json(res, 200, await coaching.recommend(workspace, { ...selection, candidates: selection.candidates.slice(0, 50) }));
+        const picks = await coaching.recommend(workspace, { ...selection, candidates: selection.candidates.slice(0, recommendationCandidateLimit) });
+        requireCurrent();
+        return json(res, 200, picks);
       }
 
       if (resource === 'equipment' && method === 'PUT' && !id) {
         const { selected } = await readJson(req, res);
+        requireCurrent();
         requireValue(selected === null || optionList(selected, equipment), 'Choose equipment from the available options.');
         store.setEquipment(workspace, selected);
         return json(res, 200, wantsDelta ? { equipment: store.equipment(workspace) } : coaching.snapshot(workspace));
@@ -392,7 +514,7 @@ export function createApi(store, {
             'Content-Type': 'text/csv; charset=utf-8',
             'Content-Disposition': 'attachment; filename="liftmorrow-history.csv"',
           });
-          return await pipeline(Readable.from(workoutHistoryCsv(store.historyWorkouts(workspace)), { objectMode: false }), res);
+          return await pipeline(Readable.from(workoutHistoryCsv(store.historyWorkouts(workspace), url.searchParams.get('feedback') === '1'), { objectMode: false }), res);
         }
         if (method === 'GET' && id === 'calendar.ics') {
           const only = url.searchParams.get('workout');
@@ -407,6 +529,7 @@ export function createApi(store, {
         }
         if (method === 'POST' && !id) {
           const body = await readJson(req, res);
+          requireCurrent();
           requireValue(typeof body.id === 'string' && uuidPattern.test(body.id), 'Invalid workout ID.');
           const workout = { id: body.id, ...workoutFields(body) };
           const weeks = body.repeatWeeks === undefined ? 1 : body.repeatWeeks;
@@ -421,6 +544,7 @@ export function createApi(store, {
         }
         if (id && method === 'PUT') {
           const body = await readJson(req, res);
+          requireCurrent();
           requireValue(body.repeatWeeks === undefined, 'Create a new plan to schedule weekly sessions.');
           const revision = workoutRevision(body.revision);
           const operation = body.operationId;
@@ -450,6 +574,7 @@ export function createApi(store, {
         }
         if (method === 'PUT' && action === 'exercise') {
           const { exerciseId, previousExerciseId } = await readJson(req, res);
+          requireCurrent();
           requireValue(exercisesById.has(exerciseId), 'Choose an exercise from the library.');
           const clip = store.clip(workspace, id);
           requireValue(clip, 'Video not found.', 404);
@@ -514,12 +639,14 @@ export function createApi(store, {
             clearTimeout(idle);
             clearTimeout(deadline);
             if (controller.signal.aborted || (req.destroyed && !req.complete)) return;
+            requireCurrent();
             requireValue(hasVideoTrack(sourceMime, bytes), 'This file does not contain a supported video track.', 415);
             const digest = createHash('sha256').update(bytes).digest('hex');
             let inserted = false;
             if (!current) {
               const playable = converted ? await convertVideo(bytes, { limit: maxVideoBytes, signal: controller.signal }) : bytes;
               controller.signal.throwIfAborted();
+              requireCurrent();
               if (converted) requireValue(hasVideoTrack(mime, playable), 'This MOV could not be converted to a playable video.', 422);
               const added = store.addClip(workspace, { id, exerciseId, filename, mime, bytes: playable, digest, rejectDeleted });
               requireValue(!added.deleted, deletedMessage, 410);
@@ -570,6 +697,7 @@ export function createApi(store, {
           res.once('close', disconnected);
           try {
             const review = await coaching.review(workspace, id, controller.signal);
+            requireCurrent();
             if (!res.destroyed) return json(res, 200, review);
           } finally {
             res.off('close', disconnected);

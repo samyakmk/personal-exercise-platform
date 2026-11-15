@@ -1,0 +1,76 @@
+import { randomUUID } from 'node:crypto';
+import { expect, test } from '@playwright/test';
+
+test('local signup, profile details, switching across tabs, and deleting an account', async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const runtimeErrors: string[] = [];
+  page.on('pageerror', (error) => runtimeErrors.push(error.message));
+  await page.goto('/sessions');
+  await expect(page.getByRole('heading', { name: 'Create your profile' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Username' }).fill('bad name');
+  await page.getByRole('button', { name: 'Create profile', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Start with a letter or number');
+  await page.getByRole('textbox', { name: 'Username' }).fill('first-user');
+  await page.getByRole('textbox', { name: 'Username' }).press('Enter');
+  await expect(page.getByText('No sessions logged yet')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+
+  const session = {
+    id: randomUUID(), name: 'First profile training', date: '2026-11-14', time: '10:00', status: 'completed',
+    exercises: [{ exerciseId: 'push-up', sets: 3, reps: 8 }],
+  };
+  expect((await page.request.post('/api/workouts', { data: session })).status()).toBe(200);
+  await page.reload();
+  await expect(page.getByText(session.name, { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'New session', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Session name' }).fill('Private unfinished session');
+  await page.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(page.getByRole('button', { name: /resume.*draft/i })).toBeVisible();
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('link', { name: 'Profile', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Display name' }).fill('First Athlete');
+  await page.getByRole('textbox', { name: 'Training goal' }).fill('Train three days per week.');
+  await page.getByRole('button', { name: 'Save profile' }).click();
+  await expect(page.getByText('Profile details saved.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'Training goal' })).toHaveValue('Train three days per week.');
+
+  const secondTab = await context.newPage();
+  await secondTab.goto('/sessions');
+  await expect(secondTab.getByText(session.name, { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(secondTab.getByRole('heading', { name: 'Choose a profile' })).toBeVisible();
+  await expect(secondTab.getByText(session.name, { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Create another profile' }).click();
+  await page.getByRole('textbox', { name: 'Username' }).fill('second-user');
+  await page.getByRole('button', { name: 'Create profile', exact: true }).click();
+  await expect(secondTab.getByRole('heading', { name: 'No sessions logged yet' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Training goal' })).toHaveValue('');
+  await expect(secondTab.getByRole('button', { name: /resume.*draft/i })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in as first-user' }).click();
+  await expect(page.getByRole('textbox', { name: 'Display name' })).toHaveValue('First Athlete');
+  await expect(secondTab.getByText(session.name, { exact: true }).first()).toBeVisible();
+  await page.getByRole('link', { name: 'Sessions', exact: true }).click();
+  await expect(page.getByRole('button', { name: /resume.*draft/i })).toBeVisible();
+  await page.getByRole('link', { name: 'Profile', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Delete account', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete account' });
+  const confirm = dialog.getByRole('button', { name: 'Permanently delete account' });
+  await expect(confirm).toBeDisabled();
+  await dialog.getByRole('textbox', { name: 'Type your username to confirm' }).fill('first-user');
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(page.getByText('Account deleted.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in as first-user' })).toHaveCount(0);
+  await expect(secondTab.getByRole('heading', { name: 'Choose a profile' })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign in as second-user' }).click();
+  await expect(page.getByText('@second-user', { exact: true }).first()).toBeVisible();
+  await expect(secondTab.getByRole('heading', { name: 'No sessions logged yet' })).toBeVisible();
+  expect(await page.evaluate(() => Object.keys(sessionStorage).some((key) => key.includes('session-draft:')))).toBe(false);
+  expect(runtimeErrors).toEqual([]);
+});

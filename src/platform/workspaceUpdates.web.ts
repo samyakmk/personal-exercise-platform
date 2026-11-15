@@ -1,36 +1,42 @@
-const storageKey = 'liftmorrow-workspace-update';
-let updateChannel: BroadcastChannel | null = null;
+type Topic = 'workspace' | 'profile' | 'companion';
 
-function broadcastChannel() {
-  if (updateChannel || typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return updateChannel;
-  try { updateChannel = new BroadcastChannel(storageKey); }
+const channels = new Map<string, BroadcastChannel>();
+const keyFor = (topic: Topic) => 'liftmorrow-' + topic + '-update';
+
+function broadcastChannel(key: string) {
+  if (channels.has(key) || typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return channels.get(key);
+  try { channels.set(key, new BroadcastChannel(key)); }
   catch { /* Some browsers block both forms of cross-tab messaging. */ }
-  return updateChannel;
+  return channels.get(key);
 }
 
-export function watchWorkspaceUpdates(refresh: () => void) {
-  const channel = broadcastChannel();
+export function watchWorkspaceUpdates(refresh: () => void, topic: Topic = 'workspace') {
+  const key = keyFor(topic);
+  const channel = broadcastChannel(key);
   const onStorage = (event: StorageEvent) => {
-    if (event.key === storageKey) refresh();
+    if (event.key === key) refresh();
   };
   const onVisibility = () => {
     if (document.visibilityState === 'visible') refresh();
   };
   window.addEventListener('storage', onStorage);
+  window.addEventListener('pageshow', refresh);
   document.addEventListener('visibilitychange', onVisibility);
   channel?.addEventListener('message', refresh);
   return () => {
     window.removeEventListener('storage', onStorage);
+    window.removeEventListener('pageshow', refresh);
     document.removeEventListener('visibilitychange', onVisibility);
     channel?.removeEventListener('message', refresh);
   };
 }
 
-export function signalWorkspaceUpdate() {
+export function signalWorkspaceUpdate(topic: Topic = 'workspace') {
+  const key = keyFor(topic);
   try {
-    localStorage.setItem(storageKey, String(Date.now()) + ':' + Math.random());
+    localStorage.setItem(key, String(Date.now()) + ':' + Math.random());
   } catch {
     // Storage may be disabled while same-origin tabs can still exchange an update.
-    broadcastChannel()?.postMessage(null);
+    broadcastChannel(key)?.postMessage(null);
   }
 }

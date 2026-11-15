@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTestProfile } from './test-profile.mjs';
 
 async function start(t, options) {
   const server = createLiftmorrowServer({ database: ':memory:', respond: null, ...options });
@@ -21,11 +22,8 @@ async function start(t, options) {
   return `http://127.0.0.1:${server.address().port}/api/`;
 }
 
-async function workspace(api) {
-  const response = await fetch(api + 'workspace');
-  const cookie = response.headers.get('set-cookie').split(';')[0];
-  await response.arrayBuffer();
-  return cookie;
+function workspace(api) {
+  return createTestProfile((path, init) => fetch(api + path, init));
 }
 
 const clipHeaders = (cookie, mime = 'video/mp4') => ({

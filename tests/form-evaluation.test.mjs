@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { compareReports, evaluationExitCode, scoreCase, transientRetryDelay } from '../scripts/evaluate-form.mjs';
+import {
+  assertDisjointFixtures, compareReports, evaluationExitCode, scoreCase, transientRetryDelay,
+} from '../scripts/evaluate-form.mjs';
 import { AiError, createOpenAi } from '../server/ai.mjs';
 import { reviewVersion } from '../server/coaching.mjs';
 
@@ -153,6 +155,28 @@ test('matches per-case provenance independently of the default dataset and allow
   assert.throws(() => compareExternal({ ...external, clipFile: 'source.mp4' }), /neutral clip filename changed for clip-b/);
 });
 
+test('held-out cases require distinct source families as well as distinct case IDs and bytes', () => {
+  const source = 'https://example.com/dataset';
+  const clipSha256 = (id) => createHash('sha256').update(id).digest('hex');
+  const report = (...items) => ({
+    source, results: items.map(([id, fields = {}]) => ({ id, clipSha256: clipSha256(id), ...fields })),
+  });
+  const reference = report(
+    ['development-1', { subject: 3, sourceFamily: 'first-alias' }],
+    ['development-2', { preparation: { file: 'recording.mp4' }, sourceFamily: 'second-alias' }],
+    ['development-3', { sourceFamily: 'shared-subject' }],
+  );
+  assert.throws(() => assertDisjointFixtures(reference, report(
+    ['test-1', { preparation: { file: 'subject_003_squat_bad_front.mp4' }, sourceFamily: 'third-alias' }],
+    ['test-2', { preparation: { file: 'recording.mp4' }, provenance: { source: source + '#chapter' } }],
+    ['test-3', { provenance: { source: 'https://other.example.com/video' }, sourceFamily: 'Shared-Subject' }],
+    ['test-4', { clipSha256: clipSha256('development-1'), subject: 9 }],
+    ['Development-2', { subject: 9 }],
+  )), /test-1 with development-1, test-2 with development-2, test-3 with development-3, test-4 with development-1, Development-2 with development-2/);
+  assert.doesNotThrow(() => assertDisjointFixtures(reference, report(['test-1', { subject: 4 }])));
+  assert.throws(() => assertDisjointFixtures(reference, report(['test-1', { clipSha256: undefined }])), /verified fingerprints/);
+});
+
 function runCli(args, env = {}, preload) {
   return spawnSync(process.execPath, [...(preload ? ['--import', pathToFileURL(preload).href] : []), script, ...args], {
     encoding: 'utf8', env: { PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT, ...env },
@@ -197,6 +221,7 @@ globalThis.fetch = async () => {
   let report = JSON.parse(await readFile(output, 'utf8'));
   assert.equal(report.retryPolicy, 'none');
   assert.equal(report.results[0].diagnostic, 'dns_temporary');
+  assert.equal(report.reviewerInvocations, 1);
 
   const retryArgs = [...args, '--retry-transient'];
   const recovered = runCli(retryArgs, env, preload);
@@ -207,6 +232,7 @@ globalThis.fetch = async () => {
   assert.equal(report.model, env.LIFTMORROW_AI_MODEL);
   assert.equal(report.reviewVersion, reviewVersion);
   assert.equal(report.retryPolicy, 'one-transient-v1');
+  assert.equal(report.reviewerInvocations, 2);
   assert.deepEqual(report.results[0].retry, { diagnostic: 'dns_temporary', delayMs: 750 });
   assert.equal(report.results[0].outcome, 'expected_verdict');
   assert.doesNotMatch(raw + recovered.stdout + recovered.stderr, /key-secret|usage-secret|endpoint-secret|provider-secret/);
@@ -266,6 +292,123 @@ test('comparison rejects changed clip bytes before decoding or calling the provi
   assert.equal(run.status, 1);
   assert.match(run.stderr, /The video bytes changed for fixture-01/);
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
+});
+
+test('preflight includes visual fixtures and a missing fixture prevents any live reviewer invocation', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-evaluation-preflight-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const source = 'https://example.test/recording';
+  const cases = ['first-case', 'second-case'].map((id) => ({
+    id, group: 'visual', exercise: 'incline-push-up', verdict: 'different_exercise', provenance: { source },
+  }));
+  const manifest = join(directory, 'manifest.json');
+  const output = join(directory, 'report.json');
+  const marker = join(directory, 'provider-was-called');
+  const decoderMarker = join(directory, 'decoder-was-called');
+  const decoder = join(directory, 'decoder');
+  const preload = join(directory, 'mock-provider.mjs');
+  await Promise.all([
+    writeFile(manifest, JSON.stringify({ cases })),
+    writeFile(join(directory, 'first-case.mp4'), 'fixture bytes'),
+    writeFile(preload, `import { writeFileSync } from 'node:fs';
+globalThis.fetch = async () => writeFileSync(${JSON.stringify(marker)}, 'started');
+`),
+    writeFile(decoder, `#!${process.execPath}
+const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(decoderMarker)}, 'started');
+fs.writeFileSync('source-times.txt', 'pts_time:0');
+for (let i = 1; i <= 2; i++) {
+  fs.writeFileSync(process.argv.at(-1).replace('%03d', String(i).padStart(3, '0')), 'synthetic image');
+}
+`, { mode: 0o700 }),
+  ]);
+  const args = ['--manifest', manifest, '--clips', directory, '--output', output];
+  const incomplete = runCli([...args, '--live'], { CHATGPT_API_KEY: 'mock-key', LIFTMORROW_FFMPEG: decoder }, preload);
+  assert.equal(incomplete.status, 1, incomplete.stderr);
+  assert.match(incomplete.stderr, /stopped before contacting the provider/);
+  assert.equal(JSON.parse(await readFile(output, 'utf8')).reviewerInvocations, 0);
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
+  await assert.rejects(readFile(decoderMarker), { code: 'ENOENT' });
+
+  await writeFile(join(directory, 'second-case.mp4'), 'another fixture from the same recording');
+  const planned = runCli([...args, '--preflight'], { LIFTMORROW_FFMPEG: decoder }, preload);
+  assert.equal(planned.status, 0, planned.stderr);
+  const report = JSON.parse(await readFile(output, 'utf8'));
+  assert.equal(report.mode, 'preflight');
+  assert.deepEqual(report.totals, { ready: 2 });
+  assert.deepEqual(report.sourceCoverage, {
+    uniqueClipFiles: 2, sourceFamilies: 1, sharedSourceFamilies: [['first-case', 'second-case']],
+  });
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
+  await assert.rejects(readFile(decoderMarker), { code: 'ENOENT' });
+
+  const overlapping = runCli([...args, '--live', '--disjoint-from', output], {
+    CHATGPT_API_KEY: 'mock-key', LIFTMORROW_FFMPEG: decoder,
+  }, preload);
+  assert.equal(overlapping.status, 1, overlapping.stderr);
+  assert.match(overlapping.stderr, /Evaluation sets overlap/);
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
+});
+
+test('a form evaluation can share the eval budget ledger and saves only its totals', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-form-budget-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const id = 'fixture-01';
+  const manifest = join(directory, 'manifest.json');
+  const output = join(directory, 'report.json');
+  const ledger = join(directory, 'budget.sqlite');
+  const ffmpeg = join(directory, 'ffmpeg');
+  const preload = join(directory, 'metered-provider.mjs');
+  await Promise.all([
+    writeFile(manifest, JSON.stringify({ source: 'https://example.test/recording', cases: [
+      { id, group: 'visual', exercise: 'incline-push-up', verdict: 'different_exercise' },
+    ] })),
+    writeFile(join(directory, id + '.mp4'), 'synthetic clip'),
+    writeFile(ffmpeg, `#!${process.execPath}
+const fs = require('node:fs');
+fs.writeFileSync('source-times.txt', 'pts_time:0');
+for (let i = 1; i <= 2; i++) {
+  fs.writeFileSync(process.argv.at(-1).replace('%03d', String(i).padStart(3, '0')), 'synthetic image');
+}
+`, { mode: 0o700 }),
+    writeFile(preload, `let counted = false;
+globalThis.fetch = async (url, { body }) => {
+  if (url.endsWith('/input_tokens')) {
+    counted = true;
+    return Response.json({ input_tokens: 123 });
+  }
+  if (!counted || JSON.parse(body).store !== false) throw new Error('Unexpected request.');
+  return Response.json({
+    model: 'gpt-5.4-mini', status: 'completed',
+    usage: { input_tokens: 123, output_tokens: 8, providerMarker: 'must-not-escape' },
+    output: [{ type: 'message', content: [{ type: 'output_text', text:
+      JSON.stringify({ verdict: 'different_exercise', summary: 'Mock review.', observations: [] })
+    }] }],
+  });
+};`),
+  ]);
+  const args = ['--manifest', manifest, '--clips', directory, '--output', output, '--budget-ledger', ledger, '--strict'];
+  const env = { CHATGPT_API_KEY: 'key-secret', LIFTMORROW_AI_MODEL: 'gpt-5.4-mini', LIFTMORROW_FFMPEG: ffmpeg };
+  const local = runCli(args, env, preload);
+  assert.equal(local.status, 1, local.stderr);
+  assert.match(local.stderr, /Use --budget-ledger with --live/);
+  const live = runCli([...args, '--live'], env, preload);
+  assert.equal(live.status, 0, live.stderr);
+  const raw = await readFile(output, 'utf8');
+  const report = JSON.parse(raw);
+  assert.equal(report.reviewerInvocations, 1);
+  assert.equal(report.budget.totals.preflightInput, 123);
+  assert.equal(report.budget.totals.input, 123);
+  assert.equal(report.budget.totals.hardReserved, 246);
+  assert.equal(report.budget.requests, undefined);
+  assert.doesNotMatch(raw + live.stdout + live.stderr, /key-secret|must-not-escape/);
+
+  const secondRun = runCli([...args, '--live'], env, preload);
+  assert.equal(secondRun.status, 0, secondRun.stderr);
+  const secondBudget = JSON.parse(await readFile(output, 'utf8')).budget;
+  assert.deepEqual(secondBudget.limits, report.budget.limits);
+  assert.equal(secondBudget.totals.attempts, 2);
+  assert.equal(secondBudget.totals.hardReserved, 492);
 });
 
 test('reports identical clip bytes under different case IDs without changing strict grades', async () => {

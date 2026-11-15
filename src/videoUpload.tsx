@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { api, createId, RequestError } from './api';
+import { createId, RequestError } from './api';
 import { videoMime } from './platform/videoTypes';
 import type { SelectedVideo } from './types';
 import { useWorkspace } from './workspace';
@@ -11,7 +11,7 @@ const maxSize = 50 * 1024 * 1024;
 const Context = createContext<ReturnType<typeof useUploadState> | null>(null);
 
 function useUploadState() {
-  const { transferClip, reload, announce } = useWorkspace();
+  const { api, transferClip, reload, announce } = useWorkspace();
   const [exercise, setExercise] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState('');

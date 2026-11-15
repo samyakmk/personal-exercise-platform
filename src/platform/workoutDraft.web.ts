@@ -11,6 +11,7 @@ function hasSetFields(value: unknown): value is Pick<DraftEntry, 'reps' | 'load'
 
 function isEntry(entry: DraftEntry | null) {
   return entry && typeof entry.exerciseId === 'string' && typeof entry.sets === 'string' && hasSetFields(entry)
+    && (entry.notes === undefined || typeof entry.notes === 'string' && entry.notes.length <= 500)
     && (entry.details === undefined || Array.isArray(entry.details) && entry.details.length >= 1 && entry.details.length <= 30
       && entry.details.every((detail) => detail && typeof detail.id === 'string' && hasSetFields(detail)));
 }
@@ -27,6 +28,8 @@ export function readWorkoutDraft(workspace: string, kind: 'workout' | 'session' 
       || !['planned', 'completed'].includes(draft.status) || !Array.isArray(draft.entries)
       || (draft.revision !== undefined && (!Number.isSafeInteger(draft.revision) || draft.revision < 1))
       || !draft.entries.every(isEntry) || (draft.notes !== undefined && typeof draft.notes !== 'string')
+      || draft.effort != null && (!Number.isInteger(draft.effort) || draft.effort < 1 || draft.effort > 10)
+      || draft.source !== undefined && !['manual', 'trainer', 'recommended'].includes(draft.source)
       || (draft.repeatWeeks !== undefined && (!Number.isInteger(draft.repeatWeeks) || draft.repeatWeeks < 1 || draft.repeatWeeks > 12))) return null;
     return draft;
   } catch {

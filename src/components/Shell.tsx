@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Link, usePathname, useRouter } from 'expo-router';
-import { CalendarDays, ChartNoAxesColumnIncreasing, ClipboardList, Dumbbell, House, LockKeyhole, Plus, ScanLine } from 'lucide-react-native';
+import { CalendarDays, ChartNoAxesColumnIncreasing, CircleUserRound, ClipboardList, Dumbbell, House, LockKeyhole, Plus, ScanLine } from 'lucide-react-native';
 import { Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useTrainingNavigation } from '../navigation';
+import { useProfiles } from '../profiles';
 import { SkipLink } from '../platform/SkipLink';
 import { color } from '../theme';
 import { useVideoUpload } from '../videoUpload';
@@ -17,6 +18,7 @@ const pages = [
   { path: '/explore', label: 'Exercises', icon: Dumbbell },
   { path: '/progress', label: 'Progress', icon: ChartNoAxesColumnIncreasing },
   { path: '/form-review', label: 'Form Review', icon: ScanLine },
+  { path: '/profile', label: 'Profile', icon: CircleUserRound },
 ] as const;
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -28,6 +30,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pageName = pathname === '/photo-credits' ? 'Photo credits' : pages.find((page) => page.path === pathname)?.label ?? 'Overview';
   const training = useTrainingNavigation();
+  const profile = useProfiles().state?.active;
   const scroll = useRef<ScrollView>(null);
   const { data, error, reload, notice } = useWorkspace();
   const upload = useVideoUpload();
@@ -67,7 +70,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </View>
         {!compact && <View style={styles.sideBottom}>
           <LockKeyhole aria-hidden size={14} color={color.muted} />
-          <Copy size={12} tone={color.muted}>Private workspace</Copy>
+          <Copy size={12} tone={color.muted} numberOfLines={1} style={{ flex: 1 }}>{profile ? '@' + profile.username : 'Private workspace'}</Copy>
         </View>}
       </View>
 

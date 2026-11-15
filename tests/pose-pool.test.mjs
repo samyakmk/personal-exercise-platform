@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { estimatePoses } from '../server/pose.mjs';
 import { createPosePool } from '../server/pose-pool.mjs';
 import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTestProfile } from './test-profile.mjs';
 
 const testWorker = new URL('./fixtures/pose-worker-stub.mjs', import.meta.url);
 const modelPath = 'synthetic-model-path';
@@ -75,9 +76,7 @@ test('closing the server aborts frame extraction before stopping its pose worker
   await once(server, 'listening');
   const api = `http://127.0.0.1:${server.address().port}/api/`;
   try {
-    const workspace = await fetch(api + 'workspace');
-    const cookie = workspace.headers.get('set-cookie').split(';')[0];
-    await workspace.arrayBuffer();
+    const cookie = await createTestProfile((path, init) => fetch(api + path, init));
     const clip = 'clips/' + randomUUID();
     const uploaded = await fetch(api + clip + '?exercise=push-up', {
       method: 'PUT', headers: { Cookie: cookie, 'Content-Type': 'video/mp4', 'X-Clip-Name': 'fixture.mp4' },
