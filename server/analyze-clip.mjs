@@ -1,4 +1,4 @@
-import { reviewExercise } from './ai.mjs';
+import { detectExercise, reviewExercise } from './ai.mjs';
 import { extractFrames, selectReviewFrames } from './frames.mjs';
 import { estimatePoses } from './pose.mjs';
 import { assessBirdTurn, assessCoreMotion } from './core-motion.mjs';
@@ -37,14 +37,22 @@ export function hasLocalAssessment(exerciseId) {
   return Object.hasOwn(assessments, exerciseId);
 }
 
+function reviewSampleRate(exerciseId) {
+  return hasLocalAssessment(exerciseId) || exerciseId === 'reverse-lunge' || exerciseId === 'dead-bug' ? 4 : 2;
+}
+
 export async function prepareClipReview(source, {
-  exercise, mime, signal, sampleFrames = extractFrames, estimate = estimatePoses, startSeconds = 0,
+  exercise, mime, signal, sampleFrames = extractFrames, estimate, startSeconds = 0,
 }) {
+  const samples = await sampleFrames(source, { mime, signal, startSeconds, sampleRate: reviewSampleRate(exercise.id) });
+  return prepareSampledReview(samples, { exercise, signal, estimate, startSeconds });
+}
+
+async function prepareSampledReview(samples, { exercise, signal, estimate = estimatePoses, startSeconds = 0 }) {
   const assess = assessments[exercise.id];
   const lunge = exercise.id === 'reverse-lunge';
   const core = exercise.id === 'dead-bug';
-  const trackPose = Boolean(assess) || lunge || core;
-  const samples = await sampleFrames(source, { mime, signal, startSeconds, sampleRate: trackPose ? 4 : 2 });
+  const trackPose = reviewSampleRate(exercise.id) === 4;
   let poses = null;
   if (trackPose && samples.length >= (exercise.id === 'pull-up' ? 5 : 8)) {
     try {
@@ -75,5 +83,12 @@ export async function prepareClipReview(source, {
 }
 
 export async function analyzeClip(respond, source, options) {
-  return reviewExercise(respond, await prepareClipReview(source, options));
+  if (options.exercise) return reviewExercise(respond, await prepareClipReview(source, options));
+
+  const { mime, signal, sampleFrames = extractFrames, startSeconds = 0 } = options;
+  const samples = await sampleFrames(source, { mime, signal, startSeconds, sampleRate: 4 });
+  const exercise = await detectExercise(respond, { frames: selectReviewFrames(samples), signal });
+  const reviewSamples = reviewSampleRate(exercise.id) === 4 ? samples : samples.filter((_, index) => index % 2 === 0);
+  const prepared = await prepareSampledReview(reviewSamples, { ...options, exercise });
+  return { ...await reviewExercise(respond, prepared), detectedExerciseId: exercise.id };
 }

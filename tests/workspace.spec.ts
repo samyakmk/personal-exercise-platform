@@ -858,6 +858,40 @@ test('saved video search matches both filenames and exercise names', async ({ pa
   await expect(page.getByRole('button', { name: 'Open video · living-room.mp4' })).toBeVisible();
 });
 
+test('an untagged upload starts detection and shows the detected exercise with its feedback', async ({ page }) => {
+  await page.route('**/api/workspace', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), aiAvailable: true } });
+  });
+  await page.route('**/api/clips/*/review?background=1', (route) => route.fulfill({
+    status: 202, json: { review: null, reviewStatus: { state: 'running', sequence: 1, startSeconds: 0 } },
+  }));
+  let finished = false;
+  await page.route('**/api/clips/*/review', (route) => route.fulfill({ json: {
+    review: finished ? {
+      detectedExerciseId: 'incline-push-up', verdict: 'no_clear_issue', summary: 'The exercise is visible.', limitations: '',
+      observations: [], framesReviewed: 8, windowSeconds: 20, reviewedAt: '2026-11-13T07:30:00Z',
+    } : null,
+    reviewStatus: { state: finished ? 'complete' : 'running', sequence: 1, startSeconds: 0 },
+  } }));
+
+  await page.goto('/form-review');
+  const picker = page.getByRole('combobox', { name: 'Exercise in your clip' });
+  await expect(picker).toHaveValue('Detect for me');
+  await chooseExercise(page, 'Exercise in your clip', 'Push-Up');
+  await chooseExercise(page, 'Exercise in your clip', 'Detect for me');
+  await page.locator('input[type=file]').setInputFiles('tests/fixtures/synthetic.mp4');
+  const upload = page.waitForRequest((request) => request.method() === 'PUT' && new URL(request.url()).pathname.startsWith('/api/clips/'));
+  await page.getByRole('button', { name: 'Upload and analyze' }).click();
+  expect(new URL((await upload).url()).searchParams.has('exercise')).toBe(false);
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('Detecting exercise and analyzing form…')).toBeVisible();
+  finished = true;
+  await expect(page.getByRole('dialog', { name: 'Incline Push-Up' })).toBeVisible();
+  await expect(dialog.getByText('Detected exercise · Incline Push-Up')).toBeVisible();
+  await expect(dialog.getByText('The exercise is visible.')).toBeVisible();
+});
+
 test('a video upload continues across navigation and can be retried on return', async ({ page }) => {
   await page.goto('/form-review');
   await chooseExercise(page, 'Exercise in your clip', 'Push-Up');

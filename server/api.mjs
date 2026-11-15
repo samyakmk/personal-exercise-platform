@@ -575,7 +575,7 @@ export function createApi(store, {
         if (method === 'PUT' && action === 'exercise') {
           const { exerciseId, previousExerciseId } = await readJson(req, res);
           requireCurrent();
-          requireValue(exercisesById.has(exerciseId), 'Choose an exercise from the library.');
+          requireValue(exerciseId === '' || exercisesById.has(exerciseId), 'Choose an exercise from the library.');
           const clip = store.clip(workspace, id);
           requireValue(clip, 'Video not found.', 404);
           if (exerciseId !== clip.exerciseId) {
@@ -588,11 +588,11 @@ export function createApi(store, {
           return json(res, 200, wantsDelta ? { clips: coaching.clipChanges(workspace, id) } : coaching.snapshot(workspace));
         }
         if (method === 'PUT' && !action) {
-          const exerciseId = url.searchParams.get('exercise');
+          const exerciseId = url.searchParams.get('exercise') ?? '';
           const rejectDeleted = url.searchParams.get('protectDeleted') === '1';
           const deletedMessage = 'This video was removed in another tab. Choose a file to upload it again.';
           const sourceMime = req.headers['content-type']?.split(';')[0];
-          requireValue(exercisesById.has(exerciseId), 'Choose an exercise first.');
+          requireValue(exerciseId === '' || exercisesById.has(exerciseId), 'Choose an exercise from the library.');
           requireValue(videoTypes.has(sourceMime), 'Choose an MP4, WebM, or MOV video.', 415);
           const converted = sourceMime === 'video/quicktime';
           const mime = converted ? 'video/mp4' : sourceMime;

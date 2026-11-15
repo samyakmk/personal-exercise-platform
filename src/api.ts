@@ -150,7 +150,11 @@ export function createWorkspaceApi(workspaceKey: string) {
     workoutHistoryUrl: () => profileUrl('/api/workouts/history.csv?feedback=1'),
     async uploadClip(id: string, exercise: string, clip: SelectedVideo, signal: AbortSignal, onProgress: (fraction: number) => void) {
       const body = await clip.read();
-      const url = profileUrl('/api/clips/' + id + '?exercise=' + encodeURIComponent(exercise) + '&response=delta&protectDeleted=1');
+      const query = new URLSearchParams();
+      if (exercise) query.set('exercise', exercise);
+      query.set('response', 'delta');
+      query.set('protectDeleted', '1');
+      const url = profileUrl('/api/clips/' + id + '?' + query);
       const { status, data } = await uploadVideo({ url, body, mime: clip.mime, name: clip.name, signal, onProgress });
       if (status < 200 || status >= 300) {
         const error = data && typeof data === 'object' && 'error' in data ? data.error : undefined;

@@ -11,7 +11,7 @@ const maxSize = 50 * 1024 * 1024;
 const Context = createContext<ReturnType<typeof useUploadState> | null>(null);
 
 function useUploadState() {
-  const { api, transferClip, reload, announce } = useWorkspace();
+  const { api, data, transferClip, startReview, reload, announce } = useWorkspace();
   const [exercise, setExercise] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState('');
@@ -56,7 +56,6 @@ function useUploadState() {
 
   async function upload() {
     if (!draft || request.current) return;
-    if (!exercise) { setError('Choose the exercise shown in your video.'); return; }
     const controller = new AbortController();
     request.current = controller;
     setProgress(0);
@@ -72,7 +71,13 @@ function useUploadState() {
         setUploadFailed(true);
         return;
       }
+      setExercise('');
       announce('Video saved to your workspace.');
+      if (!exercise && data?.aiAvailable) {
+        void startReview(draft.id, 0).catch(() => {
+          announce('Video saved. Open it to start analysis.');
+        });
+      }
       return draft.id;
     } catch (failure) {
       if (controller.signal.aborted) {

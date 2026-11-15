@@ -70,6 +70,8 @@ export function FormReview() {
   if (!data) return null;
 
   const catalog = data.catalog;
+  const autoDetectOption = { value: '', label: data.aiAvailable ? 'Detect for me' : 'No exercise selected' };
+  const clipExerciseName = (clip: Clip) => exerciseRecords.get(clip.exerciseId || clip.review?.detectedExerciseId || '')?.name;
   const selected = data.clips.find((clip) => clip.id === requested);
   const closeVideo = () => router.setParams({ clip: undefined });
   const busy = progress !== null;
@@ -77,12 +79,13 @@ export function FormReview() {
   const converting = draft?.clip.mime === 'video/quicktime';
   const previewStatus = preview?.id === draft?.id ? preview?.state : undefined;
   const canUpload = converting || previewStatus === 'ready';
+  const analyzeOnUpload = data.aiAvailable && !exercise;
   const recent = new Set(completedWorkouts(data.workouts, workoutTime(), 5)
     .flatMap((workout) => workout.exercises.map((entry) => entry.exerciseId)));
   const ordered = [...catalog].sort((a, b) => Number(recent.has(b.id)) - Number(recent.has(a.id)));
   const terms = clipSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const matching = data.clips.filter((clip) => {
-    const searchText = `${clip.filename} ${exerciseRecords.get(clip.exerciseId)?.name ?? ''}`.toLowerCase();
+    const searchText = `${clip.filename} ${clipExerciseName(clip) ?? ''}`.toLowerCase();
     return terms.every((term) => searchText.includes(term));
   });
 
@@ -111,7 +114,7 @@ export function FormReview() {
       <Panel style={[styles.panel, wide && { flex: 1.55 }]}>
         <SectionTitle title="Upload a clip" />
         <ExercisePicker label="Exercise in your clip" value={exercise} onChange={chooseExercise} disabled={busy}
-          options={ordered.map((item) => ({ value: item.id, label: item.name, detail: recent.has(item.id) ? 'Recent' : undefined }))} />
+          options={[autoDetectOption, ...ordered.map((item) => ({ value: item.id, label: item.name, detail: recent.has(item.id) ? 'Recent' : undefined }))]} />
         {draft ? <View style={{ gap: 8 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <Copy weight="semibold" size={13} style={{ flex: 1 }}>{draft.clip.name} · {clipSize(draft.clip.size)}</Copy>
@@ -122,8 +125,9 @@ export function FormReview() {
             : <VideoPlayer key={draft.id} uri={draft.clip.uri} label="Video preview"
               onReady={() => setPreview({ id: draft.id, state: 'ready' })} onError={() => setPreview({ id: draft.id, state: 'failed' })} />}
           {previewStatus === 'failed' && <Copy size={12} tone={color.muted}>Choose a video your browser can play.</Copy>}
+          {analyzeOnUpload && <Copy size={12} tone={color.muted}>Liftmorrow sends up to eight still frames per step from the first 20 seconds to OpenAI to identify the exercise and review your form.</Copy>}
           {progress === null ? <Button icon={Upload} kind="primary" disabled={!canUpload}
-            onPress={saveVideo}>Upload video</Button> : <>
+            onPress={saveVideo}>{analyzeOnUpload ? 'Upload and analyze' : 'Upload video'}</Button> : <>
             <View accessibilityRole="progressbar" accessibilityLabel="Video upload"
               accessibilityValue={{ min: 0, max: 100, now: progress }}
               style={styles.uploadTrack}>
@@ -176,7 +180,7 @@ export function FormReview() {
         return <View key={clip.id} style={[styles.videoRow, index > 0 && styles.videoRowBorder]}>
           <View style={styles.videoIcon} aria-hidden><Film color={color.plum} size={19} /></View>
           <View style={{ flex: 1, minWidth: 105, gap: 2 }}>
-            <Copy weight="semibold" size={15}>{exerciseRecords.get(clip.exerciseId)?.name ?? 'Exercise clip'}</Copy>
+            <Copy weight="semibold" size={15}>{clipExerciseName(clip) ?? 'Exercise clip'}</Copy>
             <Copy size={12} tone={color.muted} numberOfLines={1}>{clip.filename}</Copy>
           </View>
           {wide && <Copy size={12} tone={color.muted}>{formatDay(date, { month: 'short', day: 'numeric', year: 'numeric' })}</Copy>}
@@ -190,8 +194,8 @@ export function FormReview() {
       })}</Panel>}
     {matching.length > clipLimit && <Button onPress={() => setClipLimit((value) => value + 10)}>Show older videos</Button>}
 
-    {selected && <SavedClip key={`${selected.id}:${selected.exerciseId}`} clip={selected} catalog={catalog}
-      title={exerciseRecords.get(selected.exerciseId)?.name ?? 'Exercise video'}
+    {selected && <SavedClip key={`${selected.id}:${selected.exerciseId}`} clip={selected} catalog={catalog} autoDetectOption={autoDetectOption}
+      title={clipExerciseName(selected) ?? 'Exercise video'}
       canReview={data.aiAvailable} reviewVersion={data.reviewVersion} onClose={closeVideo}
       onReview={(start, refresh) => startReview(selected.id, start, refresh)}
       onCancelReview={(sequence) => cancelReview(selected.id, sequence)}
@@ -207,15 +211,16 @@ export function FormReview() {
   </View>;
 }
 
-function Feedback({ review, onSeek }: { review: FormFeedback; onSeek: (seconds: number) => void }) {
+function Feedback({ review, detectedExercise, onSeek }: { review: FormFeedback; detectedExercise?: string; onSeek: (seconds: number) => void }) {
   const title = {
     observations: 'Form observations',
     no_clear_issue: 'No clear correction',
     insufficient_visibility: 'Form could not be assessed',
-    different_exercise: 'Exercise may differ from selection',
+    different_exercise: review.detectedExerciseId ? 'Exercise match is uncertain' : 'Exercise may differ from selection',
   }[review.verdict];
   return <View style={styles.feedbackContent}>
     <SectionTitle title={title} level={3} />
+    {detectedExercise && <Copy size={12} tone={color.muted}>Detected exercise · {detectedExercise}</Copy>}
     {review.summary && <Copy size={15}>{review.summary}</Copy>}
     {review.observations.map(({ timestamp, comparisonTimestamp, kind, observation, cue }, index) => (
       <View key={index} style={styles.observation}>
@@ -248,12 +253,13 @@ function formatTimestamp(seconds: number) {
   return `${minutes}:${wholeSeconds}${fraction ? '.' + fraction : ''}`;
 }
 
-function SavedClip({ clip, title, catalog, canReview, reviewVersion, onClose, onReview, onCancelReview, onChangeExercise, onDelete }: {
-  clip: Clip; title: string; catalog: Exercise[]; canReview: boolean; reviewVersion: number; onClose: () => void;
+function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVersion, onClose, onReview, onCancelReview, onChangeExercise, onDelete }: {
+  clip: Clip; title: string; catalog: Exercise[]; autoDetectOption: { value: string; label: string };
+  canReview: boolean; reviewVersion: number; onClose: () => void;
   onReview: (startSeconds: number, refresh?: boolean) => Promise<void>; onCancelReview: (sequence: number) => Promise<void>;
   onChangeExercise: (exerciseId: string) => Promise<void>; onDelete: () => Promise<void>;
 }) {
-  const { api } = useWorkspace();
+  const { api, exerciseRecords } = useWorkspace();
   const [confirm, setConfirm] = useState(false);
   const [editExercise, setEditExercise] = useState(false);
   const [showStart, setShowStart] = useState(false);
@@ -372,7 +378,7 @@ function SavedClip({ clip, title, catalog, canReview, reviewVersion, onClose, on
     if (!busy) { setEditExercise(false); setError(''); }
   }}>
     <ExercisePicker label="New exercise selection" value={exercise} onChange={setExercise} disabled={busy}
-      options={catalog.map(({ id, name }) => ({ value: id, label: name }))} />
+      options={[autoDetectOption, ...catalog.map(({ id, name }) => ({ value: id, label: name }))]} />
     {clip.review && <Notice>Saving clears the previous feedback so you can analyze this clip for the new exercise.</Notice>}
     {error && <Notice error>{error}</Notice>}
     <View style={styles.uploadActions}>
@@ -411,11 +417,13 @@ function SavedClip({ clip, title, catalog, canReview, reviewVersion, onClose, on
           {pastReviewError && <Notice error action={<Button compact onPress={() => setHistoryAttempt((value) => value + 1)}>Retry loading sections</Button>}>
             Saved review sections could not be loaded.
           </Notice>}
-          {viewedReview && <Feedback review={viewedReview} onSeek={(seconds) => player.current?.seek(seconds)} />}
+          {viewedReview && <Feedback review={viewedReview}
+            detectedExercise={exerciseRecords.get(viewedReview.detectedExerciseId ?? '')?.name}
+            onSeek={(seconds) => player.current?.seek(seconds)} />}
         </>}
         {canReview && <>
           {analyzing ? <View style={{ gap: 6 }}>
-            <Loading label="Analyzing visible form…" />
+            <Loading label={clip.exerciseId ? 'Analyzing visible form…' : 'Detecting exercise and analyzing form…'} />
             <Copy size={13} tone={color.muted}>You can close this video and return to it while analysis runs.</Copy>
             <Button compact kind="quiet" disabled={starting || cancelling} onPress={cancel}>
               {cancelling ? 'Cancelling…' : 'Cancel analysis'}
@@ -424,6 +432,8 @@ function SavedClip({ clip, title, catalog, canReview, reviewVersion, onClose, on
             {failure && !error && <Notice error action={!failedHere
               ? <Button compact kind="quiet" onPress={() => selectStart(failure.startSeconds)}>Open failed section</Button>
               : undefined}>{failure.error}</Notice>}
+            {!clip.exerciseId && (failure || viewedReview?.verdict === 'different_exercise') &&
+              <Button icon={Pencil} compact onPress={() => { setExercise(''); setEditExercise(true); setError(''); }}>Choose exercise</Button>}
             {cancellation && <Notice action={!cancelledHere
               ? <Button compact kind="quiet" onPress={() => selectStart(cancellation.startSeconds)}>Open cancelled section</Button>
               : undefined}>Analysis cancelled. Your video is still saved.</Notice>}
@@ -452,7 +462,9 @@ function SavedClip({ clip, title, catalog, canReview, reviewVersion, onClose, on
                 {tooLate && <View nativeID="review-start-error">
                   <Notice error>Choose a starting point with at least one second of exercise footage remaining.</Notice>
                 </View>}
-                <Copy size={12} tone={color.muted}>Liftmorrow sends up to eight still frames from the next 20 seconds to OpenAI. Audio stays with the saved video.</Copy>
+                <Copy size={12} tone={color.muted}>{clip.exerciseId
+                  ? 'Liftmorrow sends up to eight still frames from the next 20 seconds to OpenAI. Audio stays with the saved video.'
+                  : 'Liftmorrow sends up to eight still frames per step from the next 20 seconds to OpenAI. Audio stays with the saved video.'}</Copy>
                 <Button kind="primary" icon={Sparkles} disabled={!validStart || tooLate || retryAt !== null} onPress={() => analyze(reviewedHere)}>
                   {retryAt !== null ? 'Retry shortly' : error || failedHere || cancelledHere
                     ? 'Retry analysis' : reviewedHere ? 'Review this section again' : clip.review ? 'Analyze this section' : 'Analyze form'}

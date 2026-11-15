@@ -108,6 +108,7 @@ export type FormFeedback = {
   startSeconds?: number;
   windowSeconds: number;
   reviewedAt: string;
+  detectedExerciseId?: string;
 };
 
 export type Recommendation = { exerciseId: string; reason: string };

@@ -141,8 +141,10 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
       heartbeat.unref();
       try {
         signal.throwIfAborted();
+        const exercise = exercisesById.get(clip.exerciseId);
+        if (clip.exerciseId && !exercise) throw new AiError(422, 'Choose an exercise from the library before reviewing this video.');
         const result = await analyzeClip(respond, store.clipChunks(workspace, id, clip, 0, clip.size), {
-          exercise: exercisesById.get(clip.exerciseId), mime: clip.mime, signal, sampleFrames, estimate, startSeconds,
+          exercise, mime: clip.mime, signal, sampleFrames, estimate, startSeconds,
         });
         signal.throwIfAborted();
         const review = {

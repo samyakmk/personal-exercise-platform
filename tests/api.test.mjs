@@ -804,8 +804,9 @@ test('form reviews coalesce concurrent requests, persist, and enforce clip owner
   let calls = 0;
   const { session } = await start(t, {
     sampleFrames: async () => [{ timestamp: 0, image: Buffer.from('first') }, { timestamp: 0.5, image: Buffer.from('second') }],
-    respond: async ({ content }) => {
+    respond: async ({ name, content }) => {
       calls += 1;
+      assert.equal(name, 'exercise_form_review');
       assert.equal(content.filter((part) => part.type === 'input_image').length, 2);
       entered();
       await wait;
@@ -839,6 +840,77 @@ test('form reviews coalesce concurrent requests, persist, and enforce clip owner
   assert.equal(calls, 1);
   await browser.call('clips/' + id, { method: 'DELETE' });
   assert.equal((await browser.call(path, post)).status, 404);
+});
+
+test('untagged clips detect a catalog exercise and review it using the same sampled window', async (t) => {
+  const calls = [];
+  const samples = [];
+  const { session } = await start(t, {
+    sampleFrames: async (_, { startSeconds, sampleRate }) => {
+      samples.push({ startSeconds, sampleRate });
+      return Array.from({ length: 16 }, (_, index) => ({
+        timestamp: startSeconds + index / sampleRate, image: Buffer.from('fixture'),
+      }));
+    },
+    respond: async ({ name, content }) => {
+      calls.push(name);
+      assert.equal(content.filter((part) => part.type === 'input_image').length, 8);
+      if (name === 'exercise_detection') {
+        const catalog = JSON.parse(content[0].text);
+        assert.ok(catalog.some(([id, name]) => id === 'incline-push-up' && name === 'Incline Push-Up'));
+        return { exerciseId: 'incline-push-up' };
+      }
+      assert.equal(JSON.parse(content[0].text).exercise, 'Incline Push-Up');
+      return { verdict: 'observations', summary: '', observations: [] };
+    },
+  });
+  const owner = await session();
+  const id = randomUUID();
+  const path = 'clips/' + id;
+  await uploadFixture(owner, id, null);
+  assert.equal((await (await owner.call(path)).json()).exerciseId, '');
+  const startSection = () => owner.call(path + '/review?background=1&start=2', { method: 'POST' });
+  assert.equal((await startSection()).status, 202);
+  const done = await waitForState(async () => (await owner.call(path + '/review')).json(), 'complete');
+  assert.equal(done.review.detectedExerciseId, 'incline-push-up');
+  assert.equal(done.review.startSeconds, 2);
+  assert.equal(done.review.verdict, 'no_clear_issue');
+  assert.deepEqual(samples, [{ startSeconds: 2, sampleRate: 4 }]);
+  assert.deepEqual(await (await startSection()).json(), done);
+  await uploadFixture(owner, id, null);
+  assert.deepEqual((await (await owner.call('workspace')).json()).clips[0].review, done.review);
+  assert.deepEqual(calls, ['exercise_detection', 'exercise_form_review']);
+});
+
+test('uncertain or invalid detection stops before review and allows a manual exercise', async (t) => {
+  let exerciseId = null;
+  const calls = [];
+  const { session } = await start(t, {
+    sampleFrames: async () => [{ timestamp: 0, image: Buffer.from('fixture') }],
+    respond: async ({ name }) => {
+      calls.push(name);
+      return name === 'exercise_detection' ? { exerciseId } : { verdict: 'observations', summary: '', observations: [] };
+    },
+  });
+  const owner = await session();
+  const id = randomUUID();
+  const path = 'clips/' + id;
+  const review = () => owner.call(path + '/review', { method: 'POST' });
+  await uploadFixture(owner, id, null);
+  const uncertain = await review();
+  assert.equal(uncertain.status, 422);
+  assert.match((await uncertain.json()).error, /Couldn’t identify the exercise/);
+  exerciseId = 'made-up-exercise';
+  assert.equal((await review()).status, 502);
+  const clip = await (await owner.call(path)).json();
+  assert.equal(clip.exerciseId, '');
+  assert.equal(clip.review, null);
+  assert.equal(clip.reviewStatus.state, 'failed');
+  assert.equal((await owner.call(path + '/exercise', payload('PUT', { exerciseId: 'incline-push-up', previousExerciseId: '' }))).status, 200);
+  const manual = await review();
+  assert.equal(manual.status, 200);
+  assert.equal((await manual.json()).detectedExerciseId, undefined);
+  assert.deepEqual(calls, ['exercise_detection', 'exercise_detection', 'exercise_form_review']);
 });
 
 test('a failed review can retry and deleting a clip cancels the in-flight review', async (t) => {
@@ -1110,7 +1182,7 @@ async function waitForState(status, expected) {
 }
 
 async function uploadFixture(browser, id, exercise = 'push-up') {
-  const response = await browser.call('clips/' + id + '?exercise=' + exercise, {
+  const response = await browser.call('clips/' + id + (exercise === null ? '' : '?exercise=' + exercise), {
     method: 'PUT',
     headers: { 'Content-Type': 'video/mp4', 'X-Clip-Name': 'synthetic.mp4' },
     body: await readFile(new URL('./fixtures/synthetic.mp4', import.meta.url)),
