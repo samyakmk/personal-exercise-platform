@@ -761,6 +761,74 @@ test('AI recommendations use only filtered catalog IDs and omit workout names', 
   assert.ok(readCandidates(exactInput)[0].primaryMuscles.includes('Triceps'));
 });
 
+test('exercise refinements stay within the filters and operate on the previous picks', async (t) => {
+  const { session } = await start(t, { respond: async () => ({ recommendations: [{ exerciseId: 'goblet-squat' }] }) });
+  const browser = await session();
+  const path = 'exercises/recommendations?equipment=bodyweight&muscle=Chest';
+  const matching = await (await browser.call('exercises?equipment=bodyweight&muscle=Chest')).json();
+  const advanced = matching.find(({ level }) => level === 'Advanced');
+  const easy = matching.find(({ level }) => level === 'Beginner');
+  const revise = async (adjustment, previous) => {
+    const result = await browser.call(path, payload('POST', { adjustment, previous }));
+    assert.equal(result.status, 200);
+    const picks = (await result.json()).map(({ exerciseId }) => matching.find((exercise) => exercise.id === exerciseId));
+    assert.ok(picks.every(Boolean));
+    assert.equal(new Set(picks).size, picks.length);
+    return picks;
+  };
+  const easier = await revise('easier', [advanced.id, easy.id]);
+  assert.equal(easier.length, 2);
+  assert.notEqual(easier[0].level, 'Advanced');
+  assert.equal(easier[1].id, easy.id);
+  const harder = await revise('harder', [easy.id]);
+  assert.notEqual(harder[0].level, 'Beginner');
+  const longer = await revise('longer', easier.map(({ id }) => id));
+  assert.deepEqual(longer.slice(0, 2), easier);
+  assert.deepEqual(await revise('shorter', longer.map(({ id }) => id)), easier);
+  assert.equal((await browser.call(path, payload('POST', { adjustment: 'easier', previous: ['goblet-squat'] }))).status, 409);
+  assert.equal((await browser.call(path, payload('POST', { adjustment: 'easier', previous: [easy.id, easy.id] }))).status, 400);
+});
+
+test('AI workout previews use scoped equipment and preferences, and only return eligible exercises', async (t) => {
+  let input;
+  const { session } = await start(t, { respond: async ({ content }) => {
+    input = JSON.parse(content[0].text);
+    const chosen = input.candidates.find(([id]) => id === 'goblet-squat')[0];
+    return { recommendations: [{ exerciseId: 'push-up' }, { exerciseId: chosen }, { exerciseId: chosen }, { exerciseId: 'pull-up' }] };
+  } });
+  const browser = await session();
+  const headers = { 'X-Liftmorrow-Profile': browser.data.workspaceKey };
+  const profile = payload('PUT', {
+    displayName: 'Private display name', trainingGoal: 'Private training goal',
+    trainingPreferences: { intake: 'completed', trainerNotes: 'Private trainer note', experience: 'regular',
+      priorities: ['Legs'], preferred: ['goblet-squat'], excluded: ['push-up'] },
+  });
+  assert.equal((await browser.call('profiles/current', { ...profile, headers: { ...profile.headers, ...headers } })).status, 200);
+  assert.equal((await browser.call('equipment', payload('PUT', { selected: ['Dumbbells'] }))).status, 200);
+  assert.equal((await browser.call('workouts', payload('POST', { id: randomUUID(), name: 'Private workout name',
+    date: '2026-11-15', time: '08:00', status: 'completed', exercises: [{ exerciseId: 'goblet-squat', sets: 2, reps: 8 }] }))).status, 200);
+  const path = 'workouts/recommendation?today=2026-11-15&now=10:00';
+  assert.equal((await browser.call(path, { method: 'POST', headers: { 'X-Liftmorrow-Profile': randomUUID() } })).status, 409);
+  const response = await browser.call(path, { method: 'POST', headers });
+  assert.equal(response.status, 200);
+  const preview = await response.json();
+  assert.equal(preview.source, 'ai');
+  assert.equal(preview.exercises.length, 5);
+  assert.equal(preview.exercises[0].exerciseId, 'goblet-squat');
+  assert.equal(new Set(preview.exercises.map(({ exerciseId }) => exerciseId)).size, 5);
+  const catalog = new Map(browser.data.catalog.map((exercise) => [exercise.id, exercise]));
+  assert.ok(preview.exercises.every(({ exerciseId, sets, reps, load }) => {
+    const exercise = catalog.get(exerciseId);
+    return exerciseId !== 'push-up' && exercise.equipment.every((item) => item === 'Dumbbells') && sets >= 1 && sets <= 2
+      && reps >= 1 && reps <= (exercise.unit === 'seconds' ? 45 : 15) && load === undefined;
+  }));
+  assert.deepEqual(input.workout, { priorities: ['Legs'], experience: 'regular', preferred: ['goblet-squat'] });
+  assert.equal(input.completedSessionsByExercise['goblet-squat'], 1);
+  assert.ok(input.candidates.length <= 50);
+  assert.doesNotMatch(JSON.stringify(input), /Private (display name|workout name|training goal|trainer note)/);
+  assert.equal((await (await browser.call('workspace')).json()).workouts.length, 1);
+});
+
 test('OpenAI responses request disables storage and upstream errors do not expose the provider body', async () => {
   let request;
   const respond = createOpenAi({ key: 'test-only-token', fetchImpl: async (url, init) => {
@@ -794,6 +862,28 @@ test('OpenAI cooldown respects Retry-After and handles quota and filtered output
   const filtered = createOpenAi({ key: 'test-only-token', fetchImpl: async () =>
     Response.json({ status: 'incomplete', incomplete_details: { reason: 'content_filter' } }) });
   await assert.rejects(() => filtered(input), (error) => error.status === 422 && error.diagnostic === 'content_filter');
+});
+
+test('the stronger form critique model is scoped to form feedback', async () => {
+  const requests = [];
+  const respond = createOpenAi({ key: 'test-only-token', model: 'fast-model', formModel: 'vision-model',
+    fetchImpl: async (_, { body }) => {
+      const request = JSON.parse(body);
+      requests.push(request);
+      if (request.model === 'vision-model') return Response.json({}, { status: 429, headers: { 'Retry-After': '7' } });
+      return Response.json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '{}' }] }] });
+    },
+  });
+  const send = (name) => respond({ name, schema: {}, instructions: '', content: [] });
+  await send('exercise_detection');
+  await assert.rejects(() => send('exercise_form_review'), (error) => error.status === 503);
+  await assert.rejects(() => send('exercise_form_review'), (error) => error.diagnostic === 'cooldown');
+  await send('exercise_reference_match');
+  await send('workout_suggestion');
+  assert.deepEqual(requests.map(({ model, reasoning }) => [model, reasoning.effort]), [
+    ['fast-model', 'low'], ['vision-model', 'medium'], ['fast-model', 'low'], ['fast-model', 'low'],
+  ]);
+  assert.ok(requests.every(({ store }) => store === false));
 });
 
 test('form reviews coalesce concurrent requests, persist, and enforce clip ownership', async (t) => {

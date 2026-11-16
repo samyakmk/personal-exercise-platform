@@ -91,3 +91,38 @@ export function selectReviewFrames(frames, evidence = []) {
   }
   return [...selected].sort((a, b) => a.timestamp - b.timestamp);
 }
+
+// Use projected joint extension to find distinct positions for inspection.
+// Camera angle affects this estimate, so it is only used to choose images.
+export function movementPhaseTimes(poses, joints) {
+  const positions = poses.flatMap(({ timestamp, points }) => {
+    const extensions = [0, 1].flatMap((side) => {
+      const [start, joint, end] = joints.map((index) => points[index + side]);
+      if (Math.min(start.confidence, joint.confidence, end.confidence) < 0.35) return [];
+      const first = Math.hypot(start.x - joint.x, start.y - joint.y);
+      const second = Math.hypot(joint.x - end.x, joint.y - end.y);
+      if (Math.min(first, second) < 12) return [];
+      return [Math.hypot(start.x - end.x, start.y - end.y) / (first + second)];
+    });
+    return extensions.length ? [{ timestamp, extension: extensions.reduce((sum, value) => sum + value, 0) / extensions.length }] : [];
+  });
+  if (positions.length < 2) return [];
+  const midpoint = (positions[0].timestamp + positions.at(-1).timestamp) / 2;
+  const windows = [positions.filter(({ timestamp }) => timestamp < midpoint), positions.filter(({ timestamp }) => timestamp >= midpoint)];
+  return windows.flatMap((window) => {
+    let maximum = 0.09;
+    let pair = [];
+    for (const [index, from] of window.entries()) {
+      for (let next = index + 1; next < window.length; next += 1) {
+        const to = window[next];
+        const elapsed = to.timestamp - from.timestamp;
+        if (elapsed > 2) break;
+        const change = Math.abs(to.extension - from.extension);
+        if (elapsed < 0.5 || change <= maximum) continue;
+        maximum = change;
+        pair = [from.timestamp, to.timestamp];
+      }
+    }
+    return pair;
+  });
+}

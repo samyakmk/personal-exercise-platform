@@ -6,14 +6,16 @@ import { createId } from '../api';
 import { addDays, dateKey, earliestWorkoutDate, formatDay, isWorkoutDate, latestWorkoutDate, timeKey } from '../dates';
 import { ExercisePicker } from '../platform/ExercisePicker';
 import { DateTimeField, SelectField } from '../platform/fields';
+import { useProfiles } from '../profiles';
 import { color } from '../theme';
-import type { Exercise, ExerciseLoad, ExerciseSet, Movement, Workout, WorkoutSource, WorkoutStatus } from '../types';
+import type { Exercise, ExerciseLoad, ExerciseSet, Movement, Workout, WorkoutSource, WorkoutStatus, WorkoutSuggestion } from '../types';
 import { useWorkspace } from '../workspace';
 import { RestTimer } from './RestTimer';
 import { Sheet } from './Sheet';
 import { EffortField, SourceField } from './SessionFeedback';
 import { Button, Chip, Copy, IconButton, Input, Notice, SectionTitle } from './ui';
 import { validWeight, WeightFields } from './WeightFields';
+import { WorkoutRecommendation } from './WorkoutRecommendation';
 
 type DraftSet = {
   reps: string;
@@ -64,7 +66,8 @@ function wholeNumber(value: string, max: number) {
 }
 
 export function WorkoutEditor({ initial, preset, status, date, copy = false, catalog, suggested, bookmarks, draft, mode, exercisesOnly = false, onClose, onSave, onDelete, onDraftChange }: Props) {
-  const { exerciseRecords } = useWorkspace();
+  const { data, exerciseRecords, recommendationContext } = useWorkspace();
+  const { state: profileState } = useProfiles();
   const loggingPlan = status === 'completed' && initial?.status === 'planned';
   const editing = initial && !copy;
   const sessionLog = mode === 'session';
@@ -118,6 +121,16 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   function changeEntries(next: SetStateAction<DraftEntry[]>) {
     markEdited(true);
     setEntries(next);
+  }
+
+  function applyWorkout(workout: WorkoutSuggestion) {
+    changeEntries(workout.exercises.map(({ exerciseId, sets, reps }) => ({
+      exerciseId, sets: String(sets), reps: reps === undefined ? '' : String(reps), load: '', unit: 'lb',
+    })));
+    setName((current) => current.trim() ? current : workout.name);
+    setSessionSource('recommended');
+    setChoice('');
+    setError('');
   }
 
   function add() {
@@ -176,6 +189,7 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   }
 
   const logging = currentStatus === 'completed';
+  const canSuggest = !mode && !initial && !logging && !entries.length;
   const optionalSets = sessionLog || (logging && initial?.status === 'completed');
   const canRepeat = !mode && !editing && !logging;
   const lastDay = canRepeat && repeatWeeks > 1 && isWorkoutDate(day) ? addDays(day, (repeatWeeks - 1) * 7) : '';
@@ -245,8 +259,15 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
     detail={exercisesOnly ? `“${name}” is saved in your session log. Add exercises now or come back later.`
       : metadataOnly ? undefined
       : sessionLog ? 'Reps and weight are optional for each set.'
-      : logging ? 'Enter the sets and reps or hold times you completed.' : 'Choose when you’ll train and which exercises you’ll do.'} onClose={close}>
+      : logging ? 'Enter the sets and reps or hold times you completed.' : canSuggest ? 'Start from a suggested workout or choose your own exercises.'
+      : 'Choose when you’ll train and which exercises you’ll do.'} onClose={close}>
     {editing && initial.example && <Notice>Saving adds this workout to your own schedule or history.</Notice>}
+    {canSuggest && <WorkoutRecommendation disabled={busy} onApply={applyWorkout}
+      key={JSON.stringify([recommendationContext, profileState?.active?.details.trainingPreferences,
+        data?.trainingNotes?.map(({ id }) => id)])} />}
+    {!mode && !initial && !logging && sessionSource === 'recommended' && entries.length > 0 && <Notice>
+      Suggested exercises added. Confirm the date and time, then save your workout.
+    </Notice>}
     {!exercisesOnly && <View style={styles.basics}>
       <Input label={mode ? 'Session name' : 'Workout name'} value={name} onChangeText={(value) => { markEdited(true); setName(value); }}
         placeholder="e.g. Upper Body Strength" maxLength={70} />
@@ -262,7 +283,7 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
         style={{ minHeight: 74, paddingVertical: 8, textAlignVertical: 'top' }} />}
     </View>}
     {!metadataOnly && <View style={styles.exerciseSection}>
-      <SectionTitle title="Exercises" level={3} />
+      <SectionTitle title={canSuggest ? 'Choose exercises manually' : 'Exercises'} level={3} />
       {entries.map((entry, index) => {
         const exercise = exerciseRecords.get(entry.exerciseId);
         const measurement = exercise?.unit === 'seconds' ? 'Seconds' : 'Reps';

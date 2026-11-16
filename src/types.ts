@@ -23,6 +23,14 @@ export type CheckInInput = Pick<TrainingCheckIn, 'id' | 'text' | 'adjustment'> &
 export type ProfileSummary = { username: string; workspaceKey: string };
 export type Profile = ProfileSummary & { details: ProfileDetails };
 export type ProfileState = { active: Profile | null; profiles: ProfileSummary[]; canImportLegacy: boolean };
+export type TrainingNoteInput = {
+  text: string;
+  kind: 'context' | 'prefer' | 'avoid' | 'shorter';
+  exerciseId: string | null;
+};
+export type TrainingNote = TrainingNoteInput & { id: string; savedAt: string };
+export type ChatMessage = { role: 'user' | 'assistant'; text: string };
+export type ChatAnswer = { reply: string; note?: TrainingNoteInput };
 
 export type ExerciseDemonstration = {
   videoId: string;
@@ -80,6 +88,20 @@ export type Workout = {
 
 export type TrainingSetDraft = { setNumber: number; reps: string; load: string; unit: ExerciseLoad['unit'] };
 
+export type SessionCoachState = {
+  stage: 'setup' | 'set' | 'rest';
+  restUntil?: number;
+  skipped?: string[];
+};
+
+export type SessionCoachQuestion = {
+  exerciseId: string;
+  phase: SessionCoachState['stage'] | 'complete';
+  setNumber: number;
+  target?: ExerciseSet;
+  question: string;
+};
+
 export type TrainingSession = {
   plan: Workout;
   logId: string;
@@ -92,6 +114,7 @@ export type TrainingSession = {
   effort?: number | null;
   exerciseNotes?: Record<string, string>;
   restDeadline?: number | null;
+  coach?: SessionCoachState;
   activeExercise?: string;
   setDrafts?: Record<string, TrainingSetDraft>;
   hold?: { exerciseId: string; setNumber: number; deadline: number };
@@ -102,6 +125,7 @@ export type FormFeedback = {
   summary: string;
   limitations: string;
   observations: { timestamp: number; comparisonTimestamp?: number; kind: 'strength' | 'adjustment'; observation: string; cue: string }[];
+  observationFrame?: { reference?: { path: string; phase: string; source: string; credit: string; time?: number } };
   framesReviewed: number;
   version?: number;
   sequence?: number;
@@ -112,6 +136,9 @@ export type FormFeedback = {
 };
 
 export type Recommendation = { exerciseId: string; reason: string };
+export type Refinement = 'easier' | 'harder' | 'shorter' | 'longer';
+export type ExerciseRefinement = { adjustment: Refinement; previous: string[] };
+export type WorkoutSuggestion = Pick<Workout, 'name' | 'exercises'> & { source: 'ai' | 'catalog' };
 
 export type ReviewStatus =
   | { state: 'idle'; sequence: number }
@@ -138,9 +165,10 @@ export type Snapshot = {
 
 export type WorkoutDelta = { workouts: { upsert: Workout[]; remove: string[] } };
 export type ClipDelta = { clips: { upsert: Clip[]; remove: string[] } };
-export type WorkspaceChange = Snapshot | Pick<Snapshot, 'equipment'> | Pick<Snapshot, 'bookmarks'> | WorkoutDelta | ClipDelta;
+export type TrainingNotesChange = { trainingNotes: TrainingNote[] };
+export type WorkspaceChange = Snapshot | Pick<Snapshot, 'equipment'> | Pick<Snapshot, 'bookmarks'> | WorkoutDelta | ClipDelta | TrainingNotesChange;
 
-export type Workspace = Snapshot & {
+export type Workspace = Snapshot & TrainingNotesChange & {
   workspaceKey?: string;
   catalog: Exercise[];
   archivedExercises?: Exercise[];

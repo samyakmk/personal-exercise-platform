@@ -7,9 +7,19 @@ export function Dialog({ children, label, onClose, wide }: { children: ReactNode
 
   useEffect(() => {
     const dialog = element.current;
-    const opener = document.activeElement;
-    dialog?.showModal();
+    let opener: Element | null = null;
+    let disposed = false;
+    function show() {
+      if (!dialog || disposed) return;
+      opener = document.activeElement;
+      dialog.showModal();
+    }
+
+    // Child effects run first when a parent and its nested dialog mount together.
+    if (dialog?.parentElement?.closest('dialog:not([open])')) queueMicrotask(show);
+    else show();
     return () => {
+      disposed = true;
       if (dialog?.open) dialog.close();
       requestAnimationFrame(() => {
         if (document.querySelector('dialog[open]')) return;
@@ -33,7 +43,11 @@ export function Dialog({ children, label, onClose, wide }: { children: ReactNode
     <dialog
       ref={element}
       aria-label={label}
-      onCancel={(event) => { event.preventDefault(); onClose(); }}
+      onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        onClose();
+      }}
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
       className="liftmorrow-dialog"
       style={{

@@ -10,6 +10,8 @@ import { reviewVersion } from './coaching.mjs';
 import { archivedExercises, catalog, categories, detailedMuscles, equipment, exercisesById, levels, muscles, recommend } from './catalog.mjs';
 import { hashBrowserToken, workspaceKeyFor } from './local-profiles.mjs';
 import { convertQuickTime } from './quicktime.mjs';
+import { maxExercisePicks, refineExercisePicks, refinements, suggestWorkout } from './recommendations.mjs';
+import { chatHistoryLimit, chatMessageLimit, chatReplyLimit, normalizeTrainingNote } from './training-chat.mjs';
 import { hasVideoTrack } from './video-container.mjs';
 import { workoutCalendar, workoutHistoryCsv } from './workout-exports.mjs';
 import { closeAfterResponse, expectRequestBody, preferredEncoding } from './http.mjs';
@@ -24,7 +26,7 @@ const legacyCookies = ['liftmorrow_workspace', 'repform_workspace'];
 const profileHeader = 'x-liftmorrow-profile';
 const profileChanged = 'The active profile changed. Open your profile again and retry.';
 const videoTypes = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
-const workspaceResponseVersion = 2;
+const workspaceResponseVersion = 3;
 const compress = promisify(gzip);
 const plannableExerciseIds = new Set(catalog.filter(isPlannableExercise).map(({ id }) => id));
 const exerciseNames = new Map(catalog.map(({ id, name }) => [id, name]));
@@ -274,6 +276,24 @@ async function sendVideo(req, res, store, workspace, id, download, legacyReads) 
   }
 }
 
+function recommendationTime(url) {
+  const utc = new Date().toISOString();
+  const date = url.searchParams.get('today') ?? utc.slice(0, 10);
+  const time = url.searchParams.get('now') ?? utc.slice(11, 16);
+  requireValue(validDate(date) && timePattern.test(time), 'Choose a valid local date and time.');
+  return { date, time };
+}
+
+function exerciseHistory(store, workspace, { date, time }) {
+  const history = new Map();
+  for (const exercises of store.recentWorkouts(workspace, date, time)) {
+    for (const { exerciseId, sets, setDetails } of exercises) {
+      if ((setDetails?.length ?? sets) > 0) history.set(exerciseId, (history.get(exerciseId) ?? 0) + 1);
+    }
+  }
+  return history;
+}
+
 function exerciseSelection(store, workspace, url) {
   const targets = url.searchParams.getAll('muscle');
   const detail = url.searchParams.get('detail');
@@ -290,18 +310,29 @@ function exerciseSelection(store, workspace, url) {
   const video = url.searchParams.get('video');
   requireValue(video === null || video === '1', 'Invalid video filter.');
   const available = mode === 'bodyweight' ? [] : mode === 'saved' ? store.equipment(workspace) : null;
-  const utc = new Date().toISOString();
-  const day = url.searchParams.get('today') ?? utc.slice(0, 10);
-  const time = url.searchParams.get('now') ?? utc.slice(11, 16);
-  requireValue(validDate(day) && timePattern.test(time), 'Choose a valid local date and time.');
-  const history = new Map();
-  for (const exercises of store.recentWorkouts(workspace, day, time)) {
-    for (const { exerciseId, sets, setDetails } of exercises) {
-      if ((setDetails?.length ?? sets) > 0) history.set(exerciseId, (history.get(exerciseId) ?? 0) + 1);
-    }
-  }
+  const history = exerciseHistory(store, workspace, recommendationTime(url));
   return { targets, detail, available, history,
     candidates: recommend({ targets, detail, available, recent: history, query, level, category }) };
+}
+
+function sessionCoachFields({ exerciseId, phase, question, setNumber, target }) {
+  const exercise = exercisesById.get(exerciseId);
+  requireValue(exercise, 'Choose an exercise from the library.');
+  requireValue(['setup', 'set', 'rest', 'complete'].includes(phase), 'Choose a valid coaching step.');
+  requireValue(Number.isInteger(setNumber) && setNumber >= 1 && setNumber <= 30, 'Choose a set number from 1 to 30.');
+  const text = typeof question === 'string' ? question.trim() : '';
+  requireValue(text.length > 0 && text.length <= 280, 'Enter a question of 1–280 characters.');
+  let planned;
+  if (target !== undefined) {
+    requireValue(target && typeof target === 'object' && !Array.isArray(target), 'Invalid set target.');
+    const { reps, load } = target;
+    requireValue(reps === undefined || Number.isInteger(reps) && reps >= 1 && reps <= 600, 'Invalid reps or hold target.');
+    requireValue(load === undefined || exercise.loadType && load && ['lb', 'kg'].includes(load.unit)
+      && typeof load.value === 'number' && load.value >= 0.01 && load.value <= 1000
+      && /^\d+(?:\.\d{1,2})?$/.test(String(load.value)), 'Invalid planned weight.');
+    planned = { reps, ...(load && { load: { value: load.value, unit: load.unit } }) };
+  }
+  return { exercise, phase, question: text.toWellFormed(), setNumber, target: planned };
 }
 
 export function createApi(store, {
@@ -392,6 +423,66 @@ export function createApi(store, {
       requireValue(workspace, 'Sign in to open your workspace.', 404);
       requireValue(expected === null || expected === workspaceKey, profileChanged, 409);
 
+      if (resource === 'chat' && method === 'POST' && !id) {
+        requireValue(req.headers[profileHeader] === workspaceKey, profileChanged, 409);
+        const { message, history = [] } = await readJson(req, res, 64 * 1024);
+        requireValue(typeof message === 'string' && message.trim().length > 0 && message.length <= chatMessageLimit,
+          'Enter a message of 1–1200 characters.');
+        requireValue(Array.isArray(history) && history.length <= chatHistoryLimit && history.length % 2 === 0
+          && history.every((turn, index) => turn?.role === (index % 2 ? 'assistant' : 'user')
+            && typeof turn.text === 'string' && turn.text.trim().length > 0
+            && turn.text.length <= (index % 2 ? chatReplyLimit : chatMessageLimit)), 'Invalid conversation history.');
+        const current = recommendationTime(url);
+        requireCurrent();
+        if (res.destroyed) return;
+        const controller = new AbortController();
+        const disconnected = () => controller.abort();
+        res.once('close', disconnected);
+        try {
+          const reply = await coaching.chat(workspace, {
+            current, message: message.trim().toWellFormed(),
+            history: history.map(({ role, text }) => ({ role, text: text.trim().toWellFormed() })),
+          }, controller.signal);
+          if (res.destroyed) return;
+          requireCurrent();
+          return json(res, 200, reply);
+        } finally {
+          res.off('close', disconnected);
+        }
+      }
+
+      if (resource === 'training-notes' && uuidPattern.test(id ?? '') && !action) {
+        requireValue(req.headers[profileHeader] === workspaceKey, profileChanged, 409);
+        if (method === 'PUT') {
+          const note = normalizeTrainingNote(await readJson(req, res, 8192));
+          requireValue(note, 'Enter a valid training note.');
+          requireCurrent();
+          const trainingNotes = store.saveTrainingNote(workspace, id, note);
+          requireValue(trainingNotes !== 'full', 'Your profile has 40 notes. Remove one in Profile before saving more.', 409);
+          requireValue(trainingNotes !== 'conflict', 'This note was already saved with different details.', 409);
+          return json(res, 200, { trainingNotes });
+        }
+        if (method === 'DELETE') return json(res, 200, { trainingNotes: store.removeTrainingNote(workspace, id) });
+      }
+
+      if (resource === 'session-coach' && method === 'POST' && !id && !action) {
+        requireValue(expected === workspaceKey, profileChanged, 409);
+        const input = sessionCoachFields(await readJson(req, res, 4096));
+        requireCurrent();
+        if (res.destroyed) return;
+        const controller = new AbortController();
+        const disconnected = () => controller.abort();
+        res.once('close', disconnected);
+        try {
+          const reply = await coaching.sessionCoach(workspace, input, controller.signal);
+          if (res.destroyed) return;
+          requireCurrent();
+          return json(res, 200, reply);
+        } finally {
+          res.off('close', disconnected);
+        }
+      }
+
       if (resource === 'companion' && !action) {
         requireValue(expected === workspaceKey, profileChanged, 409);
         if (id === 'profile-history' && method === 'GET') return json(res, 200, store.profiles.history(workspace));
@@ -413,6 +504,7 @@ export function createApi(store, {
             const plan = buildTodayPlan({
               current: { date: day, time: body.time }, workouts: store.workouts(workspace), catalog,
               equipment: store.equipment(workspace), preferences: store.profiles.details(workspace).trainingPreferences, adjustment,
+              trainingNotes: store.trainingNotes(workspace),
             });
             return checkInReply(entry.text, plan, exerciseNames, entry.adjustment);
           });
@@ -429,7 +521,8 @@ export function createApi(store, {
           const fingerprint = createHash('sha256').update(JSON.stringify([workspaceSchema, workspaceKey, revision, liveReviews])).digest('hex');
           const tag = '"' + fingerprint + '"';
           const matches = revision && matchesWorkspaceTag(req.headers['if-none-match'], tag);
-          return { tag, data: matches ? null : { ...coaching.snapshot(workspace, now), workspaceKey, ...workspaceConfig } };
+          return { tag, data: matches ? null : { ...coaching.snapshot(workspace, now), workspaceKey, ...workspaceConfig,
+            trainingNotes: store.trainingNotes(workspace) } };
         });
         res.setHeader('ETag', 'W/' + tag);
         closeAfterResponse(req, res);
@@ -494,10 +587,40 @@ export function createApi(store, {
         return json(res, 200, wantsDelta ? { bookmarks: store.bookmarks(workspace) } : coaching.snapshot(workspace));
       }
       if (resource === 'exercises' && id === 'recommendations' && method === 'POST' && !action) {
+        let request;
+        if (Number(req.headers['content-length']) > 0 || req.headers['transfer-encoding']) {
+          request = await readJson(req, res, 2048);
+          requireCurrent();
+          requireValue(refinements.includes(request.adjustment) && Array.isArray(request.previous)
+            && request.previous.length > 0 && request.previous.length <= maxExercisePicks
+            && new Set(request.previous).size === request.previous.length && request.previous.every((id) => typeof id === 'string'),
+          'Choose a valid recommendation adjustment.');
+        }
         const selection = exerciseSelection(store, workspace, url);
-        const picks = await coaching.recommend(workspace, { ...selection, candidates: selection.candidates.slice(0, recommendationCandidateLimit) });
+        const rank = (input) => coaching.recommend(workspace, input);
+        let picks;
+        if (request) {
+          const eligible = new Map(selection.candidates.map((exercise) => [exercise.id, exercise]));
+          requireValue(request.previous.every((id) => eligible.has(id)), 'These picks no longer match your filters. Get new recommendations.', 409);
+          picks = await refineExercisePicks(rank, selection, request.previous.map((id) => eligible.get(id)), request.adjustment);
+        } else {
+          picks = await rank({ ...selection, candidates: selection.candidates.slice(0, recommendationCandidateLimit) });
+        }
         requireCurrent();
         return json(res, 200, picks);
+      }
+
+      if (resource === 'workouts' && id === 'recommendation' && method === 'POST' && !action) {
+        requireValue(expected === workspaceKey, profileChanged, 409);
+        const current = recommendationTime(url);
+        const suggestion = await suggestWorkout({ current, available: store.equipment(workspace),
+          rank: coaching.available ? (input) => coaching.recommend(workspace, input) : null,
+          history: exerciseHistory(store, workspace, current), preferences: store.profiles.details(workspace).trainingPreferences,
+          workouts: store.workouts(workspace),
+          trainingNotes: store.trainingNotes(workspace),
+        });
+        requireCurrent();
+        return json(res, 200, suggestion);
       }
 
       if (resource === 'equipment' && method === 'PUT' && !id) {
@@ -706,6 +829,15 @@ export function createApi(store, {
         }
         if ((method === 'GET' || method === 'HEAD') && action === 'video') {
           return await sendVideo(req, res, store, workspace, id, url.searchParams.get('download') === '1', legacyReads);
+        }
+        if (method === 'GET' && action === 'review-still') {
+          requireValue(expected === workspaceKey, profileChanged, 409);
+          const sequence = url.searchParams.get('sequence') ?? '';
+          requireValue(/^\d+$/.test(sequence) && Number.isSafeInteger(Number(sequence)) && Number(sequence) > 0,
+            'Choose a saved review.');
+          const still = store.reviewStill(workspace, id, Number(sequence));
+          requireValue(still, 'Review still not found.', 404);
+          return res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': still.length }).end(still);
         }
       }
       throw new ApiError(404, 'Endpoint not found.');

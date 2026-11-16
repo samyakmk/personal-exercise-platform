@@ -22,7 +22,7 @@ function useUploadState() {
   useEffect(() => () => draft?.clip.dispose(), [draft]);
   useEffect(() => () => request.current?.abort(), []);
 
-  function pick(clip: SelectedVideo) {
+  function pick(clip: SelectedVideo, exerciseId?: string) {
     if (request.current) { clip.dispose(); return; }
     const mime = videoMime(clip.name, clip.mime);
     if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(mime)) {
@@ -37,6 +37,7 @@ function useUploadState() {
     }
     setError('');
     setUploadFailed(false);
+    if (exerciseId !== undefined) setExercise(exerciseId);
     setDraft({ id: createId(), clip: { ...clip, mime } });
   }
 

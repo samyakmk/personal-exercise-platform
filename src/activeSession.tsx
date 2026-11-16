@@ -1,9 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import { createId } from './api';
 import { readTrainingSession, writeTrainingSession } from './platform/trainingSession';
 import { isSavedTrainingLog } from './trainingProgress';
-import type { TrainingSession } from './types';
+import type { TrainingSession, Workout } from './types';
 import { useWorkspace } from './workspace';
+
+export function newTrainingSession(plan: Workout, adHoc = false): TrainingSession {
+  return {
+    plan, ...(adHoc && { adHoc: true }), logId: createId(), startedAt: Date.now(), sets: {}, notes: plan.notes ?? '',
+    ...(plan.exercises.length > 0 && { coach: { stage: 'setup' } }),
+  };
+}
 
 const Context = createContext<{
   session: TrainingSession | null;

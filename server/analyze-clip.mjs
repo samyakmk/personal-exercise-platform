@@ -1,5 +1,6 @@
 import { detectExercise, reviewExercise } from './ai.mjs';
-import { extractFrames, selectReviewFrames } from './frames.mjs';
+import { extractFrames, movementPhaseTimes, selectReviewFrames } from './frames.mjs';
+import { matchReferenceStill } from './reference-stills.mjs';
 import { estimatePoses } from './pose.mjs';
 import { assessBirdTurn, assessCoreMotion } from './core-motion.mjs';
 import { assessBridge } from './bridge.mjs';
@@ -25,6 +26,14 @@ const assessments = {
   'dumbbell-row': assessRow,
 };
 
+const phaseJoints = {
+  'bodyweight-squat': [11, 13, 15],
+  'goblet-squat': [11, 13, 15],
+  'dumbbell-bench-press': [5, 7, 9],
+  'dumbbell-shoulder-press': [5, 7, 9],
+  'dumbbell-curl': [5, 7, 9],
+};
+
 function assessBird(poses) {
   const evidence = assessBirdTurn(poses);
   const visibleMotion = assessCoreMotion('bird-dog', poses);
@@ -38,7 +47,8 @@ export function hasLocalAssessment(exerciseId) {
 }
 
 function reviewSampleRate(exerciseId) {
-  return hasLocalAssessment(exerciseId) || exerciseId === 'reverse-lunge' || exerciseId === 'dead-bug' ? 4 : 2;
+  return hasLocalAssessment(exerciseId) || Object.hasOwn(phaseJoints, exerciseId)
+    || exerciseId === 'reverse-lunge' || exerciseId === 'dead-bug' ? 4 : 2;
 }
 
 export async function prepareClipReview(source, {
@@ -77,18 +87,31 @@ async function prepareSampledReview(samples, { exercise, signal, estimate = esti
     ...(item.comparisonTimestamp !== undefined && { comparisonTimestamp: absoluteTime(item.comparisonTimestamp) }),
   }));
   const verificationTimes = result.verificationTimes ?? lungeMotion?.verificationTimes ?? coreMotion?.verificationTimes ?? [];
-  const verificationFrames = verificationTimes.map((time) => ({ timestamp: absoluteTime(time) }));
+  const joints = phaseJoints[exercise.id];
+  const phaseTimes = poses && joints ? movementPhaseTimes(poses, joints) : [];
+  const verificationFrames = [...verificationTimes, ...phaseTimes].map((time) => ({ timestamp: absoluteTime(time) }));
   return { exercise, frames: selectReviewFrames(samples, [...evidence, ...verificationFrames]), signal,
     evidence, coverage: localCoverage, lungeMotion: lungeMotion?.variant, coreMotion: coreMotion?.variant };
 }
 
-export async function analyzeClip(respond, source, options) {
-  if (options.exercise) return reviewExercise(respond, await prepareClipReview(source, options));
-
+async function prepareDetectedReview(respond, source, options) {
   const { mime, signal, sampleFrames = extractFrames, startSeconds = 0 } = options;
   const samples = await sampleFrames(source, { mime, signal, startSeconds, sampleRate: 4 });
   const exercise = await detectExercise(respond, { frames: selectReviewFrames(samples), signal });
   const reviewSamples = reviewSampleRate(exercise.id) === 4 ? samples : samples.filter((_, index) => index % 2 === 0);
-  const prepared = await prepareSampledReview(reviewSamples, { ...options, exercise });
-  return { ...await reviewExercise(respond, prepared), detectedExerciseId: exercise.id };
+  return prepareSampledReview(reviewSamples, { ...options, exercise });
+}
+
+export async function analyzeClip(respond, source, options) {
+  const prepared = options.exercise ? await prepareClipReview(source, options) : await prepareDetectedReview(respond, source, options);
+  const result = await reviewExercise(respond, prepared);
+  const adjustment = result.observations.find(({ kind }) => kind === 'adjustment');
+  const image = adjustment && prepared.frames.find(({ timestamp }) => timestamp === adjustment.timestamp)?.image;
+  const hasStill = Buffer.isBuffer(image) && image.length <= 192 * 1024 && image[0] === 0xff && image[1] === 0xd8;
+  const reference = hasStill ? await matchReferenceStill(respond, { ...prepared, adjustment, image }) : null;
+  return {
+    ...result,
+    ...(!options.exercise && { detectedExerciseId: prepared.exercise.id }),
+    ...(hasStill && { observationFrame: reference ? { reference } : {}, reviewStill: image.toString('base64') }),
+  };
 }

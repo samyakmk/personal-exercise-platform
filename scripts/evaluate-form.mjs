@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { AiError, createOpenAi, openAiModel, reviewExercise } from '../server/ai.mjs';
+import { AiError, createOpenAi, openAiFormModel, openAiModel, reviewExercise } from '../server/ai.mjs';
 import { hasLocalAssessment, prepareClipReview } from '../server/analyze-clip.mjs';
 import { exercisesById } from '../server/catalog.mjs';
 import { reviewVersion } from '../server/coaching.mjs';
@@ -433,7 +433,8 @@ async function main() {
   if (values.preflight && (values.live || values.compare)) throw new Error('Use --preflight as a separate step before a live run or comparison.');
   if (retryTransient && !values.live) throw new Error('Use --retry-transient with --live.');
   if (values['budget-ledger'] !== undefined && !values.live) throw new Error('Use --budget-ledger with --live.');
-  const model = values.live ? openAiModel() : undefined;
+  const modelForRun = values['budget-ledger'] === undefined ? openAiFormModel : openAiModel;
+  const model = values.live ? modelForRun() : undefined;
   const respond = values.live ? createOpenAi({ model }) : null;
   if (values.live && !respond) throw new Error('Live evaluation requires an OpenAI key configured on this machine.');
   const selected = respond || values.preflight ? cases : cases.filter((item) => caseMode(item) === 'measured');

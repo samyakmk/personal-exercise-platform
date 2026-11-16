@@ -88,18 +88,15 @@ test('the heat map weights logged sets across the selected period and shows an i
   await expect(page.getByRole('button', { name: /Single-Arm Dumbbell Curl/ })).toBeVisible();
 });
 
-test('the body model switch and diagram drill-down work on a narrow touch screen', async ({ browser, baseURL }) => {
+test('the muscle diagram opens filtered exercises on a narrow touch screen', async ({ browser, baseURL }) => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   try {
     await createBrowserProfile(page.request, baseURL!);
     await page.goto('/progress');
     const map = page.getByRole('group', { name: 'Muscle heat map', exact: true });
+    await expect(map.getByRole('group', { name: 'Body model' })).toHaveCount(0);
     const biceps = map.locator('path[data-muscle="Biceps"]').first();
     await expect(biceps).toBeVisible();
-    const malePath = await biceps.getAttribute('d');
-    await map.getByRole('button', { name: 'Female' }).tap();
-    await expect(map.getByRole('button', { name: 'Female' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(biceps).not.toHaveAttribute('d', malePath!);
     const mapBounds = await map.boundingBox();
     expect(mapBounds!.x + mapBounds!.width).toBeLessThanOrEqual(390);
     await biceps.tap();

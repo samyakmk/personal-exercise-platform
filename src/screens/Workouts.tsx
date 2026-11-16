@@ -2,8 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Archive, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Dumbbell, History, Pencil, Play, Plus, Repeat2, Search, SearchX, X } from 'lucide-react-native';
 import { Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { createId } from '../api';
-import { useActiveSession } from '../activeSession';
+import { newTrainingSession, useActiveSession } from '../activeSession';
 import { addDays, asDate, compareWorkoutTime, dateKey, earliestWorkoutDate, formatDay, formatTime, isWorkoutDate, latestWorkoutDate, weekStart, workoutDay, workoutTime } from '../dates';
 import { SessionHeatMapLink } from '../components/MuscleHeatMap';
 import { Sheet } from '../components/Sheet';
@@ -94,7 +93,7 @@ export function Workouts() {
       setNextPlan(plan);
       return;
     }
-    if (!session) keepSession({ plan, logId: createId(), startedAt: Date.now(), sets: {}, notes: plan.notes ?? '' });
+    if (!session) keepSession(newTrainingSession(plan));
     setEditor(null);
     setAddExercise(null);
     setSessionOpen(true);
@@ -346,7 +345,7 @@ export function Workouts() {
       <View style={styles.actions}>
         <Button onPress={() => { setNextPlan(null); setConfirmDiscard(false); setSessionOpen(true); }}>Resume current session</Button>
         <Button kind="danger" onPress={() => {
-          keepSession(nextPlan ? { plan: nextPlan, logId: createId(), startedAt: Date.now(), sets: {}, notes: nextPlan.notes ?? '' } : null);
+          keepSession(nextPlan ? newTrainingSession(nextPlan) : null);
           setSessionOpen(Boolean(nextPlan));
           setNextPlan(null);
           setConfirmDiscard(false);

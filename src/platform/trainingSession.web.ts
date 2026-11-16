@@ -1,5 +1,5 @@
 import { isWorkoutDate } from '../dates';
-import type { ExerciseSet, TrainingSession, TrainingSetDraft } from '../types';
+import type { ExerciseSet, SessionCoachState, TrainingSession, TrainingSetDraft } from '../types';
 import { readSessionValue, removeSessionValue } from './sessionStorageMigration.web';
 
 function isSet(set: ExerciseSet | null, optionalReps = false) {
@@ -45,15 +45,26 @@ export function readTrainingSession(workspace: string): TrainingSession | null {
     const requested = session.activeExercise ?? setDraft?.exerciseId;
     const activeExercise = session.plan.exercises.find(({ exerciseId }) => exerciseId === requested)?.exerciseId;
     const now = Date.now();
-    const restDeadline = Number.isFinite(session.restDeadline) && (session.restDeadline ?? 0) <= now + 90_000
+    const restDeadline = Number.isSafeInteger(session.restDeadline) && (session.restDeadline ?? 0) > 0
       ? session.restDeadline : null;
     const hold = session.hold && session.plan.exercises.some(({ exerciseId }) => exerciseId === session.hold?.exerciseId)
       && session.hold.setNumber === (session.sets[session.hold.exerciseId]?.length ?? 0) + 1
       && Number.isFinite(session.hold.deadline) && session.hold.deadline <= now + 600_000 ? session.hold : undefined;
-    return { ...saved, restDeadline, activeExercise, setDrafts, hold };
+    const coach = readCoach(session, now);
+    return { ...saved, restDeadline, activeExercise, setDrafts, hold, coach };
   } catch {
     return null;
   }
+}
+
+function readCoach({ coach, plan }: TrainingSession, now: number): SessionCoachState | undefined {
+  if (!coach || !['setup', 'set', 'rest'].includes(coach.stage)) return undefined;
+  const skipped = Array.isArray(coach.skipped)
+    ? plan.exercises.map(({ exerciseId }) => exerciseId).filter((id) => coach.skipped?.includes(id)) : undefined;
+  const validRest = typeof coach.restUntil === 'number' && Number.isSafeInteger(coach.restUntil)
+    && coach.restUntil > 0 && coach.restUntil <= now + 300_000;
+  return { stage: coach.stage === 'rest' && !validRest ? 'set' : coach.stage, skipped,
+    restUntil: coach.stage === 'rest' && validRest ? coach.restUntil : undefined };
 }
 
 export function writeTrainingSession(workspace: string, session: TrainingSession | null) {

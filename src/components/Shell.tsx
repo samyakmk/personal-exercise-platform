@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Link, usePathname, useRouter } from 'expo-router';
-import { CalendarDays, ChartNoAxesColumnIncreasing, CircleUserRound, ClipboardList, Dumbbell, House, LockKeyhole, Plus, ScanLine } from 'lucide-react-native';
+import { CalendarDays, ChartNoAxesColumnIncreasing, CircleUserRound, ClipboardList, Dumbbell, House, LockKeyhole, MessageCircle, Plus, ScanLine } from 'lucide-react-native';
 import { Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useTrainingNavigation } from '../navigation';
 import { useProfiles } from '../profiles';
@@ -18,6 +18,7 @@ const pages = [
   { path: '/explore', label: 'Exercises', icon: Dumbbell },
   { path: '/progress', label: 'Progress', icon: ChartNoAxesColumnIncreasing },
   { path: '/form-review', label: 'Form Review', icon: ScanLine },
+  { path: '/chat', label: 'Chat', icon: MessageCircle },
   { path: '/profile', label: 'Profile', icon: CircleUserRound },
 ] as const;
 
@@ -27,6 +28,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const small = width < 560;
   const inset = width >= 1440 ? 44 : width >= 900 ? 32 : small ? 14 : 24;
   const pathname = usePathname();
+  const fullHeight = pathname === '/chat';
   const router = useRouter();
   const pageName = pathname === '/photo-credits' ? 'Photo credits' : pages.find((page) => page.path === pathname)?.label ?? 'Overview';
   const training = useTrainingNavigation();
@@ -45,6 +47,24 @@ export function Shell({ children }: { children: ReactNode }) {
     }
     shown.current = true;
   }, [pathname, pageName]);
+
+  const main = <View role="main" nativeID="liftmorrow-main" tabIndex={-1}
+    style={[styles.main, { paddingHorizontal: inset, paddingTop: small ? 24 : 34 }, fullHeight && styles.chatMain]}>
+    {notice !== '' && <View style={styles.status}><Notice>{notice}</Notice></View>}
+    {data && error && <View style={styles.status}>
+      <Notice error action={<Button compact onPress={reload}>Refresh workspace</Button>}>
+        Showing your last loaded workspace. The latest changes could not be fetched.
+      </Notice>
+    </View>}
+    {pathname !== '/form-review' && (upload.progress !== null || upload.uploadFailed) && <View style={styles.status}>
+      <Notice error={upload.progress === null} action={<Button kind="quiet" compact onPress={() => router.navigate('/form-review')}>Open Form Review</Button>}>
+        {upload.progress === null ? 'The video upload needs attention.' : 'Video upload in progress.'}
+      </Notice>
+    </View>}
+    {data ? children : error
+      ? <Notice error action={<Button compact onPress={reload}>Retry</Button>}>{error}</Notice>
+      : <Loading label="Loading your workspace…" />}
+  </View>;
 
   return (
     <View style={styles.shell}>
@@ -78,29 +98,12 @@ export function Shell({ children }: { children: ReactNode }) {
         <View role="banner" style={styles.top}>
           <View style={[styles.topContent, { paddingHorizontal: inset }]}>
             <Copy size={13} weight="semibold" tone={color.muted}>{pageName}</Copy>
-            {pathname !== '/workouts' && pathname !== '/sessions' && <Button icon={Plus} kind="dark" compact style={{ alignSelf: 'center' }}
+            {pathname !== '/workouts' && pathname !== '/sessions' && !fullHeight && <Button icon={Plus} kind="dark" compact style={{ alignSelf: 'center' }}
               onPress={() => training.open({ type: 'schedule' })}>New workout</Button>}
           </View>
         </View>
-        <ScrollView ref={scroll} style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <View role="main" nativeID="liftmorrow-main" tabIndex={-1}
-            style={[styles.main, { paddingHorizontal: inset, paddingTop: small ? 24 : 34 }]}>
-            {notice !== '' && <View style={styles.status}><Notice>{notice}</Notice></View>}
-            {data && error && <View style={styles.status}>
-              <Notice error action={<Button compact onPress={reload}>Refresh workspace</Button>}>
-                Showing your last loaded workspace. The latest changes could not be fetched.
-              </Notice>
-            </View>}
-            {pathname !== '/form-review' && (upload.progress !== null || upload.uploadFailed) && <View style={styles.status}>
-              <Notice error={upload.progress === null} action={<Button kind="quiet" compact onPress={() => router.navigate('/form-review')}>Open Form Review</Button>}>
-                {upload.progress === null ? 'The video upload needs attention.' : 'Video upload in progress.'}
-              </Notice>
-            </View>}
-            {data ? children : error
-              ? <Notice error action={<Button compact onPress={reload}>Retry</Button>}>{error}</Notice>
-              : <Loading label="Loading your workspace…" />}
-          </View>
-        </ScrollView>
+        {fullHeight ? main : <ScrollView ref={scroll} style={styles.scroll} contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled">{main}</ScrollView>}
       </View>
     </View>
   );
@@ -141,5 +144,6 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { flexGrow: 1 },
   main: { width: '100%', maxWidth: 1380, alignSelf: 'center', paddingBottom: 44, minHeight: '100%' },
+  chatMain: { flex: 1, minHeight: 0, paddingBottom: 0, paddingTop: 0 },
   status: { marginBottom: 12 },
 });

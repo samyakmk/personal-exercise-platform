@@ -7,6 +7,7 @@ test('a fresh profile can start, resume, and save a suggested session without ch
   await expect(page.getByRole('button', { name: 'Set up training' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Start suggested session' }).click();
   let guide = page.getByRole('dialog', { name: 'Balanced strength' });
+  await guide.getByRole('button', { name: 'I’m ready' }).click();
   await expect(guide.getByRole('textbox', { name: 'Reps · Bodyweight Squat' })).toHaveValue('6');
   await guide.getByRole('button', { name: 'Record set' }).click();
   await guide.getByRole('button', { name: 'Add exercise notes' }).click();

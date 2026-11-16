@@ -1,4 +1,4 @@
-import type { CheckInChoice, Exercise, Movement, TrainingPreferences, Workout } from '../src/types';
+import type { CheckInChoice, Exercise, Movement, TrainingNote, TrainingPreferences, Workout } from '../src/types';
 
 export type TodayPlan = {
   kind: 'train' | 'rest';
@@ -16,5 +16,6 @@ export function buildTodayPlan(input: {
   preferences?: TrainingPreferences;
   workouts: readonly Workout[];
   adjustment?: CheckInChoice | null;
+  trainingNotes?: readonly TrainingNote[];
 }): TodayPlan;
 export function checkInReply(text: string, plan: TodayPlan, names: ReadonlyMap<string, string>, adjustment?: CheckInChoice | null): string;

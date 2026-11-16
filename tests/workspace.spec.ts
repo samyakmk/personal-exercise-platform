@@ -339,9 +339,19 @@ test('uses local workout times for next up and logs a planned session at the act
   await expect(editor.getByLabel('Date')).toHaveValue('2026-11-12');
   await expect(editor.getByLabel('Time', { exact: true })).toHaveValue('17:31');
   await editor.getByRole('button', { name: '30s · Start rest timer' }).click();
-  await expect(editor.getByText('0:30', { exact: true })).toBeVisible();
+  const rest = page.getByRole('dialog', { name: 'Rest timer' });
+  await expect(rest.getByRole('timer')).toHaveText('0:30');
   await page.clock.fastForward(31_000);
-  await expect(editor.getByText('Rest complete')).toBeVisible();
+  await expect(rest.getByRole('status')).toHaveText('Rest complete');
+  await rest.getByRole('button', { name: 'Done' }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await editor.getByRole('button', { name: 'Custom rest duration' }).click();
+  await expect(editor.getByRole('button', { name: 'Start custom timer' })).toBeDisabled();
+  await editor.getByRole('textbox', { name: 'Rest seconds' }).fill('95');
+  await editor.getByRole('textbox', { name: 'Rest seconds' }).press('Enter');
+  await expect(rest.getByRole('timer')).toHaveText('1:35');
+  await expect(rest.getByRole('timer')).toBeInViewport();
+  await rest.getByRole('button', { name: 'Stop timer' }).click();
   await editor.getByRole('button', { name: 'Save workout log' }).click();
   await page.getByRole('button', { name: 'Remove sample workouts' }).click();
   await expect(page.getByRole('button', { name: 'History (1)' })).toBeVisible();
@@ -495,6 +505,7 @@ test('guided session resumes recorded sets and saves only the work performed', a
 
   await page.getByRole('button', { name: 'Start session · Guided strength' }).click();
   const session = page.getByRole('dialog', { name: 'Guided strength' });
+  await session.getByRole('button', { name: 'Switch to manual' }).click();
   await session.getByRole('button', { name: 'Show technique' }).click();
   await expect(session.locator('iframe')).toHaveAttribute('title', 'Goblet Squat demonstration');
   await session.getByRole('button', { name: 'Hide technique' }).click();
@@ -504,19 +515,30 @@ test('guided session resumes recorded sets and saves only the work performed', a
   await session.getByLabel('Unit · Goblet Squat').selectOption('kg');
   await session.getByRole('button', { name: 'Record set' }).click();
   await expect(session.getByText('9 reps · 12.5 kg per dumbbell')).toBeVisible();
-  await session.getByRole('button', { name: '60s · Start rest timer' }).click();
-  await expect(session.getByRole('button', { name: 'Stop timer' })).toBeVisible();
+  const rest = page.getByRole('dialog', { name: 'Rest timer' });
+  const hold = page.getByRole('dialog', { name: 'Hold timer' });
+  await session.getByRole('button', { name: 'Custom rest duration' }).click();
+  await session.getByRole('textbox', { name: 'Rest minutes' }).fill('2');
+  await session.getByRole('textbox', { name: 'Rest seconds' }).fill('15');
+  await session.getByRole('button', { name: 'Start custom timer' }).click();
+  await expect(rest.getByRole('timer')).toHaveText('2:15');
+  await page.keyboard.press('Escape');
+  await expect(rest).toBeHidden();
+  await expect(session.getByRole('button', { name: /^Show timer · 2:/ })).toBeVisible();
   await session.getByRole('button', { name: 'Pause session' }).click();
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Current session' })).toBeVisible();
   await page.getByRole('button', { name: 'Resume session', exact: true }).click();
+  await expect(rest.getByRole('timer')).toHaveText(/^2:/);
+  await rest.getByRole('button', { name: 'Minimize timer' }).click();
   await expect(session.getByText('1 of 6 planned sets recorded')).toBeVisible();
-  await expect(session.getByRole('button', { name: 'Stop timer' })).toBeVisible();
   await expect(session.getByRole('textbox', { name: 'Reps · Goblet Squat' })).toHaveValue('9');
   await expect(session.getByRole('textbox', { name: 'Weight per dumbbell · Goblet Squat' })).toHaveValue('12.5');
   await expect(session.getByLabel('Unit · Goblet Squat')).toHaveValue('kg');
-  await session.getByRole('button', { name: 'Stop timer' }).click();
+  await session.getByRole('button', { name: /^Show timer ·/ }).click();
+  await expect(rest).toBeVisible();
+  await rest.getByRole('button', { name: 'Stop timer' }).click();
   await session.getByRole('textbox', { name: 'Reps · Goblet Squat' }).fill('11');
   await session.getByRole('button', { name: 'Next exercise' }).click();
   await session.getByRole('textbox', { name: 'Seconds · Forearm Plank' }).fill('2');
@@ -529,18 +551,20 @@ test('guided session resumes recorded sets and saves only the work performed', a
   await expect(session.getByRole('textbox', { name: 'Seconds · Forearm Plank' })).toHaveValue('2');
   await expect(session.getByText('1 of 6 planned sets recorded')).toBeVisible();
   await session.getByRole('button', { name: 'Start hold timer' }).click();
+  await expect(hold.getByRole('timer')).toHaveText('0:02');
+  await hold.getByRole('button', { name: 'Minimize timer' }).click();
   await expect(session.getByRole('button', { name: 'Record set' })).toBeDisabled();
   await expect(session.getByText('Hold complete')).toBeVisible();
   await session.getByRole('textbox', { name: 'Seconds · Forearm Plank' }).fill('28');
   await page.clock.install();
   await session.getByRole('button', { name: 'Start hold timer' }).click();
+  await hold.getByRole('button', { name: 'Minimize timer' }).click();
   await session.getByRole('button', { name: 'Pause session' }).click();
   await page.reload();
   await page.getByRole('button', { name: 'Resume session', exact: true }).first().click();
-  await expect(session.getByRole('button', { name: 'Stop hold timer' })).toBeVisible();
-  await expect(session.getByRole('button', { name: 'Record set' })).toBeDisabled();
+  await expect(hold.getByRole('button', { name: 'Stop hold timer' })).toBeVisible();
   await page.clock.fastForward(3100);
-  await session.getByRole('button', { name: 'Stop hold timer' }).click();
+  await hold.getByRole('button', { name: 'Stop hold timer' }).click();
   await expect(session.getByRole('textbox', { name: 'Seconds · Forearm Plank' })).toHaveValue(/^[3-6]$/);
   await session.getByRole('button', { name: 'Record set' }).click();
   await expect(session.getByText(/^[3-6] sec$/)).toBeVisible();
@@ -577,6 +601,7 @@ test('a guided session saves a separate log when another tab updates the plan', 
 
   await page.getByRole('button', { name: 'Start session · Shared strength' }).click();
   const session = page.getByRole('dialog', { name: 'Shared strength' });
+  await session.getByRole('button', { name: 'I’m ready' }).click();
   await session.getByRole('button', { name: 'Record set' }).click();
   const second = await context.newPage();
   try {
@@ -618,10 +643,12 @@ test('planned set targets carry over to the matching guided sets', async ({ page
   await editor.getByRole('button', { name: 'Save workout', exact: true }).click();
   await page.getByRole('button', { name: 'Start session · Warm-up and working set' }).click();
   const session = page.getByRole('dialog', { name: 'Warm-up and working set' });
+  await session.getByRole('button', { name: 'I’m ready' }).click();
   const reps = session.getByRole('textbox', { name: 'Reps · Goblet Squat' });
   await expect(reps).toHaveValue('12');
   await reps.fill('11');
   await session.getByRole('button', { name: 'Record set' }).click();
+  await session.getByRole('button', { name: 'Skip rest' }).click();
   await expect(reps).toHaveValue('6');
   await expect(session.getByRole('textbox', { name: 'Weight per dumbbell · Goblet Squat' })).toHaveValue('20');
 });
@@ -797,10 +824,13 @@ test('previews an upload, retries an API error, reopens privately, and deletes t
   const saved = page.locator('video[aria-label="Saved exercise video"]');
   await expect.poll(() => saved.evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(0);
   const clipUrl = await saved.evaluate((video: HTMLVideoElement) => video.src);
-  await page.getByRole('button', { name: 'Video options' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('link', { name: 'Download video' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Change exercise' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Delete video' })).toBeVisible();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByRole('link', { name: 'Download video' }).click(),
+    dialog.getByRole('link', { name: 'Download video' }).click(),
   ]);
   expect(download.suggestedFilename()).toBe(uploadName);
   expect(await readFile((await download.path())!)).toEqual(uploadBytes);
@@ -819,14 +849,12 @@ test('previews an upload, retries an API error, reopens privately, and deletes t
   } finally {
     await visitor.close();
   }
-  await page.getByRole('button', { name: 'Change exercise' }).click();
+  await dialog.getByRole('button', { name: 'Change exercise' }).click();
   const correction = page.getByRole('dialog', { name: 'Change video exercise' });
   await chooseExercise(correction, 'New exercise selection', 'Incline Push-Up');
   await correction.getByRole('button', { name: 'Save exercise selection' }).click();
   await expect(page.getByRole('dialog', { name: 'Incline Push-Up' })).toBeVisible();
   await expect.poll(() => saved.evaluate((video: HTMLVideoElement) => video.src)).toBe(clipUrl);
-  const dialog = page.getByRole('dialog');
-  await dialog.getByRole('button', { name: 'Video options' }).click();
   await dialog.getByRole('button', { name: 'Delete video' }).click();
   await expect(dialog.getByRole('button', { name: 'Close dialog' })).toBeFocused();
   await dialog.getByRole('button', { name: 'Delete video' }).click();
@@ -972,7 +1000,6 @@ test('a late upload response cannot restore a clip removed in another tab', asyn
     await second.goto('/form-review');
     const clipButton = second.getByRole('button', { name: 'Open video · synthetic.mp4' });
     await clipButton.click();
-    await second.getByRole('button', { name: 'Video options' }).click();
     const deletion = second.getByRole('dialog').getByRole('button', { name: 'Delete video', exact: true });
     await deletion.click();
     const refreshed = page.waitForResponse(async (response) => {
@@ -1175,7 +1202,7 @@ test('AI recommendation failures leave the catalog usable and filter changes cle
   await page.getByRole('button', { name: /^Filters/ }).click();
   await page.getByRole('button', { name: 'Bodyweight only' }).click();
   await page.getByRole('button', { name: 'Chest', exact: true }).click();
-  await page.getByRole('button', { name: 'Get recommendations' }).click();
+  await page.getByRole('button', { name: 'Get AI recommendations' }).click();
   await expect(page.getByText('AI temporarily unavailable.')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Push-Up Chest/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Retry shortly' })).toBeDisabled();

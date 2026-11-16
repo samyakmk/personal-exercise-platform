@@ -2,6 +2,7 @@ import { Navigator } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { StyleSheet, View } from 'react-native';
 import { ActiveSessionProvider } from '../src/activeSession';
+import { ChatProvider } from '../src/chat';
 import { Shell } from '../src/components/Shell';
 import { Loading } from '../src/components/ui';
 import { TrainingNavigation } from '../src/navigation';
@@ -30,7 +31,9 @@ function WorkspaceLayout() {
   if (!state?.active) return <ProfileGate />;
   const key = state.active.workspaceKey;
   return <WorkspaceProvider key={key} workspaceKey={key} refreshProfile={reload}>
-    <TrainingNavigation><ActiveSessionProvider><VideoUploadProvider><Shell><Navigator.Slot /></Shell></VideoUploadProvider></ActiveSessionProvider></TrainingNavigation>
+    <TrainingNavigation><ActiveSessionProvider><VideoUploadProvider><ChatProvider>
+      <Shell><Navigator.Slot /></Shell>
+    </ChatProvider></VideoUploadProvider></ActiveSessionProvider></TrainingNavigation>
   </WorkspaceProvider>;
 }
 

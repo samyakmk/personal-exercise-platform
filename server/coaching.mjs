@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import { workoutSafetyReply } from '../shared/session-safety.mjs';
 import { AiError, rankExercises } from './ai.mjs';
 import { analyzeClip } from './analyze-clip.mjs';
 import { exercisesById } from './catalog.mjs';
 import { reviewWindowSeconds } from './frames.mjs';
+import { answerSessionQuestion } from './session-coach.mjs';
+import { answerTrainingChat } from './training-chat.mjs';
 
-export const reviewVersion = 27;
+export const reviewVersion = 30;
 
 const interrupted = 'Analysis was interrupted. Try again when you’re ready.';
 const cancelled = 'cancelled';
@@ -143,7 +146,7 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
         signal.throwIfAborted();
         const exercise = exercisesById.get(clip.exerciseId);
         if (clip.exerciseId && !exercise) throw new AiError(422, 'Choose an exercise from the library before reviewing this video.');
-        const result = await analyzeClip(respond, store.clipChunks(workspace, id, clip, 0, clip.size), {
+        const { reviewStill, ...result } = await analyzeClip(respond, store.clipChunks(workspace, id, clip, 0, clip.size), {
           exercise, mime: clip.mime, signal, sampleFrames, estimate, startSeconds,
         });
         signal.throwIfAborted();
@@ -151,7 +154,9 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
           ...result, version: reviewVersion, sequence: attempt.sequence, startSeconds, windowSeconds: reviewWindowSeconds,
           reviewedAt: new Date().toISOString(),
         };
-        if (!store.saveReview(workspace, id, attempt, review)) return await waitForReview(workspace, id, attempt, signal);
+        if (!store.saveReview(workspace, id, attempt, reviewStill ? { ...review, reviewStill } : review)) {
+          return await waitForReview(workspace, id, attempt, signal);
+        }
         return review;
       } catch (error) {
         if (!signal.aborted) {
@@ -196,12 +201,42 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
       return clip ? { upsert: [publicClip(clip)], remove: [] } : { upsert: [], remove: [id] };
     },
     clipReview,
-    recommend(workspace, { candidates, targets, detail, available, history: completed }) {
+    sessionCoach(workspace, input, clientSignal) {
+      clientSignal.throwIfAborted();
+      const safetyReply = workoutSafetyReply(input.question);
+      if (safetyReply) return { reply: safetyReply };
+      const key = 'session-coach:' + workspace;
+      if (pending.has(key)) throw new AiError(429, 'The coach is answering another question. Try again shortly.', undefined, 2);
+      admit(workspace)();
+      return run(key, ({ signal }) => answerSessionQuestion(respond, {
+        ...input, signal: AbortSignal.any([signal, clientSignal]),
+      }));
+    },
+    chat(workspace, input, clientSignal) {
+      clientSignal.throwIfAborted();
+      const safetyReply = workoutSafetyReply(input.message);
+      if (safetyReply) return { reply: safetyReply };
+      if (!respond) throw new AiError(503, 'Chat needs an OpenAI key configured on the Liftmorrow server.');
+      const key = 'training-chat:' + workspace;
+      if (pending.has(key)) throw new AiError(429, 'Chat is still answering your previous message. Try again shortly.', undefined, 2);
+      admit(workspace)();
+      return run(key, async ({ signal }) => {
+        try {
+          return await answerTrainingChat(respond, store, workspace, { ...input, signal: AbortSignal.any([signal, clientSignal]) });
+        } catch (error) {
+          if (error instanceof AiError && error.status === 422) {
+            throw new AiError(422, 'Chat couldn’t answer that message. Try asking another way.');
+          }
+          throw error;
+        }
+      });
+    },
+    recommend(workspace, { candidates, targets, detail, available, history: completed, count = 3, workout = null }) {
       if (!candidates.length) return [];
       const history = Object.fromEntries(candidates.filter(({ id }) => completed.has(id)).map(({ id }) => [id, completed.get(id)]));
-      const input = { candidates, targets: [...targets].sort(), detail, available: available?.slice().sort() ?? null, history };
+      const input = { candidates, targets: [...targets].sort(), detail, available: available?.slice().sort() ?? null, history, count, workout };
       if (candidates.length === 1) return rankExercises(respond, input);
-      const key = 'recommend:' + JSON.stringify([candidates.map((item) => item.id), input.targets, detail, input.available, history]);
+      const key = 'recommend:' + JSON.stringify([candidates.map((item) => item.id), input.targets, detail, input.available, history, count, workout]);
       const cacheKey = workspace + ':' + key;
       const now = Date.now();
       for (const [id, item] of ranked) {
@@ -248,7 +283,8 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
     },
     removeWorkspace(workspace) {
       for (const [key, job] of pending) {
-        if (job.reviewJob?.workspace === workspace || key.startsWith('recommend:' + workspace + ':')) {
+        if (job.reviewJob?.workspace === workspace || key.startsWith('recommend:' + workspace + ':')
+          || key === 'session-coach:' + workspace || key === 'training-chat:' + workspace) {
           job.controller.abort(new AiError(404, 'Profile deleted.'));
         }
       }

@@ -41,15 +41,22 @@ export function openAiModel() {
   return process.env.LIFTMORROW_AI_MODEL || 'gpt-5.4-mini';
 }
 
-export function createOpenAi({ key = process.env.CHATGPT_API_KEY, model = openAiModel(), fetchImpl = fetch } = {}) {
+export function openAiFormModel() {
+  return process.env.LIFTMORROW_FORM_MODEL || 'gpt-6.1-terra';
+}
+
+export function createOpenAi({ key = process.env.CHATGPT_API_KEY, model, formModel = model ?? openAiFormModel(), fetchImpl = fetch } = {}) {
   if (!key) return null;
-  let retryAt = 0;
+  const generalModel = model ?? openAiModel();
+  const retryAt = new Map();
 
   return async function respond({ name, schema, instructions, content, signal }) {
     signal?.throwIfAborted();
-    const coolingDown = Math.ceil((retryAt - Date.now()) / 1000);
+    const isFormReview = name === 'exercise_form_review';
+    const requestModel = isFormReview ? formModel : generalModel;
+    const coolingDown = Math.ceil(((retryAt.get(requestModel) ?? 0) - Date.now()) / 1000);
     if (coolingDown > 0) throw new AiError(503, 'OpenAI is temporarily busy. Try again shortly.', 'cooldown', coolingDown);
-    const deadline = AbortSignal.timeout(45_000);
+    const deadline = AbortSignal.timeout(isFormReview ? 60_000 : 45_000);
     const requestSignal = signal ? AbortSignal.any([deadline, signal]) : deadline;
     let response;
     try {
@@ -57,10 +64,10 @@ export function createOpenAi({ key = process.env.CHATGPT_API_KEY, model = openAi
         method: 'POST',
         headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model,
+          model: requestModel,
           store: false,
-          reasoning: { effort: 'low' },
-          max_output_tokens: 1800,
+          reasoning: { effort: isFormReview ? 'medium' : 'low' },
+          max_output_tokens: isFormReview ? 3200 : 1800,
           instructions,
           input: [{ role: 'user', content }],
           text: { format: { type: 'json_schema', name, schema, strict: true } },
@@ -84,7 +91,7 @@ export function createOpenAi({ key = process.env.CHATGPT_API_KEY, model = openAi
           throw new AiError(503, 'The OpenAI account is out of quota. Analysis can resume when quota is available.', 'quota');
         }
         const seconds = retrySeconds(response.headers.get('retry-after')) ?? 2;
-        retryAt = Math.max(retryAt, Date.now() + seconds * 1000);
+        retryAt.set(requestModel, Math.max(retryAt.get(requestModel) ?? 0, Date.now() + seconds * 1000));
         throw new AiError(503, 'OpenAI is temporarily busy. Try again shortly.', status, seconds);
       }
       await response.body?.cancel().catch(() => {});
@@ -172,7 +179,7 @@ const reviewFields = {
 const clipSchema = object({ ...reviewFields, observations: { ...array(object(clipObservation)), maxItems: 1 } });
 const coreCues = {
   'dead-bug': {
-    dead_bug_trunk_shift: 'A visible substantial shift in the head, shoulders, or ribcage during otherwise recognizable opposite-limb reaches.',
+    dead_bug_trunk_shift: 'A visible shift in the head, shoulders, or ribcage during a dead bug reach. A modest shift qualifies if the comparison clearly shows it and a cue would improve trunk control.',
   },
 };
 
@@ -199,7 +206,7 @@ const unsafeFormClaims = [
   /\b(?:this|that|the) (?:movement|exercise|technique|form|variation|position) (?:is (?:always )?safe|can be performed safely)\b/i,
 ];
 const acceptableFormText = (value) => !incidentalScene.test(value) && !unsafeFormClaims.some((rule) => rule.test(value));
-const noClearCorrection = 'I didn’t see a clear correction to make in the movement shown.';
+const noClearCorrection = 'The sampled positions didn’t establish a specific correction.';
 
 function invalidOutput() {
   return new AiError(502, 'OpenAI returned feedback this app could not display. Try again.', 'output_validation');
@@ -209,7 +216,7 @@ const recommendationReasons = ['target', 'equipment', 'familiar', 'variety'];
 const recommendationColumns = ['id', 'name', 'muscles', 'primaryMuscles', 'secondaryMuscles', 'equipment', 'level', 'category'];
 export const recommendationCandidateLimit = 50;
 
-function recommendationReason(exercise, { targets, detail, available, history }, code) {
+export function recommendationReason(exercise, { targets, detail, available, history }, code) {
   const { id, muscles, primaryMuscles, secondaryMuscles, equipment, level } = exercise;
   const groups = targets.filter((target) => muscles.includes(target));
   const reasons = {
@@ -226,9 +233,9 @@ function recommendationReason(exercise, { targets, detail, available, history },
     || (primaryMuscles[0] ? `Primary muscle: ${primaryMuscles[0]}.` : `Listed as ${level.toLowerCase()} in the catalog.`);
 }
 
-export async function rankExercises(respond, { candidates, targets, detail = null, available, history }) {
+export async function rankExercises(respond, { candidates, targets, detail = null, available, history, count = 3, workout = null }) {
   const byId = new Map(candidates.map((exercise) => [exercise.id, exercise]));
-  const limit = Math.min(3, byId.size);
+  const limit = Math.min(count, byId.size);
   const context = { targets, detail, available, history };
   if (!limit) return [];
   if (limit === 1) {
@@ -248,6 +255,7 @@ export async function rankExercises(respond, { candidates, targets, detail = nul
       'Read each catalog row in candidateColumns order. Rank only the filtered IDs and return limit distinct picks.',
       'Put a primary match to detail first if available. For multiple muscle groups, cover different groups and favor primary matches. Prefer meaningfully different movements and balance familiarity with variety.',
       'Use reasonCode target for a matching muscle or group, equipment when available is non-null, familiar for a positive recent count, or variety for an unlogged option when another candidate has a recent count.',
+      ...(workout ? ['Choose a coherent strength workout. Cover distinct movement patterns, account for experience, and favor trainer-preferred exercises that fit. Balance the session across muscle groups when no priorities are set.'] : []),
     ].join(' '),
     content: [{
       type: 'input_text',
@@ -256,6 +264,7 @@ export async function rankExercises(respond, { candidates, targets, detail = nul
         candidateColumns: recommendationColumns,
         candidates: [...byId.values()].map((exercise) => recommendationColumns.map((column) => exercise[column])),
         completedSessionsByExercise: history,
+        ...(workout && { workout }),
       }),
     }],
   });
@@ -281,7 +290,7 @@ export async function rankExercises(respond, { candidates, targets, detail = nul
 
 const measuredVerification = {
   'push-up': 'Verify a floor push-up. Compare the visible hands and toes across multiple working positions, independently of camera tilt. Use different_exercise for a clear variation, such as hands on a bench or wall, feet resting on a platform or held by straps, knees bearing weight throughout reps, or both hands releasing at the bottom. Infer support only from visible contact, never from a nearby object, a diagonal body line, or bent knees in setup. Use a general description such as push-up variation if its exact name is unclear. For observations, require the same shoulder, hip, and ankle in at least two working frames from a side or near-side view. If body positions or an apparent raised support are obscured, use insufficient_visibility.',
-  squat: 'For squats, require a near-side shoulder, hip, knee, and ankle together in at least two working frames. A direct front or rear view or blocked joints have insufficient visibility.',
+  squat: 'Confirm a squat from visible changes in knee bend and hip height between higher and lower positions. A front or diagonal view can show knees drifting relative to the feet, a shift toward one leg, or a visible heel lift. Use a side or clear diagonal view for depth or trunk cues. Check several low positions before suggesting more range. A controlled shallower rep, natural forward lean, and knees travelling past the toes can be appropriate.',
   'dumbbell-shoulder-press': 'Verify a standing dumbbell shoulder press. Compare the visible working forearm between higher and lower positions. A press keeps the forearm relatively upright as the elbow and weight lower together, even through a small range entirely above the shoulders. If the upper arm stays pointed up while the forearm hinges sideways or behind the head to lower the weight, that is an overhead triceps extension, including a one-arm version. Use different_exercise for clear overhead triceps extensions or seated presses. Require the same shoulder, elbow and wrist and a standing stance in at least two frames, and use insufficient_visibility when the variation is unclear.',
   'forearm-plank': 'Verify one person holding a forearm plank with the torso supported on the forearms and toes. Require a side or near-side view showing that same person’s shoulder, elbow, hip, knee, and ankle together during the hold in at least two frames. Use insufficient_visibility if the camera is head-on, knees or ankles are cropped, or several people obscure the main person. Hands clasped together and brief setup motion are compatible. Use different_exercise for a clearly distinct movement such as a straight-arm plank or push-up.',
   'dumbbell-curl': 'Verify a standing dumbbell curl from clearly visible working elbow flexion and weight position across multiple frames. Use different_exercise for a clear front raise, seated machine curl, or compound lift. Use insufficient_visibility when the exercise cannot be established.',
@@ -344,15 +353,16 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
   const measuredBird = exercise.id === 'bird-dog';
   const measuredPullUp = exercise.id === 'pull-up';
   const measured = pushUp || squat || shoulderPress || plank || bridge || row || measuredCurl || measuredPullUp || measuredBird;
+  const hasLocalCorrection = measured && coverage === 'measured' && evidence.length > 0;
   const verification = measuredVerification[squat ? 'squat' : exercise.id];
   const coreChecks = !measured && Object.hasOwn(coreCues, exercise.id) ? coreCues[exercise.id] : null;
   const corePattern = Object.hasOwn(corePatterns, coreMotion) ? corePatterns[coreMotion] : '';
   const exerciseGuidance = {
-    'dumbbell-curl': 'Verify a standing dumbbell curl from a lower and a higher arm position. A curl visibly bends the working elbow as the weight travels toward the shoulder. If the whole arm lifts in front of the body with the elbow nearly straight throughout, that is a front raise. Use different_exercise for a clear front raise or seated machine curl, and insufficient_visibility if the working elbow or implement cannot be seen. Alternating arms is compatible. A forward arc of the dumbbell and small elbow movement near the top are normal. Suggest an adjustment only for pronounced upper-arm swing relative to the torso or substantial repeated torso rocking associated with the lift. Compare visible shoulder, elbow and hip positions at the start and during a lift, and look for the pattern in another repetition. A torso cue can use a visible shoulder and hip even if a wrist is briefly obscured. If the relevant joints are obscured or the difference is subtle, omit the adjustment.',
-    'dumbbell-bench-press': 'Consider only visible dumbbell paths and contact with the bench or floor. A natural back arch by itself is not a correction.',
-    'incline-push-up': 'Verify that hands stay visibly on a fixed elevated surface and feet stay on the floor during repetitions. A floor push-up or a feet-elevated push-up is a different exercise. Use insufficient_visibility if the support surface or the body line is obscured. Consider pronounced repeated hip sag or piking by comparing the shoulder-to-heel line in at least two working frames. A diagonal body line and the exact hand height are normal for this variation.',
+    'dumbbell-curl': 'Verify a standing dumbbell curl from a lower and a higher arm position. A curl visibly bends the working elbow as the weight travels toward the shoulder. If the whole arm lifts in front of the body with the elbow nearly straight throughout, that is a front raise. Use different_exercise for a clear front raise or seated machine curl, and insufficient_visibility if the working elbow or implement cannot be seen. Alternating arms is compatible. A forward arc of the dumbbell and small elbow movement near the top are normal. Look for upper-arm swing that helps initiate the lift or a visible torso lean as the weight rises. Compare visible shoulder, elbow and hip positions at the start and during a lift. A torso cue can use a visible shoulder and hip even if a wrist is briefly obscured.',
+    'dumbbell-bench-press': 'Check the bottom and the press for elbow position relative to the shoulders and torso, wrist position over the working elbow, where the weights lower relative to the chest, left-right differences, and stable support. Distinguish upper arms staying close to the ribs from elbows flaring and from elbows descending below chest level. Flag visible, pronounced tucking or flaring when the arm and weight path corroborate it. Moderate tuck, a natural back arch, and differences in comfortable depth can be appropriate. Never prescribe a fixed upper-arm angle or judge an elbow hidden by the view.',
+    'incline-push-up': 'Verify that hands stay visibly on a fixed elevated surface and feet stay on the floor during repetitions. A floor push-up or a feet-elevated push-up is a different exercise. Use insufficient_visibility if the support surface or the body line is obscured. Compare the shoulder-to-heel line across working positions for hip sag, piking, or hips leading the press. A diagonal body line and the exact hand height are normal for this variation.',
     'reverse-lunge': 'Verify a step-back lunge before giving form feedback. Use the direction the person faces and compare a tall position with the next split stance and return. In a reverse lunge the front foot stays near its standing position while the other foot steps backward, then returns forward. In a forward lunge the rear foot stays near its standing position while the stepping foot moves ahead, then returns backward. A split squat starts and stays in a split stance, and jumping into the split stance moves both feet. Use different_exercise when these alternatives are clearly visible. Use insufficient_visibility when the frames do not show which foot stepped and in what direction. Weights in the hands or on the shoulders are compatible. For a verified step back, consider clearly visible front-foot contact and trunk position. A front knee going past the toes or a shallower depth on its own does not require correction.',
-    'dumbbell-rdl': 'Verify a Romanian deadlift with a dumbbell in each hand and both feet supporting the person through the hinge. Use different_exercise for a repeated single-leg hinge with the other leg extending behind, or a clearly different implement such as a sandbag or barbell. Use insufficient_visibility if the feet or implement are obscured. Assess the visible hip hinge and weight position relative to the legs. Consider a weight-path adjustment only when the dumbbells repeatedly drift substantially away from the shins at a comparable hinge position. A small gap, especially when viewed diagonally, is compatible. Depth depends on the person and their range. Dumbbells do not need to touch the floor. Do not infer spinal load.',
+    'dumbbell-rdl': 'Verify a Romanian deadlift with a dumbbell in each hand and both feet supporting the person through the hinge. Use different_exercise for a repeated single-leg hinge with the other leg extending behind, or a clearly different implement such as a sandbag or barbell. Use insufficient_visibility if the feet or implement are obscured. Assess the visible hip hinge and weight position relative to the legs. Look for a clear forward drift of the weights as the lifter hinges. A small, consistent gap, especially when viewed diagonally, is compatible. Depth depends on the person and their range. Dumbbells do not need to touch the floor. Do not infer spinal load.',
     'dead-bug': 'Verify a dead bug before giving feedback. Look for one knee staying roughly above the hip while the other leg extends, then returns. An opposite arm can reach overhead, or the arms can stay pointed upward in a leg-only progression. Check the visible motion of both knees in at least two positions. Use different_exercise for a straight-leg raise with the other leg extended on the support surface, a double knee-to-chest stretch with the hands holding the legs, flutter kicks with hands beside the hips, a toe-touch crunch, or a spinal rotation stretch where both bent knees travel together to one side. Use insufficient_visibility if the frames do not show a bent supporting knee or do not distinguish independent leg motion from a paired turn. Bent knees and different reach heights are compatible. Do not infer a gap below the lower back from a view that cannot show it.',
   }[exercise.id];
   const result = await respond({
@@ -364,12 +374,11 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
       'Identify the main exerciser across multiple working frames. Address the person who uploaded the clip. Write only about their exercise, including equipment or assistance directly involved in the movement. Omit bystanders, reflections, background activity, and setup or exit. If the required movement is obscured, say what needs to be visible. Use different_exercise only when multiple frames clearly show another identifiable exercise.',
       corePattern ? 'Use the local movement description to check the sampled frames before giving feedback. If the described pattern is visible across frames and matches a different movement, return different_exercise. If the visible joints cannot confirm either exercise, use insufficient_visibility.' : '',
       lunge ? 'When the local lunge motion description is present, verify the identified pattern with the chronological positions. An upright torso and a planted front foot by themselves cannot establish step direction. When local tracking cannot establish a step back and you cannot confirm it from a tall start through a split stance and back, return insufficient_visibility.' : '',
-      measured
-        ? verification + ' Use observations as the verdict when the selected exercise and required joints are visible. Local measurements supply any corrections. ' + (evidence.length
-          ? 'Return an empty observations array.'
-          : 'You may return one concrete strength with two supporting working frames at least half a second apart. Leave the list empty if there is no useful strength to point out.')
-        : 'When the exercise is visible, give the single most useful point for the next repetition. Treat normal variation as acceptable. If there is no clear correction, share one specific thing to keep doing when supported. For either kind, cite two working frames at least half a second apart. Use the frame with the clearest visible evidence first, and a comparisonFrame showing a second instance or a relevant contrast. The same working joints or equipment must be visible in both. If no pair supports the point, leave observations empty.',
-      'Use insufficient_visibility when the exerciser, exercise, or required joints are ambiguous. For insufficient_visibility, return zero observations and give one specific filming instruction in summary. For different_exercise, return zero observations and name the movement or variation in summary. For observations, set summary to an empty string.',
+      measured ? verification : '',
+      hasLocalCorrection
+        ? 'Verify the exercise and visibility. Use observations as the verdict when verified and return an empty observations array because the app already has a measured correction.'
+        : 'When the exercise is verified, identify the start, the loaded or deepest position, and the return when visible. Check joint alignment, weight or limb path, range, support contact, and side-to-side differences where the view allows it. Compare working positions within a rep or the same phase across reps. Choose the single clearest adjustment that would change the next rep or hold, including a modest visible refinement. Name the body part, where it moves or sits, the phase, and one practical cue. Treat normal variation as acceptable. Give a strength only when the frames support it and there is no useful adjustment. Cite two working frames at least half a second apart, with the clearest example first and a second occurrence or relevant contrast as comparisonFrame. The same working joints or equipment must be visible in both. Leave observations empty if no pair supports a specific point.',
+      'Judge visibility for the specific cue. Use what the camera clearly shows even when another part of the body or another phase cannot be assessed. Use insufficient_visibility when you cannot confirm the exercise or cannot see enough to assess any meaningful aspect. Return zero observations and one specific filming instruction in summary. For different_exercise, return zero observations and name the movement or variation in summary. For observations, set summary to an empty string.',
       'Do not infer pain, diagnose, promise safety, certify form, or speculate about joints outside the frame, precise angles, speed, or motion between frames. Use neutral, specific language. Keep summary under 300 characters and observations and cues under 200 each.',
       'For a single side view, avoid claims about exact hand width, the far-side elbow path, or hidden foot contact.',
       'An adjustment must describe a visible, meaningful difference from an appropriate position and give one practical cue. A strength identifies an observable movement detail worth repeating. Describe it in second-person or neutral wording.',
@@ -380,7 +389,7 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
     content: [
       { type: 'input_text', text: JSON.stringify({
         exercise: exercise.name,
-        ...(!measured && { referenceCues: exercise.cues }),
+        ...(!hasLocalCorrection && { referenceCues: exercise.cues }),
         ...(shoulderPress && evidence.length > 0 && {
           comparison: 'Local joint tracking found repeated arm movement. Compare the selected overhead positions. A complete descent to shoulder height is not required to identify a partial press.',
         }),
@@ -397,7 +406,7 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
   if (!verdicts.includes(result?.verdict) || (result.verdict !== 'observations' && !validText(result.summary, 450))
     || !Array.isArray(result.observations)
     || (result.verdict !== 'observations' && result.observations.length !== 0)
-    || ((!measured || !evidence.length) && result.observations.some((item) => !item || !Number.isInteger(item.frame) || !frames[item.frame - 1]
+    || (!hasLocalCorrection && result.observations.some((item) => !item || !Number.isInteger(item.frame) || !frames[item.frame - 1]
       || !['strength', 'adjustment'].includes(item.kind) || !validText(item.observation, 300) || !validText(item.cue, 300)))) {
     throw invalidOutput();
   }
@@ -423,27 +432,15 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
       observations: [],
     };
   }
-  if (measured && result.verdict === 'observations') {
-    const name = measuredReviewNames[exercise.id];
-    const filming = measuredPullUp ? 'Keep the bar and your working arm in frame from the hang through the return.' : shoulderPress
-      ? 'Keep your full standing position and the working arm in frame.'
-      : plank ? 'Keep your elbows, shoulders, hips, knees, and ankles in frame throughout the hold.'
-        : bridge ? 'Keep your shoulders, hips, knees, and both feet in frame through the lift.'
-          : row ? 'Keep the bench, your supporting hand, and your working arm in view.'
-        : `Keep your shoulders, hips, ${squat ? 'knees, ' : ''}and ankles in frame.`;
-    const limited = {
-      unavailable: `The ${name} is visible. Local joint measurements were unavailable for this review.`,
-      limited: `The ${name} is recognizable, but there are too few usable ${shoulderPress || row ? '' : 'side-view '}positions to assess form. ${filming}`,
-      no_cycle: `The frames did not show enough usable movement to assess a ${name} repetition. Record one or more complete repetitions.`,
-      short_window: plank ? 'This section is too short to measure a forearm plank hold. Choose an earlier start or record a longer clip.'
-        : `This section is too short to measure a full ${name} repetition. Choose an earlier start or record a longer clip.`,
-      ambiguous_motion: 'The sampled arm positions could not confirm a standing shoulder press. Record the full standing position and weight path through complete repetitions.',
-      raised_support: 'The sampled positions could not confirm a floor push-up. Keep your hands, feet, and their supporting surfaces visible, and choose Incline Push-Up for hands on a bench or similar raised surface.',
-    }[coverage];
-    if (limited) return { ...context, verdict: 'insufficient_visibility', summary: limited, observations: [] };
+  if (measured && result.verdict === 'observations' && ['ambiguous_motion', 'raised_support'].includes(coverage)) {
+    const summary = coverage === 'ambiguous_motion'
+      ? 'The sampled arm positions could not confirm a standing shoulder press. Record the full standing position and weight path through complete repetitions.'
+      : 'The sampled positions could not confirm a floor push-up. Keep your hands, feet, and their supporting surfaces visible, and choose Incline Push-Up for hands on a bench or similar raised surface.';
+    return { ...context, verdict: 'insufficient_visibility', summary, observations: [] };
+  }
+  if (hasLocalCorrection && result.verdict === 'observations') {
     // Local assessments list their primary cue first. For push-ups, body position takes precedence over depth.
-    if (evidence.length) return { ...context, verdict: 'observations', summary: '',
-      observations: [{ ...evidence[0], kind: 'adjustment' }] };
+    return { ...context, verdict: 'observations', summary: '', observations: [{ ...evidence[0], kind: 'adjustment' }] };
   }
 
   if (lunge && result.verdict === 'observations' && lungeMotion !== 'reverse_lunge') {
@@ -472,17 +469,34 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
     return { ...context, verdict: result.verdict, summary: acceptableFormText(result.summary) ? result.summary : fallback,
       observations: [] };
   }
-  const point = result.observations.find(({ frame, kind, comparisonFrame, check, observation, cue }) => {
-    if (!acceptableFormText(observation) || !acceptableFormText(cue)) return false;
+  const supported = result.observations.filter(({ frame, kind, comparisonFrame, check, observation, cue }) => {
     const hasComparison = Number.isInteger(comparisonFrame) && frames[comparisonFrame - 1]
       && Math.abs(frames[comparisonFrame - 1].timestamp - frames[frame - 1].timestamp) >= 0.5;
-    if (kind === 'strength') return hasComparison;
-    if (measured || !hasComparison) return false;
+    if (!hasComparison || !acceptableFormText(observation) || !acceptableFormText(cue)) return false;
+    if (kind === 'strength') return true;
     if (coreChecks && (!Object.hasOwn(coreChecks, check)
       || !/\b(?:head|shoulders?|ribs?|ribcage|trunk|torso)\b/i.test(observation)
-      || /\b(?:steady|stable|settled|similar|unchanged|small|minor|slight|slightly|subtle|little|brief)\b/i.test(observation))) return false;
+      || /\b(?:steady|stable|settled|similar|unchanged)\b/i.test(observation))) return false;
     return true;
   });
+  const point = supported.find(({ kind }) => kind === 'adjustment') ?? supported[0];
+  if (!point && measured && coverage !== 'measured') {
+    const name = measuredReviewNames[exercise.id];
+    const filming = measuredPullUp ? 'Keep the bar and your working arm in frame from the hang through the return.' : shoulderPress
+      ? 'Keep your full standing position and the working arm in frame.'
+      : plank ? 'Keep your elbows, shoulders, hips, knees, and ankles in frame throughout the hold.'
+        : bridge ? 'Keep your shoulders, hips, knees, and both feet in frame through the lift.'
+          : row ? 'Keep the bench, your supporting hand, and your working arm in view.'
+        : `Keep your shoulders, hips, ${squat ? 'knees, ' : ''}and ankles in frame.`;
+    const limited = {
+      unavailable: `The ${name} is visible. Local joint measurements were unavailable for this review.`,
+      limited: `The ${name} is recognizable, but there are too few usable ${shoulderPress || row ? '' : 'side-view '}positions to assess form. ${filming}`,
+      no_cycle: `The frames did not show enough usable movement to assess a ${name} repetition. Record one or more complete repetitions.`,
+      short_window: plank ? 'This section is too short to measure a forearm plank hold. Choose an earlier start or record a longer clip.'
+        : `This section is too short to measure a full ${name} repetition. Choose an earlier start or record a longer clip.`,
+    }[coverage];
+    if (limited) return { ...context, verdict: 'insufficient_visibility', summary: limited, observations: [] };
+  }
   if (!point) return { ...context, verdict: 'no_clear_issue', summary: noClearCorrection, observations: [] };
   const { frame, comparisonFrame, kind, observation, cue, check } = point;
   return {
@@ -492,8 +506,7 @@ export async function reviewExercise(respond, { exercise, frames, signal, eviden
     observations: [{
       timestamp: frames[frame - 1].timestamp, kind, observation, cue,
       ...(kind === 'adjustment' && coreChecks && { check }),
-      ...(Number.isInteger(comparisonFrame) && comparisonFrame !== frame && frames[comparisonFrame - 1]
-        ? { comparisonTimestamp: frames[comparisonFrame - 1].timestamp } : {}),
+      comparisonTimestamp: frames[comparisonFrame - 1].timestamp,
     }],
   };
 }

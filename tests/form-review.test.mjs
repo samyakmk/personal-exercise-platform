@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { reviewExercise } from '../server/ai.mjs';
+import { prepareClipReview } from '../server/analyze-clip.mjs';
 import { exercisesById } from '../server/catalog.mjs';
 import { selectReviewFrames } from '../server/frames.mjs';
 import { assessBirdTurn, assessCoreMotion } from '../server/core-motion.mjs';
@@ -96,7 +97,7 @@ test('frame selection includes measured evidence and stays within the eight-imag
   assert.equal(selectReviewFrames(frames, frames).length, 8);
 });
 
-test('push-up review uses measured adjustments and discards vision-only form claims', async () => {
+test('push-up review requires sufficient pose coverage and gates measured feedback on exercise identity', async () => {
   const exercise = exercisesById.get('push-up');
   const frames = [{ timestamp: 3, image: Buffer.from('frame') }];
   const evidence = [{ timestamp: 3, observation: 'Hips appear below the line.', cue: 'Brace the trunk.' }];
@@ -159,12 +160,14 @@ test('review keeps one useful point and drops incidental scene commentary', asyn
   const frames = [1, 2].map((timestamp) => ({ timestamp, image: Buffer.from('frame') }));
   const adjustment = { frame: 2, comparisonFrame: 1, kind: 'adjustment',
     observation: 'Your hips rise ahead of your chest.', cue: 'Move your hips and chest together.' };
+  const strength = { frame: 1, comparisonFrame: 2, kind: 'strength',
+    observation: 'Your hands stay on the bench.', cue: 'Keep your hands planted.' };
   const review = await reviewExercise(async () => ({
     verdict: 'observations', summary: 'There are bystanders.', limitations: 'There are reflections.',
     observations: [
+      strength,
       { frame: 1, kind: 'strength', observation: 'Other people are in view.', cue: 'Keep going.' },
       adjustment,
-      { frame: 1, kind: 'strength', observation: 'Your hands stay on the bench.', cue: 'Keep your hands planted.' },
     ],
   }), { exercise, frames });
   assert.equal(review.summary, '');
@@ -180,27 +183,70 @@ test('review keeps one useful point and drops incidental scene commentary', asyn
     verdict: 'observations', summary: '', observations: [],
   }), { exercise, frames });
   assert.equal(visible.verdict, 'no_clear_issue');
-  assert.match(visible.summary, /didn’t see a clear correction/);
+  assert.match(visible.summary, /sampled positions didn’t establish a specific correction/);
 });
 
-test('measured review keeps one local cue or a supported strength', async () => {
+test('measured review uses a supported visual refinement when tracking has no correction', async () => {
   const exercise = exercisesById.get('push-up');
   const frames = [1, 2].map((timestamp) => ({ timestamp, image: Buffer.from('frame') }));
-  const response = async () => ({
-    verdict: 'observations', summary: '',
-    observations: [{ frame: 1, comparisonFrame: 2, kind: 'strength',
-      observation: 'Your hips and shoulders move together.', cue: 'Keep that body line as you lower.' }],
-  });
+  const refinement = { frame: 1, comparisonFrame: 2, kind: 'adjustment',
+    observation: 'Your head reaches forward as you lower.', cue: 'Keep your gaze on the same spot on the floor.' };
+  const response = async () => ({ verdict: 'observations', summary: '', observations: [refinement] });
   const alignment = { timestamp: 1, observation: 'Your hips drop below your shoulders and ankles.', cue: 'Brace before lowering.' };
   const depth = { timestamp: 2, observation: 'Several descents look shallow.', cue: 'Try lowering a little farther.' };
   const options = { exercise, frames, coverage: 'measured' };
   const withEvidence = await reviewExercise(response, { ...options, evidence: [alignment, depth] });
   assert.deepEqual(withEvidence.observations, [{ ...alignment, kind: 'adjustment' }]);
-  const clean = await reviewExercise(response, options);
-  assert.equal(clean.verdict, 'no_clear_issue');
-  assert.equal(clean.observations.length, 1);
-  assert.equal(clean.observations[0].kind, 'strength');
-  assert.equal(clean.observations[0].comparisonTimestamp, 2);
+  const visual = await reviewExercise(response, options);
+  assert.equal(visual.verdict, 'observations');
+  assert.deepEqual(visual.observations, [{ timestamp: 1, comparisonTimestamp: 2, kind: 'adjustment',
+    observation: refinement.observation, cue: refinement.cue }]);
+  const visuallySupported = await reviewExercise(response, { ...options, coverage: 'limited' });
+  assert.deepEqual(visuallySupported, visual);
+  const obscured = await reviewExercise(async () => ({
+    verdict: 'observations', summary: '', observations: [{ ...refinement, comparisonFrame: null }],
+  }), { ...options, coverage: 'limited' });
+  assert.equal(obscured.verdict, 'insufficient_visibility');
+  assert.deepEqual(obscured.observations, []);
+});
+
+test('squat review uses visible knee tracking from a front view when side-view measurements are limited', async () => {
+  const exercise = exercisesById.get('bodyweight-squat');
+  const frames = [3, 4, 6].map((timestamp) => ({ timestamp, image: Buffer.from('frame') }));
+  const observation = 'Your right knee moves inward relative to your foot near the bottom.';
+  const cue = 'Keep that knee tracking in the direction of your toes as you lower.';
+  const review = await reviewExercise(async ({ instructions }) => {
+    assert.match(instructions, /front or diagonal view can show knees drifting/);
+    return { verdict: 'observations', summary: '', observations: [
+      { frame: 2, comparisonFrame: 3, kind: 'adjustment', observation, cue },
+    ] };
+  }, { exercise, frames, coverage: 'limited' });
+  assert.equal(review.verdict, 'observations');
+  assert.deepEqual(review.observations, [{ timestamp: 4, comparisonTimestamp: 6, kind: 'adjustment', observation, cue }]);
+});
+
+test('bench press sampling retains the loaded position in each half even without a local fault rule', async () => {
+  const exercise = exercisesById.get('dumbbell-bench-press');
+  const samples = Array.from({ length: 40 }, (_, index) => ({ timestamp: 10 + index / 4, image: Buffer.from('frame') }));
+  const loaded = [11, 17];
+  const prepared = await prepareClipReview(null, {
+    exercise, startSeconds: 10,
+    sampleFrames: async (_, { sampleRate }) => {
+      assert.equal(sampleRate, 4);
+      return samples;
+    },
+    estimate: async () => samples.map(({ timestamp }) => {
+      const points = Array.from({ length: 17 }, () => ({ x: 0, y: 0, confidence: 0 }));
+      points[5] = { x: 100, y: 160, confidence: 0.9 };
+      points[7] = { x: 100, y: 120, confidence: 0.9 };
+      points[9] = loaded.includes(timestamp)
+        ? { x: 140, y: 120, confidence: 0.9 } : { x: 100, y: 80, confidence: 0.9 };
+      return { points, timestamp };
+    }),
+  });
+  assert.equal(prepared.coverage, 'unavailable');
+  assert.equal(prepared.frames.length, 8);
+  assert.ok(loaded.every((timestamp) => prepared.frames.some((frame) => frame.timestamp === timestamp)));
 });
 
 test('core reviews require a supported correction category and comparison', async () => {
@@ -219,10 +265,10 @@ test('core reviews require a supported correction category and comparison', asyn
   }
   const subtle = await reviewExercise(async () => ({
     verdict: 'observations', summary: 'A dead bug is visible.', limitations: 'One side is visible.',
-    observations: [{ ...adjustment, observation: 'A small ribcage shift is visible.', check: 'dead_bug_trunk_shift' }],
+    observations: [{ ...adjustment, observation: 'Your ribcage rotates slightly as your leg extends.', check: 'dead_bug_trunk_shift' }],
   }), { exercise, frames });
-  assert.equal(subtle.verdict, 'no_clear_issue');
-  assert.deepEqual(subtle.observations, []);
+  assert.equal(subtle.verdict, 'observations');
+  assert.equal(subtle.observations[0].check, 'dead_bug_trunk_shift');
 });
 
 test('core movement checks distinguish planted-hand lifts from a visible arm reach', () => {

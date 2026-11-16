@@ -2,7 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, CalendarDays, ClipboardList, Dumbbell, Pencil, Play, Plus, RotateCcw, Search, X } from 'lucide-react-native';
 import { Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { useActiveSession } from '../activeSession';
+import { newTrainingSession, useActiveSession } from '../activeSession';
 import { createId } from '../api';
 import { exercisePhotos } from '../assets';
 import { sessionSourceLabel } from '../components/SessionFeedback';
@@ -67,9 +67,9 @@ export function Sessions() {
   }
 
   const begin = useCallback(({ plan, adHoc }: StartChoice) => {
-    const logId = createId();
-    keepSession({ plan, ...(adHoc && { adHoc: true }), logId, startedAt: Date.now(), sets: {}, notes: plan.notes ?? '' });
-    setOpenSessionId(logId);
+    const next = newTrainingSession(plan, adHoc);
+    keepSession(next);
+    setOpenSessionId(next.logId);
   }, [keepSession]);
 
   const start = useCallback((choice: StartChoice) => {

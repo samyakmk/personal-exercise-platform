@@ -4,23 +4,39 @@ import { color } from '../theme';
 import type { Exercise } from '../types';
 import { Copy, SectionTitle } from './ui';
 
-export function TechniqueTips({ exercise }: { exercise: Exercise }) {
+export function TechniqueTips({ exercise, sideBySide = false }: { exercise: Exercise; sideBySide?: boolean }) {
   if (!exercise.technique) return null;
-  return <View style={styles.box}>
+  return <View style={styles.section}>
     <SectionTitle title="Do and avoid" level={3} />
-    <View style={styles.row}>
-      <Check aria-hidden size={17} color={color.plum} />
-      <View style={styles.copy}><Copy size={12} weight="bold">Do</Copy><Copy size={13}>{exercise.technique.do}</Copy></View>
+    <View style={[styles.tips, sideBySide && styles.columns]}>
+      <Tip label="Do" text={exercise.technique.do} sideBySide={sideBySide} />
+      <Tip label="Avoid" text={exercise.technique.avoid} sideBySide={sideBySide} />
     </View>
-    <View style={styles.row}>
-      <X aria-hidden size={17} color={color.plum} />
-      <View style={styles.copy}><Copy size={12} weight="bold">Avoid</Copy><Copy size={13}>{exercise.technique.avoid}</Copy></View>
+  </View>;
+}
+
+function Tip({ label, text, sideBySide }: { label: 'Do' | 'Avoid'; text: string; sideBySide: boolean }) {
+  const avoid = label === 'Avoid';
+  const Icon = avoid ? X : Check;
+  const tone = avoid ? color.danger : color.plum;
+  return <View style={[styles.tip, sideBySide && styles.column]}>
+    <View aria-hidden style={[styles.badge, { backgroundColor: avoid ? color.dangerSoft : color.tint }]}>
+      <Icon size={16} color={tone} />
+    </View>
+    <View style={styles.copy}>
+      <Copy size={13} weight="bold" tone={tone}>{label}</Copy>
+      <Copy size={13}>{text}</Copy>
     </View>
   </View>;
 }
 
 const styles = StyleSheet.create({
-  box: { gap: 8, backgroundColor: color.tint, borderRadius: 8, padding: 11 },
-  row: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
-  copy: { gap: 2, flex: 1 },
+  section: { gap: 8 },
+  tips: { gap: 8 },
+  columns: { flexDirection: 'row', gap: 12 },
+  column: { flex: 1, minWidth: 0 },
+  tip: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, padding: 11, borderRadius: 10,
+    borderWidth: 1, borderColor: color.line },
+  badge: { width: 25, height: 25, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+  copy: { gap: 2, flex: 1, minWidth: 0, paddingTop: 2 },
 });

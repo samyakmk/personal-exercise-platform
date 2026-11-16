@@ -38,6 +38,7 @@ test('desktop and narrow browser widths support keyboard exercise discovery and 
 });
 
 test('keyboard video upload and download preserve the file and workspace privacy', async ({ page, browser }) => {
+  await page.setViewportSize({ width: 390, height: 1000 });
   await page.goto('/form-review');
   const exercise = page.getByRole('combobox', { name: 'Exercise in your clip' });
   await exercise.focus();
@@ -56,7 +57,6 @@ test('keyboard video upload and download preserve the file and workspace privacy
   await expect(dialog).toBeVisible();
   const video = dialog.locator('video');
   await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.readyState)).toBeGreaterThan(0);
-  await activate(dialog.getByRole('button', { name: 'Video options' }));
   const link = dialog.getByRole('link', { name: 'Download video' });
   const [download] = await Promise.all([page.waitForEvent('download'), activate(link)]);
   expect(download.suggestedFilename()).toBe('synthetic.mp4');

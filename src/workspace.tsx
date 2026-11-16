@@ -58,6 +58,7 @@ function applyWorkspaceChange(current: Workspace, change: WorkspaceChange): Work
   }
   if ('equipment' in change) return { ...current, equipment: change.equipment };
   if ('bookmarks' in change) return { ...current, bookmarks: change.bookmarks };
+  if ('trainingNotes' in change) return { ...current, trainingNotes: change.trainingNotes };
 
   const workouts = new Map(current.workouts.map((workout) => [workout.id, workout]));
   for (const id of change.workouts.remove) workouts.delete(id);

@@ -7,14 +7,13 @@ import { loggedMuscleWork, muscleNames } from '../muscleWork';
 import type { Muscle } from '../muscleWork';
 import { color } from '../theme';
 import type { Exercise, Workout } from '../types';
-import { contours, figurePath, outline, regions } from './muscleIllustration';
-import type { BodyModel, BodyView } from './muscleIllustration';
-import { Button, Chip, Copy } from './ui';
+import { contours, outline, regions } from './muscleIllustration';
+import type { BodyView } from './muscleIllustration';
+import { Button, Copy } from './ui';
 
 const heatColors = ['#ded8d1', '#f2d4b5', '#e9a97e', '#cd705c', '#983f5d'];
 const neutral = '#f7f0e8';
 const bodyViews: BodyView[] = ['Front', 'Back'];
-const bodyModels: BodyModel[] = ['Male', 'Female'];
 
 function heatColor(points: number, scale: number) {
   return heatColors[Math.ceil(points / scale * (heatColors.length - 1))];
@@ -40,7 +39,6 @@ export function MuscleHeatMap({ workouts, catalog }: {
   catalog: ReadonlyMap<string, Exercise>;
 }) {
   const router = useRouter();
-  const [model, setModel] = useState<BodyModel>('Male');
   const [showAll, setShowAll] = useState(false);
   const [hovered, setHovered] = useState<Muscle | null>(null);
   const totals = useMemo(() => loggedMuscleWork(workouts, catalog), [workouts, catalog]);
@@ -53,14 +51,10 @@ export function MuscleHeatMap({ workouts, catalog }: {
   return <View style={styles.map} role="group" accessibilityLabel="Muscle heat map">
     <View style={styles.layout}>
       <View style={styles.stage}>
-        <View role="group" accessibilityLabel="Body model" style={styles.modelPicker}>
-          {bodyModels.map((choice) => <Chip key={choice} label={choice} selected={model === choice}
-            onPress={() => setModel(choice)} />)}
-        </View>
         <View style={styles.figures}>
           {bodyViews.map((view) => <View key={view} style={styles.figure}>
             <View style={styles.drawing} aria-hidden>
-              <MuscleFigure view={view} model={model} totals={totals} scale={scale} hovered={hovered}
+              <MuscleFigure view={view} totals={totals} scale={scale} hovered={hovered}
                 onHover={setHovered} onPress={(muscle) => router.push(muscleLink(muscle))} />
             </View>
             <Copy size={12} weight="semibold" tone={color.muted}>{view}</Copy>
@@ -108,26 +102,23 @@ export function MuscleHeatMap({ workouts, catalog }: {
   </View>;
 }
 
-function MuscleFigure({ view, model, totals, scale, hovered, onHover, onPress }: {
+function MuscleFigure({ view, totals, scale, hovered, onHover, onPress }: {
   view: BodyView;
-  model: BodyModel;
   totals: ReadonlyMap<string, number>;
   scale: number;
   hovered: Muscle | null;
   onHover: (muscle: Muscle | null) => void;
   onPress: (muscle: Muscle) => void;
 }) {
-  const body = figurePath(outline, model);
-  const details = figurePath(contours[view].join(' '), model);
-  const shapes = regions[view].map(({ muscle, path }) => ({ muscle, path: figurePath(path, model) }));
+  const details = contours[view].join(' ');
 
   return <Svg viewBox="4 0 176 339" width="100%" height="100%">
     {[false, true].map((mirrored) => <G key={String(mirrored)} transform={mirrored ? 'translate(184 0) scale(-1 1)' : undefined}>
-      <Path d={body} fill={neutral} stroke="#a8928f" strokeWidth={0.9} strokeLinejoin="round" />
+      <Path d={outline} fill={neutral} stroke="#a8928f" strokeWidth={0.9} strokeLinejoin="round" />
       <Path d={details} fill="none" stroke="#c3aea9" strokeWidth={0.65} strokeLinecap="round" />
     </G>)}
     {[false, true].map((mirrored) => <G key={String(mirrored)} transform={mirrored ? 'translate(184 0) scale(-1 1)' : undefined}>
-      {shapes.map(({ muscle, path }) => {
+      {regions[view].map(({ muscle, path }) => {
         const pointer = Platform.OS === 'web' ? {
           'data-muscle': muscle, cursor: 'pointer',
           onPointerEnter: () => onHover(muscle), onPointerLeave: () => onHover(null),
@@ -146,7 +137,6 @@ const styles = StyleSheet.create({
   layout: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 20 },
   stage: { flexBasis: 310, flexGrow: 2, flexShrink: 1, minWidth: 0, padding: 12, gap: 10,
     alignItems: 'center', backgroundColor: color.canvas, borderWidth: 1, borderColor: color.line, borderRadius: 12 },
-  modelPicker: { flexDirection: 'row', alignSelf: 'center', gap: 6 },
   figures: { flexDirection: 'row', justifyContent: 'center', width: '100%', gap: 7 },
   figure: { flex: 1, maxWidth: 170, minWidth: 0, alignItems: 'center', gap: 4 },
   drawing: { width: '100%', aspectRatio: 176 / 339 },

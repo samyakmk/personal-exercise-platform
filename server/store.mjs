@@ -9,7 +9,7 @@ import { trainingBackupFormat } from '../shared/training-backup.mjs';
 const chunkSize = 256 * 1024;
 const reviewHistoryLimit = 10;
 const leaseClock = "CAST(unixepoch('subsec') * 1000 AS INTEGER)";
-const reviewColumns = `clip_review.review, attempt.version AS attemptVersion, attempt.sequence AS attemptSequence,
+const reviewColumns = `json_remove(clip_review.review, '$.reviewStill') AS review, attempt.version AS attemptVersion, attempt.sequence AS attemptSequence,
   attempt.error AS attemptError, attempt.error_status AS attemptErrorStatus, attempt.start_seconds AS attemptStart,
   attempt.lease_owner AS attemptOwner, attempt.lease_until AS attemptUntil`;
 const clipReviewQuery = `FROM clip LEFT JOIN clip_review ON clip.workspace_id = clip_review.workspace_id AND clip.id = clip_review.clip_id
@@ -25,6 +25,7 @@ function workspaceRevisionTriggers() {
     clip: 'workspace_id, id, exerciseId, filename, mime, size, uploadedAt',
     clip_review: 'workspace_id, clip_id, review',
     clip_review_attempt: 'workspace_id, clip_id, version, sequence, start_seconds, error, lease_owner',
+    training_note: 'workspace_id, id, text, kind, exercise_id, saved_at',
   };
   return Object.entries(updateColumns).map(([table, columns]) => `
     CREATE TRIGGER IF NOT EXISTS ${table}_snapshot_insert AFTER INSERT ON ${table} BEGIN
@@ -94,6 +95,15 @@ export function createStore(path) {
       workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
       id TEXT NOT NULL,
       digest TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, id)
+    );
+    CREATE TABLE IF NOT EXISTS training_note (
+      workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+      id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('context', 'prefer', 'avoid', 'shorter')),
+      exercise_id TEXT,
+      saved_at TEXT NOT NULL,
       PRIMARY KEY (workspace_id, id)
     );
     CREATE TABLE IF NOT EXISTS workout_edit_receipt (
@@ -219,6 +229,11 @@ export function createStore(path) {
     workspaceRevision: db.prepare('SELECT snapshot_revision AS revision FROM workspace WHERE id = ?'),
     liveReviewIds: db.prepare('SELECT clip_id AS id FROM clip_review_attempt WHERE lease_until > ? AND workspace_id = ? ORDER BY clip_id'),
     getEquipment: db.prepare('SELECT equipment FROM workspace WHERE id = ?'),
+    trainingNotes: db.prepare(`SELECT id, text, kind, exercise_id AS exerciseId, saved_at AS savedAt
+      FROM training_note WHERE workspace_id = ? ORDER BY saved_at DESC, rowid DESC`),
+    saveTrainingNote: db.prepare(`INSERT OR IGNORE INTO training_note (workspace_id, id, text, kind, exercise_id, saved_at)
+      SELECT ?, ?, ?, ?, ?, ? WHERE (SELECT count(*) FROM training_note WHERE workspace_id = ?) < 40`),
+    removeTrainingNote: db.prepare('DELETE FROM training_note WHERE workspace_id = ? AND id = ?'),
     equipment: db.prepare('UPDATE workspace SET equipment = ? WHERE id = ?'),
     importEquipment: db.prepare('UPDATE workspace SET equipment = ? WHERE id = ? AND equipment IS NULL'),
     bookmarks: db.prepare('SELECT exercise_id AS id FROM exercise_bookmark WHERE workspace_id = ? ORDER BY exercise_id'),
@@ -314,12 +329,20 @@ export function createStore(path) {
         ON clip.workspace_id = clip_review.workspace_id AND clip.id = clip_review.clip_id
         WHERE clip.workspace_id = ? AND clip.id = ?
       )
-      SELECT review, 0 AS priority, 0 AS sequence FROM current
+      SELECT json_remove(review, '$.reviewStill') AS review, 0 AS priority, 0 AS sequence FROM current
       UNION ALL
-      SELECT history.review, 1 AS priority, history.sequence FROM clip_review_history AS history CROSS JOIN current
+      SELECT json_remove(history.review, '$.reviewStill'), 1 AS priority, history.sequence FROM clip_review_history AS history CROSS JOIN current
       WHERE history.workspace_id = ? AND history.clip_id = ?
         AND history.start_seconds IS NOT CASE WHEN current.review IS NOT NULL THEN COALESCE(json_extract(current.review, '$.startSeconds'), 0) END
       ORDER BY priority, sequence DESC LIMIT ${reviewHistoryLimit}
+    `),
+    reviewStill: db.prepare(`
+      SELECT json_extract(review, '$.reviewStill') AS still FROM clip_review
+      WHERE workspace_id = ?1 AND clip_id = ?2 AND json_extract(review, '$.sequence') = ?3
+      UNION ALL
+      SELECT json_extract(review, '$.reviewStill') FROM clip_review_history
+      WHERE workspace_id = ?1 AND clip_id = ?2 AND sequence = ?3
+      LIMIT 1
     `),
     archivePreviousReview: db.prepare(`
       INSERT INTO clip_review_history (workspace_id, clip_id, start_seconds, sequence, review)
@@ -414,6 +437,7 @@ export function createStore(path) {
   }
 
   const bookmarks = (id) => statements.bookmarks.all(id).map((row) => row.id);
+  const trainingNotes = (id) => statements.trainingNotes.all(id);
 
   function insertWorkout(workspace, { id, name, date, time, status, exercises, notes = '', effort = null, source = null }) {
     if (statements.workoutSeries.get(workspace, id)) return false;
@@ -474,6 +498,17 @@ export function createStore(path) {
     },
     equipment: (id) => JSON.parse(statements.getEquipment.get(id).equipment),
     bookmarks,
+    trainingNotes,
+    saveTrainingNote(workspace, id, { text, kind, exerciseId }) {
+      statements.saveTrainingNote.run(workspace, id, text, kind, exerciseId, new Date().toISOString(), workspace);
+      const notes = trainingNotes(workspace);
+      const saved = notes.find((note) => note.id === id);
+      return !saved ? 'full' : saved.text === text && saved.kind === kind && saved.exerciseId === exerciseId ? notes : 'conflict';
+    },
+    removeTrainingNote(workspace, id) {
+      statements.removeTrainingNote.run(workspace, id);
+      return trainingNotes(workspace);
+    },
     recentWorkouts: (id, day, time) => statements.recentWorkouts.all(id, day, day, time).map(({ exercises }) => JSON.parse(exercises)),
     workouts,
     trainingBackup(workspace, { from, before, maxBytes, maxWorkouts }) {
@@ -607,6 +642,10 @@ export function createStore(path) {
       const rows = statements.reviewHistory.all(workspace, id, workspace, id);
       if (!rows.length) return null;
       return rows.flatMap(({ review }) => review === null ? [] : [JSON.parse(review)]);
+    },
+    reviewStill(workspace, id, sequence) {
+      const still = statements.reviewStill.get(workspace, id, sequence)?.still;
+      return still ? Buffer.from(still, 'base64') : null;
     },
     claimReview(workspace, id, { version, startSeconds, refresh, owner, leaseMs, maxActive, admit }) {
       db.exec('BEGIN IMMEDIATE');

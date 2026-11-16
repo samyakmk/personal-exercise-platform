@@ -1,7 +1,8 @@
 import * as Crypto from 'expo-crypto';
 import { dateKey, workoutTime } from './dates';
 import { uploadVideo } from './platform/uploadVideo';
-import type { CheckInState, CheckInInput, Clip, ClipReview, Exercise, ExerciseFilters, FormFeedback, ProfileEdit, ProfileRevision, ProfileState, Recommendation, SelectedVideo, Snapshot, Workout, WorkoutDelta, Workspace, WorkspaceChange } from './types';
+import type { ChatAnswer, ChatMessage, TrainingNoteInput, TrainingNotesChange } from './types';
+import type { CheckInState, CheckInInput, Clip, ClipReview, Exercise, ExerciseFilters, ExerciseRefinement, FormFeedback, ProfileEdit, ProfileRevision, ProfileState, Recommendation, SelectedVideo, SessionCoachQuestion, Snapshot, Workout, WorkoutDelta, WorkoutSuggestion, Workspace, WorkspaceChange } from './types';
 
 const origin = process.env.EXPO_PUBLIC_API_ORIGIN ?? '';
 
@@ -103,9 +104,19 @@ export function createWorkspaceApi(workspaceKey: string) {
       return { workspace: data, etag: headers.get('ETag') ?? undefined };
     },
     profileHistory: (signal: AbortSignal) => scoped<ProfileRevision[]>('companion/profile-history', { signal }),
+    chat(message: string, history: ChatMessage[], signal: AbortSignal) {
+      const { date, time } = workoutTime();
+      return scoped<ChatAnswer>('chat?' + new URLSearchParams({ today: date, now: time }),
+        { ...json('POST', { message, history }), signal }, 53_000);
+    },
+    saveTrainingNote: (id: string, note: TrainingNoteInput) => scoped<TrainingNotesChange>('training-notes/' + id, json('PUT', note)),
+    removeTrainingNote: (id: string) => scoped<TrainingNotesChange>('training-notes/' + id, { method: 'DELETE' }),
     checkIns: (day: string, signal: AbortSignal) => scoped<CheckInState>('companion?day=' + day, { signal }),
     saveCheckIn: (day: string, entry: CheckInInput) => scoped<CheckInState>('companion?day=' + day, json('POST', entry)),
     removeCheckIn: (day: string, id: string) => scoped<CheckInState>('companion/' + id + '?day=' + day, { method: 'DELETE' }),
+    sessionCoach: (question: SessionCoachQuestion, signal: AbortSignal) => scoped<{ reply: string }>(
+      'session-coach', { ...json('POST', question), signal }, 50_000,
+    ),
     addExampleWorkouts: () => scoped<Snapshot>('workspace/example-workouts', json('POST', { today: dateKey() })),
     removeExampleWorkouts: () => scoped<Snapshot>('workspace/example-workouts', { method: 'DELETE' }),
     trainingBackupUrl(from = '', before = '') {
@@ -120,9 +131,14 @@ export function createWorkspaceApi(workspaceKey: string) {
     exercises(filters: ExerciseFilters, signal: AbortSignal) {
       return scoped<Exercise[]>('exercises?' + exerciseParams(filters), { signal });
     },
-    recommendations: (filters: ExerciseFilters, signal: AbortSignal) => (
-      scoped<Recommendation[]>('exercises/recommendations?' + exerciseParams(filters), { method: 'POST', signal }, 55_000)
+    recommendations: (filters: ExerciseFilters, signal: AbortSignal, refinement?: ExerciseRefinement) => (
+      scoped<Recommendation[]>('exercises/recommendations?' + exerciseParams(filters),
+        { ...(refinement ? json('POST', refinement) : { method: 'POST' }), signal }, 55_000)
     ),
+    workoutRecommendation(signal: AbortSignal) {
+      const { date, time } = workoutTime();
+      return scoped<WorkoutSuggestion>('workouts/recommendation?' + new URLSearchParams({ today: date, now: time }), { method: 'POST', signal }, 55_000);
+    },
     startClipReview: (id: string, startSeconds: number, refresh = false) => scoped<ClipReview>(
       'clips/' + id + '/review?background=1' + (startSeconds ? '&start=' + startSeconds : '') + (refresh ? '&refresh=1' : ''),
       { method: 'POST' },
@@ -165,6 +181,7 @@ export function createWorkspaceApi(workspaceKey: string) {
     deleteClip: (id: string) => scoped<WorkspaceChange>('clips/' + id + '?response=delta', { method: 'DELETE' }),
     clip: (id: string, signal: AbortSignal) => scoped<Clip>('clips/' + id, { signal }),
     clipUrl: (id: string) => profileUrl('/api/clips/' + id + '/video'),
+    reviewStillUrl: (id: string, sequence: number) => profileUrl('/api/clips/' + id + '/review-still?sequence=' + sequence),
     clipDownloadUrl: (id: string) => profileUrl('/api/clips/' + id + '/video?download=1'),
   };
 }

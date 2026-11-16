@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, CircleUserRound, LogOut, Plus, Trash2 } from 'lucide-react-native';
-import { Platform, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { ArrowRight, LogOut, Plus, Trash2 } from 'lucide-react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Sheet } from '../components/Sheet';
+import { TrainingNotes } from '../components/TrainingNotes';
 import { emptyPreferences, PreferenceFields, TrainingProfileHistory } from '../components/TrainingPreferences';
-import { Button, Copy, Display, Input, Loading, Notice, PageTitle, Panel, SectionTitle, Tag } from '../components/ui';
+import { Button, Copy, Display, Input, Notice, PageTitle, Panel, SectionTitle, Tag } from '../components/ui';
 import { useProfiles } from '../profiles';
 import { color } from '../theme';
 import type { Profile, ProfileEdit } from '../types';
+
+const profileColors = [color.accent, color.tint, '#cbd7bf', '#e9d0bd', '#c4cce7'];
 
 export function ProfileGate() {
   const { state, loadError, notice, reload, busy, create, signIn } = useProfiles();
@@ -14,15 +17,19 @@ export function ProfileGate() {
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
   const [working, setWorking] = useState('');
-  const heading = useRef<View>(null);
-  const compact = useWindowDimensions().width < 740;
-  const hasProfiles = Boolean(state?.profiles.length);
-  const entering = !hasProfiles || adding;
+  const main = useRef<View>(null);
+  const { width } = useWindowDimensions();
+  const compact = width < 620;
+  const tileSize = width < 360 ? 116 : compact ? 136 : 154;
 
   useEffect(() => {
     if (Platform.OS === 'web') document.title = 'Choose a profile · Liftmorrow';
-    (heading.current as unknown as HTMLElement | null)?.focus?.();
+    (main.current as unknown as HTMLElement | null)?.focus?.({ preventScroll: true });
   }, []);
+
+  useEffect(() => {
+    if (adding && Platform.OS === 'web') document.getElementById('liftmorrow-profile-username')?.focus();
+  }, [adding]);
 
   async function submit(action: () => Promise<void>, label: string) {
     if (busy) return;
@@ -38,61 +45,67 @@ export function ProfileGate() {
     void submit(() => create(username), 'create');
   }
 
-  return <ScrollView style={styles.canvas} contentContainerStyle={[styles.entry, compact && { padding: 14 }]} keyboardShouldPersistTaps="handled">
-    <View role="main" ref={heading} tabIndex={-1} style={[styles.entryCard, compact && styles.entryCompact]}>
-      <View style={[styles.brand, compact && styles.brandCompact]}>
-        <View style={styles.brandIdentity}>
-          <View style={styles.brandMark} aria-hidden>
-            {[13, 20, 27].map((height) => <View key={height} style={[styles.brandStroke, { height }]} />)}
-          </View>
-          <Copy weight="extra" size={23} tone={color.surface} style={{ letterSpacing: -1.2 }}>
-            liftmorrow<Copy weight="extra" size={23} tone={color.accent}>.</Copy>
-          </Copy>
+  return <ScrollView style={styles.canvas} contentContainerStyle={styles.entry} keyboardShouldPersistTaps="handled">
+    <View role="banner" style={[styles.brand, compact && styles.brandCompact]}>
+      <View style={styles.brandMark} aria-hidden>
+        {[13, 20, 27].map((height) => <View key={height} style={[styles.brandStroke, { height }]} />)}
+      </View>
+      <Copy weight="extra" size={23} tone={color.surface} style={{ letterSpacing: -1.2 }}>
+        liftmorrow<Copy weight="extra" size={23} tone={color.accent}>.</Copy>
+      </Copy>
+    </View>
+    <View role="main" nativeID="liftmorrow-main" ref={main} tabIndex={-1} style={[styles.picker, compact && styles.pickerCompact]}>
+      <Display accessibilityRole="header" aria-level={1} size={compact ? 50 : 76} tone={color.surface} style={styles.centered}>
+        Choose a profile
+      </Display>
+      {!state ? loadError
+        ? <Notice error action={<Button compact onPress={reload}>Retry</Button>}>{loadError}</Notice>
+        : <View role="status" accessibilityLiveRegion="polite" style={styles.loading}>
+          <ActivityIndicator color={color.accent} />
+          <Copy tone={color.onInk}>Loading profiles…</Copy>
         </View>
-        {!compact && <View style={{ gap: 12 }}>
-          <Display size={49} tone={color.surface}>Make it your training.</Display>
-          <Copy tone={color.onInk}>Keep your workouts, progress, and videos together in your own space.</Copy>
-        </View>}
-      </View>
-      <View style={[styles.entryContent, compact && { padding: 22 }]}>
-        <Tag>LOCAL PROFILES</Tag>
-        {!state ? loadError
-          ? <Notice error action={<Button compact onPress={reload}>Retry</Button>}>{loadError}</Notice>
-          : <Loading label="Loading profiles…" />
-          : <>
-            <View style={{ gap: 8 }}>
-              <Display accessibilityRole="header" aria-level={1} size={compact ? 39 : 47}>
-                {entering ? 'Create your profile' : 'Choose a profile'}
-              </Display>
-              <Copy tone={color.muted}>{entering
-                ? 'Choose a username to get started. No password is needed for local testing.'
-                : 'Sign in to a profile saved in this browser.'}</Copy>
+        : <>
+          <View style={[styles.tiles, compact && styles.tilesCompact]}>
+            {state.profiles.map(({ username: saved, workspaceKey }) => {
+              const tileColor = profileColors[parseInt(workspaceKey.slice(0, 2), 16) % profileColors.length];
+              return <Pressable key={workspaceKey} accessibilityRole="button" accessibilityLabel={'Sign in as ' + saved}
+                accessibilityState={{ busy: working === workspaceKey }} disabled={busy}
+                onPress={() => void submit(() => signIn(saved), workspaceKey)}
+                style={({ hovered, pressed }) => [styles.tile, { width: tileSize, opacity: busy && working !== workspaceKey ? 0.6 : 1 },
+                  (hovered || pressed) && styles.tileHighlighted]}>
+                <View aria-hidden style={[styles.tileSquare, { backgroundColor: tileColor }]}>
+                  {working === workspaceKey ? <ActivityIndicator size="large" color={color.ink} />
+                    : <Display size={compact ? 62 : 74} tone={color.ink}>{saved[0].toUpperCase()}</Display>}
+                </View>
+                <Copy size={14} weight="semibold" tone={color.surface} style={styles.tileLabel}>{saved}</Copy>
+              </Pressable>;
+            })}
+            <Pressable accessibilityRole="button" disabled={busy}
+              onPress={() => { setUsername(''); setError(''); setAdding(true); }}
+              style={({ hovered, pressed }) => [styles.tile, { width: tileSize, opacity: busy ? 0.6 : 1 },
+                (hovered || pressed) && styles.tileHighlighted]}>
+              <View aria-hidden style={[styles.tileSquare, styles.addSquare]}>
+                <Plus size={compact ? 38 : 44} strokeWidth={1.5} color={color.accent} />
+              </View>
+              <Copy size={14} weight="semibold" tone={color.surface} style={styles.tileLabel}>Add profile</Copy>
+            </Pressable>
+          </View>
+          {notice !== '' && <Notice>{notice}</Notice>}
+          {!adding && error !== '' && <Notice error>{error}</Notice>}
+          {adding && <Sheet title="Create your profile" onClose={() => { if (!busy) { setAdding(false); setError(''); } }}>
+            {state.canImportLegacy && <Notice>Your existing workouts, settings, and videos will move into this first profile.</Notice>}
+            <View style={{ gap: 6 }}>
+              <Input label="Username" nativeID="liftmorrow-profile-username" value={username} onChangeText={setUsername}
+                autoCapitalize="none" autoCorrect={false} autoFocus={Platform.OS !== 'web'} autoComplete="off"
+                maxLength={24} editable={!busy} returnKeyType="go" onSubmitEditing={createProfile} />
+              <Copy size={12} tone={color.muted}>3–24 letters, numbers, underscores, or hyphens. Start with a letter or number.</Copy>
             </View>
-            {notice !== '' && <Notice>{notice}</Notice>}
-            {entering ? <>
-              {state.canImportLegacy && <Notice>Your existing workouts, settings, and videos will move into this first profile.</Notice>}
-              <View style={{ gap: 6 }}>
-                <Input label="Username" value={username} onChangeText={setUsername} autoCapitalize="none" autoCorrect={false}
-                  autoComplete="off" maxLength={24} editable={!busy} returnKeyType="go" onSubmitEditing={createProfile} />
-                <Copy size={12} tone={color.muted}>3–24 letters, numbers, underscores, or hyphens. Start with a letter or number.</Copy>
-              </View>
-              {error && <Notice error>{error}</Notice>}
-              <Button kind="primary" end={ArrowRight} onPress={createProfile} disabled={busy || !username.trim()} style={styles.entryAction}>
-                {working === 'create' ? 'Creating profile…' : 'Create profile'}
-              </Button>
-              {hasProfiles && <Button kind="quiet" disabled={busy} onPress={() => { setAdding(false); setError(''); }}>Back to profiles</Button>}
-            </> : <>
-              <View style={{ gap: 8 }}>
-                {state.profiles.map(({ username: saved, workspaceKey }) => <Button key={workspaceKey} icon={CircleUserRound} end={ArrowRight}
-                  accessibilityLabel={'Sign in as ' + saved} disabled={busy} style={styles.entryAction} onPress={() => void submit(() => signIn(saved), workspaceKey)}>
-                  {working === workspaceKey ? 'Signing in…' : saved}
-                </Button>)}
-              </View>
-              {error && <Notice error>{error}</Notice>}
-              <Button kind="quiet" icon={Plus} disabled={busy} onPress={() => { setUsername(''); setError(''); setAdding(true); }}>Create another profile</Button>
-            </>}
-          </>}
-      </View>
+            {error !== '' && <Notice error>{error}</Notice>}
+            <Button kind="primary" end={ArrowRight} onPress={createProfile} disabled={busy || !username.trim()}>
+              {working === 'create' ? 'Creating profile…' : 'Create profile'}
+            </Button>
+          </Sheet>}
+        </>}
     </View>
   </ScrollView>;
 }
@@ -172,13 +185,14 @@ function ProfileSettings({ profile, busy, save, signOut, remove }: {
       </Button>
       {status && <Notice error={status.error}>{status.message}</Notice>}
     </Panel>
+    <TrainingNotes />
     <TrainingProfileHistory key={JSON.stringify(profile.details)} />
     <Panel style={styles.settingsPanel}>
       <SectionTitle title="Switch profiles" summary="Sign out to choose another profile or create one. Your training data stays with this profile." />
       <Button icon={LogOut} disabled={busy} onPress={() => void submit(signOut)} style={styles.action}>Sign out</Button>
     </Panel>
     <Panel style={styles.settingsPanel}>
-      <SectionTitle title="Delete account" summary="Permanently delete this profile, its workouts, session history, saved exercises, profile history, check-ins, and videos." />
+      <SectionTitle title="Delete account" summary="Permanently delete this profile, its workouts, session history, saved exercises, training notes, profile history, check-ins, and videos." />
       <Button kind="danger" icon={Trash2} disabled={busy} style={styles.action}
         onPress={() => { setConfirmation(''); setDeleteError(''); setDeleting(true); }}>Delete account</Button>
     </Panel>
@@ -198,19 +212,26 @@ function ProfileSettings({ profile, busy, save, signOut, remove }: {
 }
 
 const styles = StyleSheet.create({
-  canvas: { flex: 1, backgroundColor: color.canvas },
-  entry: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  entryCard: { width: '100%', maxWidth: 840, backgroundColor: color.surface, borderRadius: 19, overflow: 'hidden',
-    borderWidth: 1, borderColor: color.line, flexDirection: 'row' },
-  entryCompact: { maxWidth: 480, flexDirection: 'column' },
-  brand: { width: '42%', minHeight: 406, backgroundColor: color.ink, padding: 34, justifyContent: 'space-between', gap: 28 },
-  brandCompact: { width: '100%', minHeight: 0, paddingHorizontal: 20, paddingVertical: 14 },
-  brandIdentity: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  canvas: { flex: 1, backgroundColor: color.ink },
+  entry: { flexGrow: 1 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 42, paddingVertical: 22,
+    borderBottomWidth: 1, borderColor: color.inkHover },
+  brandCompact: { paddingHorizontal: 20, paddingVertical: 14 },
   brandMark: { backgroundColor: color.inkHover, width: 37, height: 37, borderRadius: 10, flexDirection: 'row', gap: 3,
     alignItems: 'center', justifyContent: 'center' },
   brandStroke: { width: 3, borderRadius: 3, backgroundColor: color.accent, transform: [{ rotate: '20deg' }] },
-  entryAction: { alignSelf: 'stretch' },
-  entryContent: { flex: 1, padding: 37, gap: 17, justifyContent: 'center', minWidth: 0 },
+  picker: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 34,
+    paddingHorizontal: 32, paddingTop: 36, paddingBottom: 106 },
+  pickerCompact: { gap: 24, paddingHorizontal: 16, paddingTop: 28, paddingBottom: 76 },
+  centered: { textAlign: 'center' },
+  loading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  tiles: { width: '100%', maxWidth: 902, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start', gap: 20 },
+  tilesCompact: { gap: 14 },
+  tile: { borderRadius: 18, borderWidth: 2, borderColor: 'transparent', padding: 4, gap: 9 },
+  tileHighlighted: { borderColor: color.onInk },
+  tileSquare: { width: '100%', aspectRatio: 1, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  addSquare: { backgroundColor: color.inkHover, borderWidth: 1, borderColor: color.control, borderStyle: 'dashed' },
+  tileLabel: { textAlign: 'center', paddingBottom: 3 },
   settings: { width: '100%', maxWidth: 720, gap: 15 },
   settingsPanel: { gap: 14, padding: 19 },
   identity: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingBottom: 14, borderBottomWidth: 1, borderColor: color.line },

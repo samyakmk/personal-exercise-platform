@@ -8,6 +8,7 @@ import { exercisePhotos, hero } from '../assets';
 import { useActiveSession } from '../activeSession';
 import { addDays, compareWorkoutTime, formatDay, formatTime, workoutDay, workoutTime } from '../dates';
 import { ExerciseSheet } from '../components/ExerciseSheet';
+import { RefinementControls } from '../components/RecommendationControls';
 import { TrainingCheckIn, useCheckIns } from '../components/TrainingCheckIn';
 import { emptyPreferences } from '../components/TrainingPreferences';
 import { Button, Copy, Display, Notice, Panel, SectionTitle, Tag } from '../components/ui';
@@ -15,9 +16,10 @@ import { useTrainingNavigation } from '../navigation';
 import { useProfiles } from '../profiles';
 import { color } from '../theme';
 import { completedWorkouts, movementSummary } from '../trainingProgress';
-import type { Exercise, Workout } from '../types';
+import type { Exercise, Refinement, Workout } from '../types';
 import { useLocalClock } from '../useLocalClock';
 import { useWorkspace } from '../workspace';
+import { refineWorkout, workoutSize } from '../workoutRefinement';
 
 export function Overview() {
   const { api, data, exerciseRecords, mutate, announce } = useWorkspace();
@@ -36,6 +38,7 @@ export function Overview() {
   const profile = state?.active;
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [preferSuggestion, setPreferSuggestion] = useState(false);
+  const [adjusted, setAdjusted] = useState<{ key: string } & ReturnType<typeof refineWorkout>>();
   const [intakeError, setIntakeError] = useState('');
   const current = workoutTime(now);
   const today = current.date;
@@ -43,13 +46,14 @@ export function Overview() {
   const catalog = data?.catalog;
   const workouts = data?.workouts;
   const equipment = data?.equipment;
+  const trainingNotes = data?.trainingNotes;
   const timingDay = current.date;
   const timingTime = current.time;
   const preferences = profile?.details.trainingPreferences;
   const suggestion = useMemo(() => catalog && workouts && buildTodayPlan({
     current: { date: timingDay, time: timingTime }, catalog, workouts, equipment: equipment ?? null,
-    preferences, adjustment: journal.state?.adjustment,
-  }), [catalog, workouts, equipment, preferences, timingDay, timingTime, journal.state?.adjustment]);
+    preferences, trainingNotes, adjustment: journal.state?.adjustment,
+  }), [catalog, workouts, equipment, preferences, trainingNotes, timingDay, timingTime, journal.state?.adjustment]);
   if (!data || !suggestion) return null;
 
   const next = data.workouts.find((item) => item.status === 'planned' && compareWorkoutTime(item, current) >= 0);
@@ -62,17 +66,25 @@ export function Overview() {
   const plan = paused?.plan ?? (preferSuggestion && canCompare ? undefined : scheduled);
   const lastTrainer = completed.find(({ source }) => source === 'trainer');
   const isSuggestion = !plan && recommendationReady && suggestion.kind === 'train';
-  const movements = (plan?.exercises ?? (isSuggestion ? suggestion.exercises : [])).flatMap((movement) => {
+  const suggestionKey = JSON.stringify([today, suggestion]);
+  const refined = adjusted?.key === suggestionKey ? adjusted : undefined;
+  const suggestedExercises = refined?.exercises ?? suggestion.exercises;
+  const movements = (plan?.exercises ?? (isSuggestion ? suggestedExercises : [])).flatMap((movement) => {
     const exercise = exerciseRecords.get(movement.exerciseId);
     return exercise ? [{ exercise, movement }] : [];
   });
   const detailKey = plan?.id ?? (isSuggestion ? 'suggested-' + today : 'empty');
   const open = details === detailKey;
 
+  function refineSuggestion(choice: Refinement) {
+    setAdjusted({ key: suggestionKey, ...refineWorkout(suggestedExercises, choice, exerciseRecords) });
+    setDetails(detailKey);
+  }
+
   function startSuggestion() {
     if (!suggestion || suggestion.kind !== 'train') return;
     const plan: Workout = { ...current, id: createId(), name: suggestion.name, source: 'recommended',
-      status: 'planned', exercises: suggestion.exercises };
+      status: 'planned', exercises: suggestedExercises };
     training.open({ type: 'recommended-session', plan });
   }
 
@@ -136,7 +148,8 @@ export function Overview() {
             </Display>
             <Copy size={13} tone={color.onInk}>{paused ? 'Paused in this tab' : plan
               ? `${formatTime(plan.time)} · ${movements.length} ${movements.length === 1 ? 'exercise' : 'exercises'}`
-              : recommendationReady ? suggestion.summary : journal.error ? 'Refresh to check for your latest training adjustments.' : 'Checking your recent training.'}</Copy>
+              : recommendationReady ? refined ? workoutSize(suggestedExercises) : suggestion.summary
+              : journal.error ? 'Refresh to check for your latest training adjustments.' : 'Checking your recent training.'}</Copy>
             <View style={styles.featureActions}>
               {paused ? <Button kind="primary" icon={Play} onPress={() => training.open({ type: paused.adHoc ? 'resume-session' : 'resume' })}>Resume session</Button>
                 : plan ? <Button kind="primary" icon={Play} onPress={() => training.open({ type: 'train', workoutId: plan.id })}>Start session</Button>
@@ -150,6 +163,10 @@ export function Overview() {
         {!plan && recommendationReady && <View style={styles.reason}>
           <Copy weight="semibold" size={12}>Why this today</Copy>
           {suggestion.reasons.map((reason) => <Copy key={reason} size={12} tone={color.muted}>{reason}</Copy>)}
+        </View>}
+        {isSuggestion && <View style={styles.reason}>
+          <RefinementControls onRefine={refineSuggestion} />
+          {refined && <Notice action={<Button compact kind="quiet" onPress={() => setAdjusted(undefined)}>Reset</Button>}>{refined.message}</Notice>}
         </View>}
         <View style={styles.featureFooter}>
           {movements.length > 0 && <Button kind="quiet" compact end={ChevronDown} aria-expanded={open} onPress={() => setDetails(open ? null : detailKey)}>

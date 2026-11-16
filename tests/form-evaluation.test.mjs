@@ -214,7 +214,7 @@ globalThis.fetch = async () => {
   }] }], usage: { marker: 'usage-secret' } });
 };`);
   const args = ['--manifest', manifest, '--clips', directory, '--output', output, '--live', '--strict'];
-  const env = { CHATGPT_API_KEY: 'key-secret', LIFTMORROW_AI_MODEL: 'gpt-5.4-mini-mock', LIFTMORROW_FFMPEG: ffmpeg };
+  const env = { CHATGPT_API_KEY: 'key-secret', LIFTMORROW_FORM_MODEL: 'form-model-mock', LIFTMORROW_FFMPEG: ffmpeg };
   const defaultRun = runCli(args, env, preload);
   assert.equal(defaultRun.status, 1, defaultRun.stderr);
   assert.doesNotMatch(defaultRun.stderr, /retrying/);
@@ -229,7 +229,7 @@ globalThis.fetch = async () => {
   assert.match(recovered.stderr, /fixture-01 trial 1.*dns_temporary.*retrying once/);
   const raw = await readFile(output, 'utf8');
   report = JSON.parse(raw);
-  assert.equal(report.model, env.LIFTMORROW_AI_MODEL);
+  assert.equal(report.model, env.LIFTMORROW_FORM_MODEL);
   assert.equal(report.reviewVersion, reviewVersion);
   assert.equal(report.retryPolicy, 'one-transient-v1');
   assert.equal(report.reviewerInvocations, 2);

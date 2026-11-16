@@ -1,6 +1,5 @@
 import type { Muscle } from '../muscleWork';
 
-export type BodyModel = 'Male' | 'Female';
 export type BodyView = 'Front' | 'Back';
 
 // Each path describes the left half of the figure, as viewed on screen.
@@ -49,24 +48,3 @@ export const regions: Record<BodyView, Region[]> = {
     { muscle: 'Calves', path: 'M 67 247 Q 72 252 76 249 Q 80 247 83 247 Q 82 255 83 264 C 83 285 78 292 75 303 L 70 308 Q 69 293 65 279 Q 63 264 67 247 Z' },
   ],
 };
-
-// Adjust the horizontal proportions around the centerline while sharing the
-// same muscle boundaries and vertical landmarks between the two figures.
-const femaleProfile = [
-  { y: 0, width: 0.93 }, { y: 45, width: 0.89 }, { y: 66, width: 0.84 },
-  { y: 97, width: 0.89 }, { y: 128, width: 0.85 }, { y: 175, width: 1.04 },
-  { y: 226, width: 0.94 }, { y: 340, width: 0.9 },
-];
-
-export function figurePath(path: string, model: BodyModel) {
-  if (model === 'Male') return path;
-  return path.replace(/(\d+) (\d+)/g, (_, x, y) => {
-    const height = Number(y);
-    const index = femaleProfile.findIndex((point) => point.y >= height);
-    const to = femaleProfile[index];
-    const from = femaleProfile[Math.max(0, index - 1)];
-    const fraction = index === 0 ? 0 : (height - from.y) / (to.y - from.y);
-    const width = from.width + (to.width - from.width) * fraction;
-    return `${(92 + (Number(x) - 92) * width).toFixed(2)} ${y}`;
-  });
-}

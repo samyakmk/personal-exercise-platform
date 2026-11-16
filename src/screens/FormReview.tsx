@@ -1,11 +1,14 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, ChevronDown, ChevronUp, Film, LockKeyhole, Pencil, Play, ScanLine, Search, SearchX, Sparkles, Trash2, Upload, X } from 'lucide-react-native';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { RequestError } from '../api';
+import { Image, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useActiveSession } from '../activeSession';
+import { mediaUrl, RequestError } from '../api';
 import { Sheet } from '../components/Sheet';
 import { Button, Copy, Empty, IconButton, Input, Loading, Notice, PageTitle, Panel, SectionTitle, Tag } from '../components/ui';
 import { dateKey, formatDay, workoutTime } from '../dates';
+import { filmingTips } from '../formFilming';
+import { CameraRecorder } from '../platform/CameraRecorder';
 import { DownloadLink } from '../platform/DownloadLink';
 import { ExercisePicker } from '../platform/ExercisePicker';
 import { SelectField } from '../platform/fields';
@@ -19,23 +22,6 @@ import type { Clip, Exercise, FormFeedback } from '../types';
 import { useVideoUpload } from '../videoUpload';
 import { useWorkspace } from '../workspace';
 
-const filmingTips: Record<string, string> = {
-  'push-up': 'Set the camera low and to your side. Keep your hands, shoulders, hips, and feet in frame.',
-  'incline-push-up': 'Use a side view that shows the raised surface and your full body, including hands and feet.',
-  'goblet-squat': 'Film from the side so your torso, hips, knees, and feet stay visible.',
-  'bodyweight-squat': 'Film from the side so your torso, hips, knees, and feet stay visible.',
-  'reverse-lunge': 'Use a side view with both feet visible. Include standing, stepping back, and returning to standing.',
-  'dumbbell-bench-press': 'Use a side view that shows the bench, both dumbbells, and your feet.',
-  'dumbbell-row': 'Film from the working side so your shoulder, elbow, and weight are visible.',
-  'dumbbell-curl': 'Film from the working side and keep your torso, elbow, and dumbbell in view.',
-  'dumbbell-shoulder-press': 'Leave space above your head and keep your torso and both dumbbells visible.',
-  'forearm-plank': 'Film from the side with your elbows, hips, and feet in view during the hold.',
-  'glute-bridge': 'Set the camera low and to your side so your shoulders, hips, knees, and feet stay visible.',
-  'dumbbell-rdl': 'Film from the side so your hips, knees, and both weights stay in frame.',
-  'bird-dog': 'Use a low diagonal view with room for your full arm and leg reach.',
-  'dead-bug': 'Use a low side view that shows your torso and the full reach of your arms and legs.',
-  'pull-up': 'Frame the bar and your entire body through the bottom and top of the pull-up.',
-};
 const maxReviewStartSeconds = 24 * 60 * 60;
 
 function clipSize(bytes: number) {
@@ -45,7 +31,8 @@ function clipSize(bytes: number) {
 export function FormReview() {
   const { api, data, exerciseRecords, mutate, announce, startReview, cancelReview } = useWorkspace();
   const { draft, exercise, error, progress, pick, chooseExercise, clear: clearVideo, upload, cancel } = useVideoUpload();
-  const { intent, clear } = useTrainingNavigation();
+  const { session } = useActiveSession();
+  const { intent, clear, open } = useTrainingNavigation();
   const router = useRouter();
   const { clip: requested } = useLocalSearchParams<{ clip?: string }>();
   const [preview, setPreview] = useState<{ id: string; state: 'ready' | 'failed' }>();
@@ -59,8 +46,9 @@ export function FormReview() {
     if (intent?.type !== 'review' || progress !== null) return;
     chooseExercise(intent.exerciseId);
     setUploadOpen(true);
+    if (requested) router.setParams({ clip: undefined });
     clear();
-  }, [intent, clear, chooseExercise, progress]);
+  }, [intent, clear, chooseExercise, progress, requested, router]);
 
   useEffect(() => {
     mounted.current = true;
@@ -83,6 +71,8 @@ export function FormReview() {
   const recent = new Set(completedWorkouts(data.workouts, workoutTime(), 5)
     .flatMap((workout) => workout.exercises.map((entry) => entry.exerciseId)));
   const ordered = [...catalog].sort((a, b) => Number(recent.has(b.id)) - Number(recent.has(a.id)));
+  const selectedExercise = exerciseRecords.get(exercise);
+  if (selectedExercise && !ordered.some(({ id }) => id === exercise)) ordered.unshift(selectedExercise);
   const terms = clipSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const matching = data.clips.filter((clip) => {
     const searchText = `${clip.filename} ${clipExerciseName(clip) ?? ''}`.toLowerCase();
@@ -106,13 +96,16 @@ export function FormReview() {
         ? <Button kind={showUploader ? 'quiet' : 'primary'} icon={showUploader ? ChevronUp : Upload}
           aria-expanded={showUploader} onPress={() => setUploadOpen((value) => !value)}>{showUploader ? 'Hide upload' : 'Add a video'}</Button>
         : undefined} />
+    {session && <Notice action={<Button compact onPress={() => open({ type: 'resume-session' })}>Resume workout</Button>}>
+      {`Workout paused · ${session.plan.name}`}
+    </Notice>}
     {requested && !selected && <Notice action={<Button compact kind="quiet" onPress={closeVideo}>Dismiss</Button>}>
       This video is unavailable in this workspace.
     </Notice>}
 
     {showUploader && <View style={[styles.uploadLayout, wide && { flexDirection: 'row', alignItems: 'flex-start' }]}>
       <Panel style={[styles.panel, wide && { flex: 1.55 }]}>
-        <SectionTitle title="Upload a clip" />
+        <SectionTitle title="Add a clip" />
         <ExercisePicker label="Exercise in your clip" value={exercise} onChange={chooseExercise} disabled={busy}
           options={[autoDetectOption, ...ordered.map((item) => ({ value: item.id, label: item.name, detail: recent.has(item.id) ? 'Recent' : undefined }))]} />
         {draft ? <View style={{ gap: 8 }}>
@@ -125,7 +118,7 @@ export function FormReview() {
             : <VideoPlayer key={draft.id} uri={draft.clip.uri} label="Video preview"
               onReady={() => setPreview({ id: draft.id, state: 'ready' })} onError={() => setPreview({ id: draft.id, state: 'failed' })} />}
           {previewStatus === 'failed' && <Copy size={12} tone={color.muted}>Choose a video your browser can play.</Copy>}
-          {analyzeOnUpload && <Copy size={12} tone={color.muted}>Liftmorrow sends up to eight still frames per step from the first 20 seconds to OpenAI to identify the exercise and review your form.</Copy>}
+          {analyzeOnUpload && <Copy size={12} tone={color.muted}>Liftmorrow sends up to eight still frames per step from the first 20 seconds to OpenAI to identify the exercise and review your form. It may reuse the adjustment frame to match a reference image.</Copy>}
           {progress === null ? <Button icon={Upload} kind="primary" disabled={!canUpload}
             onPress={saveVideo}>{analyzeOnUpload ? 'Upload and analyze' : 'Upload video'}</Button> : <>
             <View accessibilityRole="progressbar" accessibilityLabel="Video upload"
@@ -141,7 +134,10 @@ export function FormReview() {
                 && <Button kind="quiet" compact onPress={cancel}>Cancel upload</Button>}
             </View>
           </>}
-        </View> : <VideoPicker onSelect={pick} disabled={busy} />}
+        </View> : <>
+          <VideoPicker onSelect={pick} disabled={busy} />
+          <CameraRecorder onSelect={pick} disabled={busy} filmingTip={filmingTips[exercise]} />
+        </>}
         {error && <Notice error>{error}</Notice>}
         <View style={styles.privacy}>
           <LockKeyhole aria-hidden size={14} color={color.plum} />
@@ -211,7 +207,9 @@ export function FormReview() {
   </View>;
 }
 
-function Feedback({ review, detectedExercise, onSeek }: { review: FormFeedback; detectedExercise?: string; onSeek: (seconds: number) => void }) {
+function Feedback({ review, detectedExercise, stillUrl, onSeek }: {
+  review: FormFeedback; detectedExercise?: string; stillUrl?: string; onSeek: (seconds: number) => void;
+}) {
   const title = {
     observations: 'Form observations',
     no_clear_issue: 'No clear correction',
@@ -236,12 +234,44 @@ function Feedback({ review, detectedExercise, onSeek }: { review: FormFeedback; 
         </View>
         <Copy size={13}>{observation}</Copy>
         <Copy size={13} tone={color.muted}>{cue}</Copy>
+        {kind === 'adjustment' && stillUrl && <AdjustmentFrames key={stillUrl} stillUrl={stillUrl} timestamp={timestamp}
+          reference={review.observationFrame?.reference} />}
       </View>
     ))}
     <View style={styles.reviewContext}>
       {review.limitations && <Copy size={12} tone={color.muted}>{review.limitations}</Copy>}
       <Copy size={12} tone={color.muted}>AI review of {review.framesReviewed} frames from up to {review.windowSeconds} seconds of video, starting at {formatTimestamp(review.startSeconds ?? 0)}.</Copy>
     </View>
+  </View>;
+}
+
+function AdjustmentFrames({ stillUrl, timestamp, reference }: {
+  stillUrl: string; timestamp: number; reference: NonNullable<FormFeedback['observationFrame']>['reference'];
+}) {
+  const [clipFailed, setClipFailed] = useState(false);
+  const [referenceFailed, setReferenceFailed] = useState(false);
+  const time = formatTimestamp(timestamp);
+  if (clipFailed) return <Copy size={12} tone={color.muted}>Video still unavailable. Use the timestamp to view this position.</Copy>;
+  return <View style={styles.frameComparison}>
+    <View style={styles.frameColumn}>
+      <Copy size={12} weight="bold">Your form · {time}</Copy>
+      <Image source={{ uri: stillUrl }} accessibilityLabel={`Your form at ${time}`}
+        resizeMode="contain" style={styles.still} onError={() => setClipFailed(true)} />
+    </View>
+    {reference && <View style={styles.frameColumn}>
+      <Copy size={12} weight="bold">Reference form</Copy>
+      {referenceFailed ? <Copy size={12} tone={color.muted}>Reference still unavailable.</Copy> : <>
+        <Image source={{ uri: Platform.OS === 'web' ? reference.path : mediaUrl(reference.path) }}
+          accessibilityLabel={`Reference form · ${reference.phase}`}
+          resizeMode="contain" style={styles.still} onError={() => setReferenceFailed(true)} />
+        <Copy size={12}>{reference.phase}</Copy>
+      </>}
+      <Link href={reference.source} target="_blank" rel="noopener noreferrer">
+        <Copy size={11} tone={color.plum} style={{ textDecorationLine: 'underline' }}>
+          {reference.credit}{reference.time !== undefined ? ` · ${formatTimestamp(reference.time)}` : ''}
+        </Copy>
+      </Link>
+    </View>}
   </View>;
 }
 
@@ -263,7 +293,6 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
   const [confirm, setConfirm] = useState(false);
   const [editExercise, setEditExercise] = useState(false);
   const [showStart, setShowStart] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
   const [exercise, setExercise] = useState(clip.exerciseId);
   const [starting, setStarting] = useState(false);
   const analysisLock = useRef(false);
@@ -401,6 +430,14 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
         {playbackFailed && <Button compact onPress={() => { setPlaybackFailed(false); setPlaybackAttempt((value) => value + 1); }}>
           Reload video player
         </Button>}
+        <View style={styles.uploadActions}>
+          <DownloadLink href={api.clipDownloadUrl(clip.id)} label="Download video" compact />
+          <Button icon={Pencil} compact disabled={analyzing || cancelling} onPress={() => {
+            setExercise(clip.exerciseId); setEditExercise(true); setError('');
+          }}>Change exercise</Button>
+          <Button icon={Trash2} compact disabled={busy || starting || cancelling}
+            onPress={() => setConfirm(true)}>Delete video</Button>
+        </View>
       </View>
       <View style={[styles.reviewColumn, split && { flex: 1 }]}>
         {clip.review && <>
@@ -419,6 +456,7 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
           </Notice>}
           {viewedReview && <Feedback review={viewedReview}
             detectedExercise={exerciseRecords.get(viewedReview.detectedExerciseId ?? '')?.name}
+            stillUrl={viewedReview.observationFrame && viewedReview.sequence ? api.reviewStillUrl(clip.id, viewedReview.sequence) : undefined}
             onSeek={(seconds) => player.current?.seek(seconds)} />}
         </>}
         {canReview && <>
@@ -463,8 +501,8 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
                   <Notice error>Choose a starting point with at least one second of exercise footage remaining.</Notice>
                 </View>}
                 <Copy size={12} tone={color.muted}>{clip.exerciseId
-                  ? 'Liftmorrow sends up to eight still frames from the next 20 seconds to OpenAI. Audio stays with the saved video.'
-                  : 'Liftmorrow sends up to eight still frames per step from the next 20 seconds to OpenAI. Audio stays with the saved video.'}</Copy>
+                  ? 'Liftmorrow sends up to eight still frames from the next 20 seconds to OpenAI. It may reuse the adjustment frame to match a reference image. Audio stays with the saved video.'
+                  : 'Liftmorrow sends up to eight still frames per step from the next 20 seconds to OpenAI. It may reuse the adjustment frame to match a reference image. Audio stays with the saved video.'}</Copy>
                 <Button kind="primary" icon={Sparkles} disabled={!validStart || tooLate || retryAt !== null} onPress={() => analyze(reviewedHere)}>
                   {retryAt !== null ? 'Retry shortly' : error || failedHere || cancelledHere
                     ? 'Retry analysis' : reviewedHere ? 'Review this section again' : clip.review ? 'Analyze this section' : 'Analyze form'}
@@ -477,20 +515,10 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
       </View>
     </View>}
     {error && <Notice error>{error}</Notice>}
-    {confirm ? <View style={styles.uploadActions}>
+    {confirm && <View style={styles.uploadActions}>
       <Button disabled={busy} onPress={() => { setConfirm(false); setError(''); }}>Keep video</Button>
       <Button kind="danger" icon={Trash2} disabled={busy || starting || cancelling}
         onPress={() => void remove()}>{busy ? 'Deleting…' : 'Delete video'}</Button>
-    </View> : <View style={styles.videoOptions}>
-      <Button kind="quiet" compact end={showOptions ? ChevronUp : ChevronDown} aria-expanded={showOptions}
-        onPress={() => setShowOptions((value) => !value)}>Video options</Button>
-      {showOptions && <View style={styles.uploadActions}>
-        <DownloadLink href={api.clipDownloadUrl(clip.id)} label="Download video" compact />
-        <Button icon={Pencil} compact disabled={analyzing || cancelling} onPress={() => {
-          setExercise(clip.exerciseId); setEditExercise(true); setError('');
-        }}>Change exercise</Button>
-        <Button icon={Trash2} compact disabled={busy || starting || cancelling} onPress={() => setConfirm(true)}>Delete video</Button>
-      </View>}
     </View>}
   </Sheet>;
 }
@@ -519,9 +547,11 @@ const styles = StyleSheet.create({
   observation: { gap: 5, backgroundColor: color.tint, borderRadius: 8, padding: 11 },
   timestamps: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
   observationHeading: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' },
+  frameComparison: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 5 },
+  frameColumn: { flex: 1, minWidth: 0, gap: 4 },
+  still: { width: '100%', aspectRatio: 4 / 3, maxHeight: 250, borderRadius: 7, backgroundColor: color.ink },
   window: { gap: 9, padding: 13, borderColor: color.line, borderWidth: 1, borderRadius: 9 },
   windowAfterReview: { backgroundColor: color.canvas, borderColor: 'transparent' },
   startOptions: { gap: 7, paddingBottom: 5 },
   startField: { width: '100%', maxWidth: 220, gap: 5 },
-  videoOptions: { gap: 7, paddingTop: 6, borderTopWidth: 1, borderColor: color.line },
 });

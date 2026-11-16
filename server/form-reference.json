@@ -1,0 +1,228 @@
+{
+  "push-up": {
+    "source": "https://github.com/yuhonas/free-exercise-db/tree/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/exercises/Pushups",
+    "credit": "Free Exercise DB",
+    "stills": [
+      {
+        "file": "push-up-top.jpg",
+        "phase": "Arms extended"
+      },
+      {
+        "file": "push-up-lowered.jpg",
+        "phase": "Lowered position"
+      }
+    ]
+  },
+  "incline-push-up": {
+    "source": "https://github.com/yuhonas/free-exercise-db/tree/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/exercises/Incline_Push-Up",
+    "credit": "Free Exercise DB",
+    "stills": [
+      {
+        "file": "incline-push-up-lowered.jpg",
+        "phase": "Lowered position"
+      },
+      {
+        "file": "incline-push-up-top.jpg",
+        "phase": "Arms extended"
+      }
+    ]
+  },
+  "bodyweight-squat": {
+    "source": "https://github.com/yuhonas/free-exercise-db/tree/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/exercises/Bodyweight_Squat",
+    "credit": "Free Exercise DB",
+    "stills": [
+      {
+        "file": "bodyweight-squat-standing.jpg",
+        "phase": "Standing position"
+      },
+      {
+        "file": "bodyweight-squat-bottom.jpg",
+        "phase": "Bottom of the squat"
+      }
+    ]
+  },
+  "dumbbell-bench-press": {
+    "source": "https://github.com/yuhonas/free-exercise-db/tree/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/exercises/Dumbbell_Bench_Press",
+    "credit": "Free Exercise DB",
+    "stills": [
+      {
+        "file": "dumbbell-bench-press-lowered.jpg",
+        "phase": "Dumbbells lowered"
+      },
+      {
+        "file": "dumbbell-bench-press-top.jpg",
+        "phase": "Dumbbells pressed up"
+      }
+    ]
+  },
+  "dumbbell-row": {
+    "source": "https://github.com/yuhonas/free-exercise-db/tree/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/exercises/One-Arm_Dumbbell_Row",
+    "credit": "Free Exercise DB",
+    "stills": [
+      {
+        "file": "dumbbell-row-lowered.jpg",
+        "phase": "Arm extended"
+      },
+      {
+        "file": "dumbbell-row-top.jpg",
+        "phase": "Top of the pull"
+      }
+    ]
+  },
+  "glute-bridge": {
+    "source": "https://github.com/yuhonas/free-exercise-db/tree/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/exercises/Butt_Lift_Bridge",
+    "credit": "Free Exercise DB",
+    "stills": [
+      {
+        "file": "glute-bridge-lowered.jpg",
+        "phase": "Hips lowered"
+      },
+      {
+        "file": "glute-bridge-lifted.jpg",
+        "phase": "Hips lifted"
+      }
+    ]
+  },
+  "pull-up": {
+    "source": "https://github.com/yuhonas/free-exercise-db/tree/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/exercises/Pullups",
+    "credit": "Free Exercise DB",
+    "stills": [
+      {
+        "file": "pull-up-hang.jpg",
+        "phase": "Bottom hang"
+      },
+      {
+        "file": "pull-up-top.jpg",
+        "phase": "Top of the pull"
+      }
+    ]
+  },
+  "reverse-lunge": {
+    "source": "https://www.dvidshub.net/video/551833/stationary-reverse-lunge",
+    "credit": "Capt. Matthew Holfinger, U.S. Marine Corps",
+    "stills": [
+      {
+        "file": "reverse-lunge-standing.jpg",
+        "phase": "Standing position",
+        "time": 10.5
+      },
+      {
+        "file": "reverse-lunge-bottom.jpg",
+        "phase": "Bottom of the lunge",
+        "time": 12.4
+      }
+    ]
+  },
+  "dumbbell-rdl": {
+    "source": "https://www.dvidshub.net/video/548459/dumbbell-romanian-deadlift",
+    "credit": "Capt. Matthew Holfinger, U.S. Marine Corps",
+    "stills": [
+      {
+        "file": "dumbbell-rdl-standing.jpg",
+        "phase": "Standing position",
+        "time": 19.2
+      },
+      {
+        "file": "dumbbell-rdl-hinge.jpg",
+        "phase": "Lowered hip hinge",
+        "time": 22.6
+      }
+    ]
+  },
+  "dumbbell-curl": {
+    "source": "https://www.dvidshub.net/video/636923/dumbbell-curl",
+    "credit": "Capt. Matthew Holfinger, U.S. Marine Corps",
+    "stills": [
+      {
+        "file": "dumbbell-curl-lowered.jpg",
+        "phase": "Dumbbells at sides",
+        "time": 2
+      },
+      {
+        "file": "dumbbell-curl-mid.jpg",
+        "phase": "Mid-curl",
+        "time": 3.2
+      },
+      {
+        "file": "dumbbell-curl-top.jpg",
+        "phase": "Top of the curl",
+        "time": 3.65
+      }
+    ]
+  },
+  "goblet-squat": {
+    "source": "https://www.dvidshub.net/video/548733/kettlebell-goblet-squat",
+    "credit": "Capt. Matthew Holfinger, U.S. Marine Corps",
+    "stills": [
+      {
+        "file": "goblet-squat-standing.jpg",
+        "phase": "Standing with kettlebell at chest",
+        "time": 20.4
+      },
+      {
+        "file": "goblet-squat-bottom.jpg",
+        "phase": "Bottom of the goblet squat with kettlebell",
+        "time": 22.6
+      }
+    ]
+  },
+  "bird-dog": {
+    "source": "https://www.youtube.com/watch?v=LHlZxvSMLXU",
+    "credit": "U.S. Army Holistic Health and Fitness",
+    "stills": [
+      {
+        "file": "bird-dog-start.jpg",
+        "phase": "Hands and knees",
+        "time": 27.4
+      },
+      {
+        "file": "bird-dog-reach.jpg",
+        "phase": "Opposite arm and leg extended",
+        "time": 29.4
+      }
+    ]
+  },
+  "dead-bug": {
+    "source": "https://www.youtube.com/watch?v=nKwkRQVJdgM",
+    "credit": "Lyster Army Health Clinic",
+    "stills": [
+      {
+        "file": "dead-bug-start.jpg",
+        "phase": "Arms and knees raised",
+        "time": 550
+      },
+      {
+        "file": "dead-bug-reach.jpg",
+        "phase": "Opposite arm and leg reaching away",
+        "time": 552
+      }
+    ]
+  },
+  "forearm-plank": {
+    "source": "https://www.dvidshub.net/video/825280/forearm-plank",
+    "credit": "Staff Sgt. Randall Moose, U.S. Air Force",
+    "stills": [
+      {
+        "file": "forearm-plank-hold.jpg",
+        "phase": "Forearm plank hold",
+        "time": 12
+      }
+    ]
+  },
+  "dumbbell-shoulder-press": {
+    "source": "https://data.mendeley.com/datasets/kgbb3yn47p/3",
+    "credit": "Duddela Sai Prashanth and colleagues",
+    "stills": [
+      {
+        "file": "dumbbell-shoulder-press-lowered.jpg",
+        "phase": "Dumbbells at shoulder height",
+        "time": 3.4
+      },
+      {
+        "file": "dumbbell-shoulder-press-top.jpg",
+        "phase": "Dumbbells overhead",
+        "time": 5.3
+      }
+    ]
+  }
+}

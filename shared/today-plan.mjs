@@ -26,7 +26,25 @@ export function isPlannableExercise(exercise) {
     && !exercise.primaryMuscles?.includes('Neck') && Boolean(exercise.primaryMuscles?.length);
 }
 
-export function buildTodayPlan({ current, catalog, equipment, preferences, workouts, adjustment }) {
+export function applyTrainingNotes(preferences, notes = []) {
+  const preferred = new Set(preferences?.preferred);
+  const excluded = new Set(preferences?.excluded);
+  const handled = new Set();
+  // Notes arrive newest first. An explicit exclusion in Profile always wins.
+  for (const { kind, exerciseId } of notes) {
+    if (!exerciseId || handled.has(exerciseId)) continue;
+    if (kind === 'avoid') excluded.add(exerciseId);
+    if (kind === 'prefer') preferred.add(exerciseId);
+    handled.add(exerciseId);
+  }
+  return {
+    ...preferences, preferred: [...preferred].filter((id) => !excluded.has(id)), excluded: [...excluded],
+    shorter: notes.some(({ kind }) => kind === 'shorter'),
+  };
+}
+
+export function buildTodayPlan({ current, catalog, equipment, preferences, workouts, adjustment, forSchedule = false, trainingNotes }) {
+  preferences = applyTrainingNotes(preferences, trainingNotes);
   const rest = (reason, summary) => ({ kind: 'rest', name: 'A day to recover', summary, reasons: [reason], exercises: [] });
   if (adjustment === 'rest') {
     return rest('You asked to rest today.', 'Pick up with a fresh suggestion the next time you train.');
@@ -36,13 +54,13 @@ export function buildTodayPlan({ current, catalog, equipment, preferences, worko
     && byDate(workout) <= `${current.date}T${current.time}/\uffff`
     && (workout.source === 'trainer' || workout.exercises.some((item) => countSets(item) > 0)))
     .sort((a, b) => byDate(b).localeCompare(byDate(a)));
-  if (history[0]?.date === current.date) {
+  if (!forSchedule && history[0]?.date === current.date) {
     return rest(history[0].source === 'trainer' ? 'A trainer session is already logged today.' : 'You already logged training today.',
       'Your next suggestion will take today’s session into account.');
   }
   const recent = history.filter((workout) => ageDays(current.date, workout.date) <= 14);
   const latest = recent[0];
-  const yesterday = latest && ageDays(current.date, latest.date) === 1;
+  const yesterday = !forSchedule && latest && ageDays(current.date, latest.date) === 1;
   const difficult = latest && validEffort(latest.effort) && latest.effort >= 8 && ageDays(current.date, latest.date) <= 3;
   const trainerYesterday = yesterday && latest.source === 'trainer';
   if (yesterday && latest.effort >= 9) {
@@ -100,7 +118,7 @@ export function buildTodayPlan({ current, catalog, equipment, preferences, worko
     return [{ exercise, score, goal, targets, region: regions.get(targets[0]) ?? targets[0] }];
   });
   const balanced = goals.size === 0;
-  const limit = light ? 3 : preferences?.experience === 'regular' ? 5 : 4;
+  const limit = light || preferences.shorter ? 3 : preferences.experience === 'regular' ? 5 : 4;
   while (pool.length && selected.length < limit) {
     const rank = ({ region, targets, score }) => score
       + (covered.has(region) ? 0 : balanced ? 8 : 2)
@@ -135,6 +153,7 @@ export function buildTodayPlan({ current, catalog, equipment, preferences, worko
   });
   const reasons = [];
   if (adjustment === 'easier') reasons.push('You asked for a lighter day.');
+  if (preferences.shorter) reasons.push('A saved training note asks for shorter workouts.');
   if (trainerYesterday) reasons.push('Yesterday’s trainer session keeps today shorter.');
   if (yesterday && previousDay.size) reasons.push('The plan changes focus from the muscles you worked most yesterday.');
   if (difficult) reasons.push(`A recent session rated ${latest.effort} out of 10 keeps the targets lighter.`);
@@ -143,7 +162,7 @@ export function buildTodayPlan({ current, catalog, equipment, preferences, worko
   if (!history.length) reasons.push('You’re starting without training history, so targets are modest.');
   if (!gear.size) reasons.push('Uses bodyweight with no saved equipment needed.');
   if (selected.some((pick) => pick.goal)) reasons.push('Includes work for your saved muscle priorities.');
-  if (selected.some(({ exercise }) => preferred.has(exercise.id))) reasons.push('Includes exercises you marked as trainer favorites.');
+  if (selected.some(({ exercise }) => preferred.has(exercise.id))) reasons.push('Includes exercises you marked as preferred.');
   if (!reasons.length) reasons.push('Uses recent training to rotate which muscle groups get attention.');
   return {
     kind: 'train',

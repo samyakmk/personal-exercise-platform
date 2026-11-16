@@ -103,6 +103,7 @@ test('exercise details use the same session flow and suggest an exercise after c
   ] });
   await page.getByRole('button', { name: 'Train again' }).click();
   const active = page.getByRole('dialog', { name: 'Quick training' });
+  await active.getByRole('button', { name: 'I’m ready' }).click();
   await expect(active.getByLabel('Reps · Push-Up', { exact: true })).toHaveValue('7');
   await active.getByRole('button', { name: 'Pause session' }).click();
   await page.reload();

@@ -1,16 +1,17 @@
 import { Link, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, ChevronDown, Dumbbell, Search, SearchX, SlidersHorizontal, Sparkles, X } from 'lucide-react-native';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { RequestError } from '../api';
 import { ExerciseCard } from '../components/ExerciseCard';
 import { ExerciseSheet } from '../components/ExerciseSheet';
+import { RecommendationPanel, RefinementControls } from '../components/RecommendationControls';
 import { Sheet } from '../components/Sheet';
 import { Button, Chip, Copy, Empty, IconButton, Input, Loading, Notice, PageTitle, Panel, ViewTab } from '../components/ui';
 import { muscleNames } from '../muscleWork';
 import { SelectField } from '../platform/fields';
 import { color } from '../theme';
-import type { EquipmentMode, Exercise, ExerciseFilters, Recommendation } from '../types';
+import type { EquipmentMode, Exercise, ExerciseFilters, ExerciseRefinement, Refinement } from '../types';
+import { useRecommendationRequest } from '../useRecommendationRequest';
 import { useWorkspace } from '../workspace';
 
 const pageSize = 30;
@@ -37,11 +38,11 @@ export function Explore() {
     [targets, detail, mode, search, level, category]);
   const savedOnly = savedFilter === '1';
   const [result, setResult] = useState<{ key: string; items: Exercise[] } | null>(null);
-  const [coaching, setCoaching] = useState<{ key: string; pending?: boolean; error?: string; picks?: Recommendation[]; retryAt?: number } | null>(null);
-  const coachingRequest = useRef<AbortController | null>(null);
   const equipmentKey = JSON.stringify(data?.equipment);
   const selectionKey = JSON.stringify([filters, equipmentKey]);
-  const coachingKey = JSON.stringify([selectionKey, recommendationContext]);
+  const coachingKey = JSON.stringify([selectionKey, recommendationContext, savedOnly]);
+  const coaching = useRecommendationRequest(coachingKey, (refinement: ExerciseRefinement | undefined, signal) =>
+    api.recommendations(filters, signal, refinement));
   const saved = useMemo(() => {
     const bookmarks = new Set(data?.bookmarks);
     return new Set(data?.catalog.filter(({ id }) => bookmarks.has(id)).map(({ id }) => id));
@@ -51,9 +52,9 @@ export function Explore() {
   const [shown, setShown] = useState({ key: '', count: pageSize });
   const showCount = shown.key === resultKey ? shown.count : pageSize;
   const visibleResults = results?.slice(0, showCount) ?? [];
-  const currentCoaching = coaching?.key === coachingKey ? coaching : null;
-  const hasPicks = Boolean(currentCoaching?.picks?.length);
-  const retryAt = currentCoaching?.retryAt;
+  const picks = coaching.result;
+  const hasPicks = Boolean(picks?.length);
+  const waiting = Boolean(coaching.pending || coaching.retryAt);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [open, setOpen] = useState(false);
@@ -78,45 +79,22 @@ export function Explore() {
     return () => { clearTimeout(timer); controller.abort(); };
   }, [workspaceReady, filters, search, selectionKey, retry]);
 
-  useEffect(() => {
-    setCoaching(null);
-    return () => {
-      coachingRequest.current?.abort();
-      coachingRequest.current = null;
-    };
-  }, [coachingKey, savedOnly]);
-
-  useEffect(() => {
-    if (!retryAt) return;
-    const timer = setTimeout(() => {
-      setCoaching((current) => current?.retryAt === retryAt ? { ...current, retryAt: undefined } : current);
-    }, Math.max(0, retryAt - Date.now()));
-    return () => clearTimeout(timer);
-  }, [retryAt]);
-
   if (!data) return null;
 
   const openExercise = (exercise: Exercise) => router.setParams({ exercise: exercise.id });
   const closeExercise = () => router.setParams({ exercise: undefined });
 
-  async function getRecommendations() {
-    if (coachingRequest.current || retryAt) return;
-    const controller = new AbortController();
-    coachingRequest.current = controller;
-    setCoaching({ key: coachingKey, pending: true });
-    try {
-      const picks = await api.recommendations(filters, controller.signal);
-      if (!controller.signal.aborted) setCoaching({ key: coachingKey, picks });
-    } catch (failure) {
-      if (!controller.signal.aborted) {
-        const seconds = failure instanceof RequestError ? failure.retryAfter : undefined;
-        setCoaching({ key: coachingKey, error: (failure as Error).message,
-          retryAt: seconds ? Date.now() + Math.min(300, seconds) * 1000 : undefined });
-      }
-    } finally {
-      if (coachingRequest.current === controller) coachingRequest.current = null;
-    }
+  function refine(adjustment: Refinement) {
+    if (picks?.length) void coaching.run({ adjustment, previous: picks.map(({ exerciseId }) => exerciseId) });
   }
+
+  const changed = coaching.input && picks && !coaching.pending && !coaching.error
+    ? picks.length !== coaching.input.previous.length || picks.some(({ exerciseId }, i) => exerciseId !== coaching.input?.previous[i])
+    : undefined;
+  const unchangedMessage = coaching.input && {
+    easier: 'No easier alternative matches these filters.', harder: 'No harder alternative matches these filters.',
+    shorter: 'There’s already only one pick.', longer: 'There are no more picks to add with these filters and the five-pick limit.',
+  }[coaching.input.adjustment];
 
   const filterOptions: { value: EquipmentMode; label: string }[] = [
     { value: 'all', label: 'Any equipment' },
@@ -145,6 +123,33 @@ export function Explore() {
     {requested && !selected && <Notice action={<Button compact kind="quiet" onPress={closeExercise}>Dismiss</Button>}>
       This exercise is no longer in the library.
     </Notice>}
+
+    {data.aiAvailable && !savedOnly && <RecommendationPanel title="Find exercises with AI"
+      detail="Get a shortlist based on your filters, equipment, and recent training. Adjust the picks until they fit.">
+      {!hasPicks && !coaching.pending && <Button icon={Sparkles} kind="primary" disabled={waiting || !results?.length}
+        onPress={coaching.error ? coaching.retry : () => coaching.run(undefined)}>
+        {coaching.retryAt ? 'Retry shortly' : coaching.error ? 'Try again' : 'Get AI recommendations'}
+      </Button>}
+      {coaching.pending && <Loading label={hasPicks ? 'Refining your picks…' : 'Finding your picks…'} />}
+      {coaching.error && <Notice error>{coaching.error}</Notice>}
+      {picks?.length === 0 && <Notice>No exercises match your current filters.</Notice>}
+      {!!picks?.length && <>
+        <Copy accessibilityRole="header" aria-level={3} size={15} weight="bold">Recommended for you</Copy>
+        {picks.map(({ exerciseId, reason }) => {
+          const exercise = data.catalog.find((item) => item.id === exerciseId);
+          return exercise && <View key={exerciseId} style={styles.pick}>
+            <View style={styles.pickTitle}>
+              <Button compact kind="quiet" end={ArrowUpRight} onPress={() => openExercise(exercise)}>{exercise.name}</Button>
+              <Copy size={12} tone={color.plum}>{exercise.level}</Copy>
+            </View>
+            <Copy size={13} tone={color.muted}>{reason}</Copy>
+          </View>;
+        })}
+        <RefinementControls onRefine={refine} disabled={waiting} exerciseList />
+        {changed !== undefined && <Notice>{changed ? 'Recommendations updated.' : unchangedMessage ?? ''}</Notice>}
+        {coaching.error && <Button compact disabled={waiting} onPress={coaching.retry}>{waiting ? 'Retry shortly' : 'Retry refinement'}</Button>}
+      </>}
+    </RecommendationPanel>}
 
     <View style={styles.controls}>
       <View style={styles.toolbar}>
@@ -198,30 +203,8 @@ export function Explore() {
           <ViewTab label="All exercises" selected={!savedOnly} onPress={showAllExercises} />
           <ViewTab label={`Saved exercises (${saved.size})`} selected={savedOnly} onPress={() => router.setParams({ saved: '1' })} />
         </View>
-        {data.aiAvailable && !savedOnly && !hasPicks && <Button icon={Sparkles} kind="quiet" compact
-          disabled={currentCoaching?.pending || Boolean(retryAt) || !results?.length}
-          onPress={getRecommendations}>{currentCoaching?.pending ? 'Finding picks…' : retryAt ? 'Retry shortly' : currentCoaching?.error ? 'Try again' : 'Get recommendations'}</Button>}
       </View>
     </View>
-
-    {data.aiAvailable && !savedOnly && currentCoaching && <View style={styles.coaching}>
-      {currentCoaching.pending && <Loading label="Ranking matching exercises…" />}
-      {currentCoaching.error && <Notice error>{currentCoaching.error}</Notice>}
-      {currentCoaching.picks?.length === 0 && <Notice>No exercises match your current filters.</Notice>}
-      {hasPicks && <Panel style={styles.picks}>
-        <View style={styles.pickHeading}>
-          <Sparkles aria-hidden size={16} color={color.plum} />
-          <Copy accessibilityRole="header" aria-level={2} size={14} weight="bold">Recommended for you</Copy>
-        </View>
-        {currentCoaching.picks?.map(({ exerciseId, reason }) => {
-          const exercise = data.catalog.find((item) => item.id === exerciseId);
-          return exercise && <View key={exerciseId} style={styles.pick}>
-            <Button compact kind="quiet" end={ArrowUpRight} onPress={() => openExercise(exercise)}>{exercise.name}</Button>
-            <Copy size={13} tone={color.muted}>{reason}</Copy>
-          </View>;
-        })}
-      </Panel>}
-    </View>}
 
     {error ? <Notice error action={<Button compact onPress={() => setRetry((value) => value + 1)}>Retry</Button>}>{error}</Notice>
       : results === null ? <Loading label="Finding exercises…" />
@@ -300,8 +283,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: color.line },
   tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   resultMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 31 },
-  coaching: { gap: 5 },
-  picks: { padding: 13, backgroundColor: color.tint, gap: 7 },
-  pickHeading: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  pickTitle: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   pick: { borderTopWidth: 1, borderColor: color.line, paddingTop: 3, gap: 2 },
 });

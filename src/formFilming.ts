@@ -1,0 +1,17 @@
+export const filmingTips: Record<string, string> = {
+  'push-up': 'Set the camera low and to your side. Keep your hands, shoulders, hips, and feet in frame.',
+  'incline-push-up': 'Use a side view that shows the raised surface and your full body, including hands and feet.',
+  'goblet-squat': 'Film from the side so your torso, hips, knees, and feet stay visible.',
+  'bodyweight-squat': 'Film from the side so your torso, hips, knees, and feet stay visible.',
+  'reverse-lunge': 'Use a side view with both feet visible. Include standing, stepping back, and returning to standing.',
+  'dumbbell-bench-press': 'Use a side view that shows the bench, both dumbbells, and your feet.',
+  'dumbbell-row': 'Film from the working side so your shoulder, elbow, and weight are visible.',
+  'dumbbell-curl': 'Film from the working side and keep your torso, elbow, and dumbbell in view.',
+  'dumbbell-shoulder-press': 'Leave space above your head and keep your torso and both dumbbells visible.',
+  'forearm-plank': 'Film from the side with your elbows, hips, and feet in view during the hold.',
+  'glute-bridge': 'Set the camera low and to your side so your shoulders, hips, knees, and feet stay visible.',
+  'dumbbell-rdl': 'Film from the side so your hips, knees, and both weights stay in frame.',
+  'bird-dog': 'Use a low diagonal view with room for your full arm and leg reach.',
+  'dead-bug': 'Use a low side view that shows your torso and the full reach of your arms and legs.',
+  'pull-up': 'Frame the bar and your entire body through the bottom and top of the pull-up.',
+};
