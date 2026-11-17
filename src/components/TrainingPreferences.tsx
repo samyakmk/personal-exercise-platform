@@ -7,30 +7,38 @@ import { SelectField } from '../platform/fields';
 import { color } from '../theme';
 import type { Exercise, ProfileRevision, TrainingPreferences } from '../types';
 import { useWorkspace } from '../workspace';
+import { TrainerInstructions } from './TrainerInstructions';
 import { Button, Chip, Copy, Input, Loading, Notice, Panel, SectionTitle } from './ui';
 
 export const emptyPreferences: TrainingPreferences = {
   intake: 'skipped', trainerNotes: '', experience: '', priorities: [], preferred: [], excluded: [],
 };
 
-const commonPriorities = [
-  ...broadPriorities, 'Legs', 'Glutes', 'Chest', 'Back', 'Shoulders', 'Core', 'Arms', 'Biceps', 'Triceps', 'Calves', 'Hamstrings', 'Quadriceps',
-];
+const commonPriorities = [...broadPriorities, 'Legs', 'Back', 'Core', 'Arms'];
+const detailedPriorities = ['Glutes', 'Chest', 'Shoulders', 'Biceps', 'Triceps', 'Calves', 'Hamstrings', 'Quadriceps'];
 
 export function PreferenceFields({ value, onChange, disabled }: {
   value: TrainingPreferences; onChange: (values: TrainingPreferences) => void; disabled: boolean;
 }) {
   const { data } = useWorkspace();
-  const [expanded, setExpanded] = useState(false);
   const planExercises = (data?.catalog ?? []).filter(isPlannableExercise);
-  const muscles = expanded
-    ? [...new Set([...commonPriorities, ...planExercises.flatMap(({ primaryMuscles }) => primaryMuscles ?? [])])].sort()
-    : [...new Set([...commonPriorities, ...value.priorities])];
+  const specificMuscles = [...new Set([...detailedPriorities, ...value.priorities,
+    ...planExercises.flatMap(({ primaryMuscles }) => primaryMuscles ?? [])])]
+    .filter((muscle) => !commonPriorities.includes(muscle)).sort();
   function edit(patch: Partial<TrainingPreferences>) {
     onChange({ ...value, ...patch, intake: 'completed' });
   }
+  function muscleChips(muscles: string[]) {
+    return <View style={styles.actions}>
+      {muscles.map((muscle) => {
+        const selected = value.priorities.includes(muscle);
+        return <Chip key={muscle} label={muscle} selected={selected} disabled={disabled} onPress={() =>
+          edit({ priorities: selected ? value.priorities.filter((item) => item !== muscle) : [...value.priorities, muscle] })} />;
+      })}
+    </View>;
+  }
   return <View style={styles.group}>
-    <SelectField label="How often have you been strength training?" value={value.experience} disabled={disabled}
+    <SelectField label="Strength training experience" value={value.experience} disabled={disabled}
       onChange={(experience) => edit({ experience: experience as TrainingPreferences['experience'] })}
       options={[
         { value: '', label: 'Prefer not to say' },
@@ -39,28 +47,22 @@ export function PreferenceFields({ value, onChange, disabled }: {
       ]} />
     <Input label="What has your trainer asked you to work on between sessions?" visibleLabel="What has your trainer asked you to work on?"
       value={value.trainerNotes} editable={!disabled} onChangeText={(trainerNotes) => edit({ trainerNotes })}
-      multiline maxLength={1200} placeholder="Optional · Cues, things to practice, or guidance to remember" style={styles.textarea} />
+      multiline maxLength={1200} placeholder="Optional · Cues or things to practice" style={styles.textarea} />
     <View role="group" accessibilityLabel="Muscle priorities" style={styles.stack}>
       <Copy size={13} weight="semibold">Muscle priorities (optional)</Copy>
-      <Copy size={12} tone={color.muted}>Leave these blank for balanced training. Choose a few to put them first over the week.</Copy>
-      <View style={styles.actions}>
-        {muscles.map((muscle) => {
-          const selected = value.priorities.includes(muscle);
-          return <Chip key={muscle} label={muscle} selected={selected} onPress={() => {
-            if (!disabled) edit({ priorities: selected ? value.priorities.filter((item) => item !== muscle) : [...value.priorities, muscle] });
-          }} />;
-        })}
-        <Button compact kind="quiet" end={ChevronDown} aria-expanded={expanded} onPress={() => setExpanded(!expanded)}>
-          {expanded ? 'Show common priorities' : 'More muscles'}
-        </Button>
-      </View>
+      <Copy size={12} tone={color.muted}>Leave blank for balanced training.</Copy>
+      {muscleChips(commonPriorities)}
+      <Copy size={12} weight="semibold" tone={color.muted}>Specific muscles</Copy>
+      {muscleChips(specificMuscles)}
     </View>
-    <View style={styles.stack}>
-      <Copy size={13} weight="semibold">Put your trainer’s guidance into practice</Copy>
-      <Copy size={12} tone={color.muted}>Written notes are saved for you to refer to. Pick named exercises below to change suggestions.</Copy>
+    <View style={styles.exercisePreferences}>
+      <SectionTitle title="Exercise preferences" level={3} />
+      <ExercisePreference kind="preferred" exercises={planExercises} values={value} disabled={disabled} change={edit} />
+      <ExercisePreference kind="excluded" exercises={planExercises} values={value} disabled={disabled} change={edit} />
     </View>
-    <ExercisePreference kind="preferred" exercises={planExercises} values={value} disabled={disabled} change={edit} />
-    <ExercisePreference kind="excluded" exercises={planExercises} values={value} disabled={disabled} change={edit} />
+    <View style={styles.exercisePreferences}>
+      <TrainerInstructions items={value.instructions ?? []} onChange={(instructions) => edit({ instructions })} disabled={disabled} />
+    </View>
   </View>;
 }
 
@@ -125,7 +127,7 @@ export function TrainingProfileHistory() {
         const preferences = details.trainingPreferences;
         const names = (ids: string[]) => ids.map((key) => exerciseRecords.get(key)?.name ?? key).join(', ');
         return <View key={id} role="listitem" style={styles.revision}>
-          <Copy size={12} weight="bold" tone={color.plum}>{new Date(savedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</Copy>
+          <Copy size={12} weight="bold" tone={color.forest}>{new Date(savedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</Copy>
           {details.displayName ? <Copy size={13}>{details.displayName}</Copy> : null}
           <Copy size={13}>{details.trainingGoal || 'No written goal'}</Copy>
           {preferences?.trainerNotes ? <Copy size={13}>{preferences.trainerNotes}</Copy> : null}
@@ -133,6 +135,9 @@ export function TrainingProfileHistory() {
           <Copy size={12} tone={color.muted}>Priorities: {preferences?.priorities.join(', ') || 'Balanced'}</Copy>
           {preferences?.preferred.length ? <Copy size={12} tone={color.muted}>Prefer: {names(preferences.preferred)}</Copy> : null}
           {preferences?.excluded.length ? <Copy size={12} tone={color.muted}>Leave out: {names(preferences.excluded)}</Copy> : null}
+          {preferences?.instructions?.map(({ id, exerciseId, kind, text }) => <Copy key={id} size={12} tone={color.muted}>
+            {`${names([exerciseId])} · ${kind === 'cue' ? 'Cue' : kind === 'prefer' ? 'Prefer' : 'Leave out'}${text ? ` · ${text}` : ''}`}
+          </Copy>)}
         </View>;
       })}
       </View>)}
@@ -144,6 +149,7 @@ const styles = StyleSheet.create({
   stack: { gap: 6 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   textarea: { minHeight: 84, paddingVertical: 10 },
+  exercisePreferences: { gap: 10, paddingTop: 12, borderTopWidth: 1, borderColor: color.line },
   history: { gap: 10, padding: 19 },
   revision: { gap: 4, paddingTop: 10, borderTopWidth: 1, borderTopColor: color.line },
 });

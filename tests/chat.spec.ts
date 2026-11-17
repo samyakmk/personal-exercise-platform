@@ -53,17 +53,35 @@ test('the full-page chat keeps its conversation across navigation and saves only
   await expect(page.getByText('You could try a glute bridge.')).toBeVisible();
   await page.getByRole('button', { name: 'New chat' }).click();
   await expect(page.getByRole('heading', { name: 'What’s on your mind?' })).toBeVisible();
-  await nav.getByRole('link', { name: 'Profile' }).click();
+  await nav.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('dialog', { name: 'More' }).getByRole('link', { name: 'Profile' }).click();
   await page.reload();
   await expect(page.getByText(message)).toBeVisible();
   await page.getByRole('button', { name: 'Remove training note 1' }).click();
   await expect(page.getByText('No notes yet.', { exact: false })).toBeVisible();
 });
 
-test('Chat explains when AI is unavailable', async ({ page }) => {
+test('Chat shows an unavailable state when replies are disabled', async ({ page }) => {
   await page.goto('/chat');
   await expect(page.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible();
-  await expect(page.getByText('Chat is unavailable until the Liftmorrow server has an OpenAI key.')).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'Message' })).not.toBeEditable();
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(page.getByText('Chat is currently unavailable.')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Message' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+});
+
+test('weight lookup reads the logged sets and links to the source with the AI provider disabled', async ({ page }) => {
+  const id = '43866a06-6258-4132-9c25-8767c280da95';
+  const saved = await page.request.post('/api/workouts', { data: {
+    id, name: 'Curl session', date: '2026-01-02', time: '09:00', status: 'completed',
+    exercises: [{ exerciseId: 'dumbbell-curl', setDetails: [{ reps: 8, load: { unit: 'lb', value: 25 } }] }],
+  } });
+  expect(saved.ok()).toBeTruthy();
+  await page.goto('/chat');
+  await page.getByRole('button', { name: 'Look up a weight' }).click();
+  const lookup = page.getByRole('dialog', { name: 'Look up a weight' });
+  await lookup.getByRole('combobox', { name: 'Exercise you logged' }).fill('curl');
+  await lookup.getByRole('option', { name: 'Single-Arm Dumbbell Curl' }).click();
+  await lookup.getByRole('button', { name: 'Find weight' }).click();
+  await expect(lookup.getByText(/25 lb per dumbbell/)).toBeVisible();
+  await expect(lookup.getByRole('link', { name: 'Curl session · 2026-01-02' })).toHaveAttribute('href', `/sessions?session=${id}`);
 });

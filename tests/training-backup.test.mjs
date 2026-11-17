@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { createTestProfile } from './test-profile.mjs';
 
 const endpoint = 'workspace/training-backup';
 
 async function start(t) {
-  const server = createLiftmorrowServer({ database: ':memory:', respond: null });
+  const server = createTrainerPlusServer({ database: ':memory:', respond: null });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((resolve) => server.close(resolve)));
@@ -34,13 +34,13 @@ test('date-filtered v1 backups preserve order, format, settings, and isolation',
   const owner = await session();
   const other = await session();
   const records = [workout(1, '2026-11-01'), workout(2, '2026-11-02', ''), workout(3, '2026-11-02'), workout(4, '2026-11-03')];
-  const fields = { format: 'liftmorrow-training', version: 1, equipment: ['Dumbbells'], bookmarks: ['push-up'] };
+  const fields = { format: 'trainer-plus-training', version: 1, equipment: ['Dumbbells'], bookmarks: ['push-up'] };
   const response = await owner(endpoint + '?response=summary', post({ ...fields, workouts: records.toReversed() }));
   assert.deepEqual(await response.json(), { restore: { added: 4, skipped: 0, equipmentImported: true, savedExercises: 1 } });
   const query = endpoint + '?from=2026-11-02&before=2026-11-03';
   const filtered = await owner(query);
   assert.equal(filtered.headers.get('cache-control'), 'private, no-store');
-  assert.match(filtered.headers.get('content-disposition'), /liftmorrow-training-backup.json/);
+  assert.match(filtered.headers.get('content-disposition'), /trainer-plus-training-backup.json/);
   const { notes, ...withoutNotes } = records[1];
   assert.equal(await filtered.text(), JSON.stringify({ ...fields, workouts: [withoutNotes, records[2]] }));
   assert.deepEqual((await (await owner(endpoint + '?before=2026-11-02')).json()).workouts, [records[0]]);
@@ -54,13 +54,16 @@ test('date-filtered v1 backups preserve order, format, settings, and isolation',
   assert.deepEqual(snapshot.restore, { added: 2, skipped: 0, equipmentImported: true, savedExercises: 1 });
   assert.deepEqual(snapshot.workouts.map(({ id }) => id), [records[1].id, records[2].id]);
   assert.ok(Array.isArray(snapshot.clips));
-  assert.equal((await (await other(endpoint)).json()).format, 'liftmorrow-training');
+  const lastBrand = await other(endpoint + '?response=summary', post({ ...fields, format: 'liftmorrow-training', workouts: [records[3]] }));
+  assert.equal(lastBrand.status, 200);
+  assert.equal((await lastBrand.json()).restore.added, 1);
+  assert.equal((await (await other(endpoint)).json()).format, 'trainer-plus-training');
 });
 
 test('oversize histories can be split into v1 files and summary-only replay leaves the workspace unchanged', { timeout: 6000 }, async (t) => {
   const session = await start(t);
   const owner = await session();
-  const fields = { format: 'liftmorrow-training', version: 1, equipment: null, bookmarks: [] };
+  const fields = { format: 'trainer-plus-training', version: 1, equipment: null, bookmarks: [] };
   const notes = '🟩'.repeat(600);
   for (const [start, date] of [[0, '2026-11-01'], [1800, '2026-11-02']]) {
     const records = Array.from({ length: 1800 }, (_, index) => workout(start + index, date, notes));

@@ -35,7 +35,7 @@ test('the heat map weights logged sets across the selected period and shows an i
   await page.reload();
   const map = page.getByRole('group', { name: 'Muscle heat map', exact: true });
   const muscle = (name: string, points: number) =>
-    map.getByRole('link', { name: `${name}, ${points} ${points === 1 ? 'point' : 'points'} · Find exercises` });
+    map.getByRole('button', { name: new RegExp(`^${name}, ${points} ${points === 1 ? 'point' : 'points'}.* · View muscle activity$`) });
 
   await expect(muscle('Lats', 5.3)).toBeVisible();
   await expect(muscle('Shoulders', 4.9)).toBeVisible();
@@ -64,8 +64,8 @@ test('the heat map weights logged sets across the selected period and shows an i
   await expect(page.getByRole('button', { name: 'This session' })).toHaveCount(0);
 
   await page.goto('/workouts?view=history');
-  await page.getByRole('button', { name: 'Details · Upper body' }).click();
-  await expect(page.getByRole('link', { name: 'Muscle heat map' })).toHaveAttribute('href', '/progress?session=' + upper);
+  const actions = page.getByRole('group', { name: 'Actions · Upper body' });
+  await expect(actions.getByRole('link', { name: 'Muscle heat map' })).toHaveAttribute('href', '/progress?session=' + upper);
 
   await page.goto('/sessions?session=' + upper);
   await page.getByRole('link', { name: 'Muscle heat map' }).click();
@@ -76,6 +76,9 @@ test('the heat map weights logged sets across the selected period and shows an i
   const triceps = muscle('Triceps', 1);
   await triceps.focus();
   await page.keyboard.press('Enter');
+  const muscleDetails = page.getByRole('dialog', { name: 'Triceps activity' });
+  await expect(muscleDetails.getByText('Standing Dumbbell Shoulder Press · 2 sets · Secondary muscle')).toBeVisible();
+  await muscleDetails.getByRole('link', { name: 'Find exercises for Triceps' }).click();
   await expect(page).toHaveURL(/\/explore\?detail=Triceps/);
   await expect(page.getByRole('button', { name: 'Clear Triceps filter' })).toBeVisible();
   const search = page.getByRole('textbox', { name: 'Search exercises' });
@@ -83,7 +86,7 @@ test('the heat map weights logged sets across the selected period and shows an i
   await expect(page.getByRole('button', { name: /Standing Dumbbell Shoulder Press/ })).toBeVisible();
   await search.fill('single arm dumbbell curl');
   await expect(page.getByRole('heading', { name: 'No matching exercises' })).toBeVisible();
-  await page.getByRole('button', { name: 'All muscles' }).click();
+  await page.getByRole('button', { name: 'Clear Triceps filter' }).click();
   await expect(page.getByRole('button', { name: 'Clear Triceps filter' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Single-Arm Dumbbell Curl/ })).toBeVisible();
 });

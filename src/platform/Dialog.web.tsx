@@ -1,17 +1,21 @@
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { color } from '../theme';
+import { color, radius } from '../theme';
 
-export function Dialog({ children, label, onClose, wide }: { children: ReactNode; label: string; onClose: () => void; wide?: boolean }) {
+export function Dialog({ children, label, onClose, wide, footer }: {
+  children: ReactNode; label: string; onClose: () => void; wide?: boolean; footer?: ReactNode;
+}) {
   const element = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     const dialog = element.current;
     let opener: Element | null = null;
+    let openedPath = '';
     let disposed = false;
     function show() {
       if (!dialog || disposed) return;
       opener = document.activeElement;
+      openedPath = window.location.pathname;
       dialog.showModal();
     }
 
@@ -23,10 +27,10 @@ export function Dialog({ children, label, onClose, wide }: { children: ReactNode
       if (dialog?.open) dialog.close();
       requestAnimationFrame(() => {
         if (document.querySelector('dialog[open]')) return;
-        if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) {
+        if (openedPath === window.location.pathname && opener instanceof HTMLElement && opener !== document.body && opener.isConnected) {
           opener.focus();
         } else if (document.activeElement === document.body || document.activeElement === null) {
-          document.getElementById('liftmorrow-main')?.focus({ preventScroll: true });
+          document.getElementById('trainer-plus-main')?.focus({ preventScroll: true });
         }
       });
     };
@@ -49,13 +53,16 @@ export function Dialog({ children, label, onClose, wide }: { children: ReactNode
         onClose();
       }}
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
-      className="liftmorrow-dialog"
+      className="trainer-plus-dialog"
       style={{
-        padding: 0, width: `min(${wide ? 1050 : 600}px, calc(100% - 26px))`, maxHeight: 'calc(100dvh - 32px)', overflow: 'auto',
-        border: `1px solid ${color.line}`, borderRadius: 18, background: color.surface, color: color.text,
+        padding: 0, width: `min(${wide ? 1050 : 600}px, calc(100% - 26px))`, maxHeight: 'calc(100dvh - 32px)', overflow: footer ? 'hidden' : 'auto',
+        border: `1px solid ${color.line}`, borderRadius: radius.panel, background: color.surface, color: color.text,
       }}
     >
-      {children}
+      {footer ? <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 34px)' }}>
+        <div style={{ overflow: 'auto', minHeight: 0, flex: '1 1 auto' }}>{children}</div>
+        {footer}
+      </div> : children}
     </dialog>
   );
 }

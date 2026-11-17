@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SetStateAction } from 'react';
-import { ArrowRight, Check, ChevronDown, ChevronUp, List, Plus, Trash2, X } from 'lucide-react-native';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { ArrowRight, Check, ChevronDown, ChevronUp, Dumbbell, List, Plus, Trash2, X } from 'lucide-react-native';
+import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { createId } from '../api';
 import { addDays, dateKey, earliestWorkoutDate, formatDay, isWorkoutDate, latestWorkoutDate, timeKey } from '../dates';
 import { ExercisePicker } from '../platform/ExercisePicker';
 import { DateTimeField, SelectField } from '../platform/fields';
 import { useProfiles } from '../profiles';
-import { color } from '../theme';
+import { color, radius } from '../theme';
 import type { Exercise, ExerciseLoad, ExerciseSet, Movement, Workout, WorkoutSource, WorkoutStatus, WorkoutSuggestion } from '../types';
 import { useWorkspace } from '../workspace';
 import { RestTimer } from './RestTimer';
+import { EquipmentSheet } from './EquipmentSheet';
 import { Sheet } from './Sheet';
 import { EffortField, SourceField } from './SessionFeedback';
 import { Button, Chip, Copy, IconButton, Input, Notice, SectionTitle } from './ui';
@@ -23,10 +24,11 @@ type DraftSet = {
   unit: ExerciseLoad['unit'];
 };
 type DetailedSet = DraftSet & { id: string };
-type DraftEntry = DraftSet & { exerciseId: string; sets: string; details?: DetailedSet[]; notes?: string };
+type DraftEntry = DraftSet & { exerciseId: string; replacesExerciseId?: string; sets: string; details?: DetailedSet[]; notes?: string };
 
 export type WorkoutDraft = {
   id: string; name: string; day: string; time: string; status: WorkoutStatus; entries: DraftEntry[]; notes?: string; effort?: number | null; source?: WorkoutSource; repeatWeeks?: number; revision?: number;
+  suggestionSetup?: { minutes: number; equipment?: string[] };
 };
 
 type Props = {
@@ -38,11 +40,12 @@ type Props = {
   draft?: WorkoutDraft;
   mode?: 'session';
   exercisesOnly?: boolean;
+  seriesExpected?: { id: string; revision: number }[];
   catalog: Exercise[];
   suggested: string[];
   bookmarks: string[];
   onClose: () => void;
-  onSave: (workout: Workout, existing: boolean, repeatWeeks: number) => Promise<void>;
+  onSave: (workout: Workout, existing: boolean, repeatWeeks: number, editFuture?: boolean) => Promise<void>;
   onDelete: (id: string, revision?: number) => Promise<void>;
   onDraftChange?: (draft: WorkoutDraft) => void;
 };
@@ -65,7 +68,8 @@ function wholeNumber(value: string, max: number) {
   return /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= max;
 }
 
-export function WorkoutEditor({ initial, preset, status, date, copy = false, catalog, suggested, bookmarks, draft, mode, exercisesOnly = false, onClose, onSave, onDelete, onDraftChange }: Props) {
+export function WorkoutEditor({ initial, preset, status, date, copy = false, catalog, suggested, bookmarks, draft, mode, exercisesOnly = false,
+  seriesExpected, onClose, onSave, onDelete, onDraftChange }: Props) {
   const { data, exerciseRecords, recommendationContext } = useWorkspace();
   const { state: profileState } = useProfiles();
   const loggingPlan = status === 'completed' && initial?.status === 'planned';
@@ -86,9 +90,16 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   const [effort, setEffort] = useState(draft?.effort !== undefined ? draft.effort : editing && !loggingPlan ? initial.effort : undefined);
   const [sessionSource, setSessionSource] = useState(draft?.source ?? (copy ? undefined : initial?.source));
   const [repeatWeeks, setRepeatWeeks] = useState(draft?.repeatWeeks ?? 1);
-  const [showOptions, setShowOptions] = useState(Boolean(draft?.notes || initial?.notes || (draft?.repeatWeeks ?? 1) > 1));
+  const [editFuture, setEditFuture] = useState(false);
+  const startsWithChoice = !mode && !initial && !preset && (!draft || Boolean(draft.suggestionSetup)) && status === 'planned';
+  const [choosing, setChoosing] = useState(startsWithChoice);
+  const [budget, setBudget] = useState(draft?.suggestionSetup?.minutes ?? 20);
+  const [suggestionEquipment, setSuggestionEquipment] = useState(draft?.suggestionSetup?.equipment);
+  const [equipmentOpen, setEquipmentOpen] = useState(false);
+  const [templateId, setTemplateId] = useState('');
+  const [showPlanExercises, setShowPlanExercises] = useState(draft?.source !== 'recommended');
   const [entries, setEntries] = useState<DraftEntry[]>(() => {
-    const items = draft?.entries ?? initial?.exercises.map(({ exerciseId, sets, reps, load, setDetails, notes }) => {
+    const items = draft?.entries ?? initial?.exercises.map(({ exerciseId, replacesExerciseId, sets, reps, load, setDetails, notes }) => {
       const planning = status === 'planned';
       const fallback = exerciseRecords.get(exerciseId)?.unit === 'seconds' ? 30 : 10;
       const base = draftSet({ reps: planning ? reps ?? fallback : reps, load });
@@ -96,15 +107,22 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
       const details = source?.length
         ? source.map((set) => ({ id: createId(), ...draftSet({ ...set, reps: planning ? set.reps ?? fallback : set.reps }) }))
         : source && !planning ? [{ id: createId(), reps: '', load: '', unit: 'lb' as const }] : undefined;
-      return { exerciseId, sets: String(planning && !sets ? 3 : sets), ...base, details, notes: copy ? undefined : notes };
+      return { exerciseId, replacesExerciseId: copy ? undefined : replacesExerciseId,
+        sets: String(planning && !sets ? 3 : sets), ...base, details, notes: copy ? undefined : notes };
     }) ?? [];
     return !mode && preset && !items.some((item) => item.exerciseId === preset.id) ? [...items, makeEntry(preset, false)] : items;
   });
   const [choice, setChoice] = useState(() => sessionLog && preset && !entries.some(({ exerciseId }) => exerciseId === preset.id) ? preset.id : '');
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
+  const formStart = useRef<View>(null);
   const [error, setError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  useEffect(() => {
+    if (startsWithChoice && !choosing && Platform.OS === 'web') {
+      (formStart.current as unknown as HTMLElement | null)?.focus();
+    }
+  }, [choosing, startsWithChoice]);
   const width = useWindowDimensions().width;
   const narrow = width < 500;
   const sessionColumns = sessionLog && width >= 660;
@@ -115,8 +133,10 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   useEffect(() => {
     if (startedEditing) onDraftChange?.({
       id, name, day, time, status: currentStatus, entries, notes, effort, source: sessionSource, repeatWeeks, revision: initial?.revision,
+      ...(choosing && { suggestionSetup: { minutes: budget, equipment: suggestionEquipment } }),
     });
-  }, [startedEditing, onDraftChange, id, name, day, time, currentStatus, entries, notes, effort, sessionSource, repeatWeeks, initial?.revision]);
+  }, [startedEditing, onDraftChange, id, name, day, time, currentStatus, entries, notes, effort, sessionSource, repeatWeeks, initial?.revision,
+    choosing, budget, suggestionEquipment]);
 
   function changeEntries(next: SetStateAction<DraftEntry[]>) {
     markEdited(true);
@@ -129,8 +149,24 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
     })));
     setName((current) => current.trim() ? current : workout.name);
     setSessionSource('recommended');
+    setShowPlanExercises(false);
+    setChoosing(false);
     setChoice('');
     setError('');
+  }
+
+  function applyTemplate(template: Workout) {
+    changeEntries(template.exercises.filter(({ exerciseId }) => catalog.some(({ id }) => id === exerciseId)).map((movement) => {
+      const fallback = exerciseRecords.get(movement.exerciseId)?.unit === 'seconds' ? 30 : 10;
+      const base = draftSet({ reps: movement.reps ?? fallback, load: movement.load });
+      const details = movement.setDetails?.length
+        ? movement.setDetails.map((set) => ({ id: createId(), ...draftSet({ ...set, reps: set.reps ?? fallback }) })) : undefined;
+      return { exerciseId: movement.exerciseId, sets: String(movement.sets || 3), ...base, details, notes: movement.notes };
+    }));
+    setName(template.name);
+    setNotes(template.status === 'planned' ? template.notes ?? '' : '');
+    setSessionSource(undefined);
+    setChoosing(false);
   }
 
   function add() {
@@ -189,9 +225,11 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
   }
 
   const logging = currentStatus === 'completed';
-  const canSuggest = !mode && !initial && !logging && !entries.length;
+  const fromSuggestion = !mode && !initial && !logging && sessionSource === 'recommended';
+  const editExercises = !fromSuggestion || showPlanExercises;
   const optionalSets = sessionLog || (logging && initial?.status === 'completed');
   const canRepeat = !mode && !editing && !logging;
+  const futureCount = !logging && editing ? (seriesExpected?.length ?? 1) - 1 : 0;
   const lastDay = canRepeat && repeatWeeks > 1 && isWorkoutDate(day) ? addDays(day, (repeatWeeks - 1) * 7) : '';
   const lastDayValid = !lastDay || isWorkoutDate(lastDay);
   const title = sessionLog ? metadataOnly ? 'New session' : exercisesOnly ? 'Session exercises' : 'Edit session'
@@ -212,7 +250,8 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
 
   function metadata() {
     return { id, name: name.trim(), date: day, time, notes: notes.trim(), revision: editing ? initial.revision : undefined,
-      effort: logging ? effort : undefined, source: sessionSource };
+      effort: logging ? effort : undefined, source: sessionSource,
+      ...(logging && editing && initial.skippedExerciseIds?.length && { skippedExerciseIds: initial.skippedExerciseIds }) };
   }
 
   const sourceField = <SourceField value={sessionSource} onChange={(value) => { markEdited(true); setSessionSource(value); }} disabled={busy} />;
@@ -233,42 +272,83 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
       return;
     }
     if (entries.some((entry) => !entry.details && (!wholeNumber(entry.sets, 30) || !wholeNumber(entry.reps, 600)))) {
+      setShowPlanExercises(true);
       setError('Use whole numbers between 1 and 30 for sets and between 1 and 600 for reps or seconds.');
       return;
     }
     if (entries.some(({ details }) => details?.some(({ reps }) => !(optionalSets && !reps) && !wholeNumber(reps, 600)))) {
+      setShowPlanExercises(true);
       setError(`Enter whole numbers from 1 to 600 for reps or seconds${optionalSets ? ', or leave the field blank' : ''}.`);
       return;
     }
     const sets = entries.flatMap<DraftSet>((entry) => entry.details ?? [entry]);
     if (sets.some(({ load }) => load && !validWeight(load))) {
+      setShowPlanExercises(true);
       setError('Enter a weight from 0.01 to 1000 kg or lb, or leave it blank.');
       return;
     }
     void run(() => onSave({
       ...metadata(), status: currentStatus,
       exercises: entries.map((entry): Movement => {
-        if (!entry.details) return { exerciseId: entry.exerciseId, sets: Number(entry.sets), ...toSet(entry), notes: entry.notes };
+        const movement = { exerciseId: entry.exerciseId, replacesExerciseId: entry.replacesExerciseId, notes: entry.notes };
+        if (!entry.details) return { ...movement, sets: Number(entry.sets), ...toSet(entry) };
         const setDetails = (optionalSets ? entry.details.filter(({ reps, load }) => reps || load) : entry.details).map(toSet);
-        return { exerciseId: entry.exerciseId, sets: setDetails.length, ...setDetails[0], setDetails, notes: entry.notes };
+        return { ...movement, sets: setDetails.length, ...setDetails[0], setDetails };
       }),
-    }, Boolean(editing), canRepeat ? repeatWeeks : 1));
+    }, Boolean(editing), canRepeat ? repeatWeeks : 1, futureCount > 0 && editFuture));
+  }
+
+  if (choosing) {
+    const context = { date: day, time, minutes: budget, equipment: suggestionEquipment };
+    const validContext = isWorkoutDate(day) && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time);
+    const availableIds = new Set(catalog.map(({ id }) => id));
+    const templates = new Map<string, Workout>();
+    const workouts = data?.workouts ?? [];
+    for (let index = workouts.length - 1; index >= 0 && templates.size < 25; index -= 1) {
+      const item = workouts[index];
+      if (!item.example && !templates.has(item.name) && item.exercises.some(({ exerciseId }) => availableIds.has(exerciseId))) {
+        templates.set(item.name, item);
+      }
+    }
+    const choices = [...templates.values()];
+    const template = choices.find(({ id }) => id === templateId);
+    return <Sheet title={title} onClose={close}>
+      <View style={styles.basics}>
+        <View style={styles.actions}>
+          <DateTimeField label="Date" kind="date" value={day} min={earliestWorkoutDate} max={latestWorkoutDate}
+            onChange={(value) => { markEdited(true); setDay(value); }} />
+          <DateTimeField label="Time" kind="time" value={time} onChange={(value) => { markEdited(true); setTime(value); }} />
+          <SelectField label="Time available" value={String(budget)} onChange={(value) => { markEdited(true); setBudget(Number(value)); }}
+            options={[10, 15, 20, 30, 45, 60].map((minutes) => ({ value: String(minutes), label: `${minutes} minutes` }))} />
+        </View>
+        <View style={styles.actions}>
+          <Button kind="quiet" compact icon={Dumbbell} onPress={() => setEquipmentOpen(true)}>Equipment for this workout</Button>
+          <Copy size={13} tone={color.muted}>{suggestionEquipment
+            ? suggestionEquipment.join(', ') || 'Bodyweight only' : data?.equipment?.join(', ') || 'Bodyweight only'}</Copy>
+        </View>
+      </View>
+      <WorkoutRecommendation disabled={busy || !validContext} onApply={applyWorkout} context={context}
+        key={JSON.stringify([recommendationContext, profileState?.active?.details.trainingPreferences,
+          data?.trainingNotes?.map(({ id }) => id), context])} />
+      {choices.length > 0 && <View style={styles.actions}>
+        <ExercisePicker label="Reuse a workout" value={templateId} onChange={setTemplateId}
+          options={choices.map(({ id, name, date: day, status }) => ({ value: id, label: name, detail: `${status === 'planned' ? 'Planned' : 'Logged'} · ${formatDay(day)}` }))} />
+        <Button compact disabled={!template} onPress={() => { if (template) applyTemplate(template); }}>Use as template</Button>
+      </View>}
+      <Button icon={List} onPress={() => setChoosing(false)}>Choose exercises manually</Button>
+      {equipmentOpen && <EquipmentSheet temporary={{ value: suggestionEquipment, onChange: (value) => { markEdited(true); setSuggestionEquipment(value); } }}
+        onClose={() => setEquipmentOpen(false)} />}
+    </Sheet>;
   }
 
   return <Sheet title={title} wide={sessionLog && !metadataOnly}
     detail={exercisesOnly ? `“${name}” is saved in your session log. Add exercises now or come back later.`
       : metadataOnly ? undefined
       : sessionLog ? 'Reps and weight are optional for each set.'
-      : logging ? 'Enter the sets and reps or hold times you completed.' : canSuggest ? 'Start from a suggested workout or choose your own exercises.'
-      : 'Choose when you’ll train and which exercises you’ll do.'} onClose={close}>
+      : logging ? 'Enter the sets and reps or hold times you completed.'
+      : fromSuggestion ? 'Choose when to train, then save it to your schedule.' : undefined} onClose={close}>
     {editing && initial.example && <Notice>Saving adds this workout to your own schedule or history.</Notice>}
-    {canSuggest && <WorkoutRecommendation disabled={busy} onApply={applyWorkout}
-      key={JSON.stringify([recommendationContext, profileState?.active?.details.trainingPreferences,
-        data?.trainingNotes?.map(({ id }) => id)])} />}
-    {!mode && !initial && !logging && sessionSource === 'recommended' && entries.length > 0 && <Notice>
-      Suggested exercises added. Confirm the date and time, then save your workout.
-    </Notice>}
-    {!exercisesOnly && <View style={styles.basics}>
+    {!exercisesOnly && <View ref={formStart} tabIndex={-1} style={styles.basics}>
       <Input label={mode ? 'Session name' : 'Workout name'} value={name} onChangeText={(value) => { markEdited(true); setName(value); }}
         placeholder="e.g. Upper Body Strength" maxLength={70} />
       <View style={styles.actions}>
@@ -282,8 +362,13 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
         placeholder="Optional" maxLength={1200} multiline numberOfLines={3}
         style={{ minHeight: 74, paddingVertical: 8, textAlignVertical: 'top' }} />}
     </View>}
-    {!metadataOnly && <View style={styles.exerciseSection}>
-      <SectionTitle title={canSuggest ? 'Choose exercises manually' : 'Exercises'} level={3} />
+    {fromSuggestion && <View style={styles.suggestedSummary}>
+      <Copy weight="semibold">{entries.length} {entries.length === 1 ? 'exercise' : 'exercises'} in this workout</Copy>
+      <Button compact kind="quiet" end={editExercises ? ChevronUp : ChevronDown} aria-expanded={editExercises}
+        onPress={() => setShowPlanExercises(!editExercises)}>Edit exercises</Button>
+    </View>}
+    {!metadataOnly && editExercises && <View style={styles.exerciseSection}>
+      <SectionTitle title="Exercises" level={3} />
       {entries.map((entry, index) => {
         const exercise = exerciseRecords.get(entry.exerciseId);
         const measurement = exercise?.unit === 'seconds' ? 'Seconds' : 'Reps';
@@ -362,9 +447,8 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
     </View>}
     {loggingPlan && logging && <RestTimer />}
     {!mode && <View style={styles.options}>
-      <Button kind="quiet" compact end={showOptions ? ChevronUp : ChevronDown} aria-expanded={showOptions}
-        onPress={() => setShowOptions((value) => !value)}>Workout options</Button>
-      {showOptions && <View style={styles.optionFields}>
+      <View style={styles.optionFields}>
+        <SectionTitle title="Workout settings" level={3} />
         <View style={styles.optionRow}>
           <View role="group" accessibilityLabel="Workout status" style={{ gap: 7 }}>
             <Copy size={12} weight="semibold">Workout status</Copy>
@@ -377,12 +461,18 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
             <SelectField label="Repeat weekly" value={String(repeatWeeks)} onChange={(value) => { markEdited(true); setRepeatWeeks(Number(value)); }}
               options={Array.from({ length: 12 }, (_, index) => ({ value: String(index + 1), label: index ? `${index + 1} weekly sessions` : 'One session' }))} />
           </View>}
+          {futureCount > 0 && <View style={{ gap: 5, minWidth: 180 }}>
+            <SelectField label="Apply changes to" value={editFuture ? 'future' : 'one'} onChange={(value) => setEditFuture(value === 'future')}
+              options={[{ value: 'one', label: 'This occurrence' },
+                { value: 'future', label: `This and ${futureCount} future ${futureCount === 1 ? 'occurrence' : 'occurrences'}` }]} />
+            {editFuture && <Copy size={12} tone={color.muted}>Date changes shift the included occurrences by the same number of days.</Copy>}
+          </View>}
         </View>
         {!logging && sourceField}
         <Input label="Workout notes" value={notes} onChangeText={(value) => { markEdited(true); setNotes(value); }}
           placeholder={logging ? 'What went well or what to change next time' : 'Plan reminders or exercise cues'}
           maxLength={1200} multiline numberOfLines={3} style={{ minHeight: 74, paddingVertical: 8, textAlignVertical: 'top' }} />
-      </View>}
+      </View>
       {lastDay && lastDayValid && <Copy size={12} tone={color.muted}>{`Last session · ${formatDay(lastDay)}`}</Copy>}
     </View>}
     {error && <Notice error>{error}</Notice>}
@@ -390,7 +480,8 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
       <Button icon={metadataOnly ? undefined : Check} end={metadataOnly ? ArrowRight : undefined}
         kind="primary" disabled={busy} onPress={submit}>
         {busy ? 'Saving…' : metadataOnly ? 'Save and continue' : exercisesOnly ? 'Save exercises' : mode ? 'Save session'
-          : logging ? 'Save workout log' : canRepeat && repeatWeeks > 1 ? `Schedule ${repeatWeeks} workouts` : 'Save workout'}
+          : logging ? 'Save workout log' : canRepeat && repeatWeeks > 1 ? `Schedule ${repeatWeeks} workouts`
+          : futureCount > 0 && editFuture ? 'Save series changes' : 'Save workout'}
       </Button>
       {exercisesOnly && <Button kind="quiet" disabled={busy} onPress={close}>Add later</Button>}
       {editing && !exercisesOnly && <Button icon={Trash2} kind="quiet" disabled={busy}
@@ -402,12 +493,14 @@ export function WorkoutEditor({ initial, preset, status, date, copy = false, cat
 const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' },
   basics: { gap: 12 },
+  suggestedSummary: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between',
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: color.line, paddingVertical: 6 },
   exerciseSection: { gap: 9, paddingTop: 11, borderTopWidth: 1, borderColor: color.line },
   options: { gap: 8 },
-  optionFields: { gap: 11, backgroundColor: color.canvas, borderRadius: 9, padding: 12 },
+  optionFields: { gap: 11, backgroundColor: color.canvas, borderRadius: radius.panel, padding: 12 },
   optionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 14 },
   footer: { justifyContent: 'space-between', paddingTop: 12, borderTopWidth: 1, borderColor: color.line },
-  entry: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, backgroundColor: color.canvas, borderRadius: 8, padding: 8 },
+  entry: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, backgroundColor: color.canvas, borderRadius: radius.panel, padding: 8 },
   sessionExercise: { flexWrap: 'nowrap', padding: 13 },
   set: { gap: 5, borderTopWidth: 1, borderColor: color.line, paddingVertical: 7 },
   sessionSet: { flexDirection: 'row', alignItems: 'flex-end', gap: 12 },

@@ -1,6 +1,9 @@
 import { isWorkoutDate } from '../dates';
-import type { ExerciseSet, SessionCoachState, TrainingSession, TrainingSetDraft } from '../types';
-import { readSessionValue, removeSessionValue } from './sessionStorageMigration.web';
+import type { ExerciseSet, PendingTrainingLog, SessionCoachState, TrainingSession, TrainingSetDraft } from '../types';
+import { readSessionValue, removeSessionValue, writeSessionValue } from './sessionStorageMigration.web';
+
+const sessionKey = (workspace: string) => 'trainer-plus-active-session:' + workspace;
+const pendingPrefix = (workspace: string) => 'trainer-plus-pending-log:' + workspace + ':';
 
 function isSet(set: ExerciseSet | null, optionalReps = false) {
   return set && (set.reps !== undefined && Number.isInteger(set.reps) && set.reps >= 1 && set.reps <= 600
@@ -16,9 +19,24 @@ function isDraft(draft: TrainingSetDraft | null, next: number) {
 }
 
 export function readTrainingSession(workspace: string): TrainingSession | null {
+  const suffix = 'training:' + workspace;
   try {
-    const suffix = 'training:' + workspace;
-    const session = JSON.parse(readSessionValue('liftmorrow-' + suffix, suffix) ?? 'null') as
+    const saved = localStorage.getItem(sessionKey(workspace));
+    if (saved !== null) return parseSession(saved);
+  } catch {}
+  try {
+    const previous = readSessionValue(suffix);
+    const session = previous === null ? null : parseSession(previous);
+    if (session) writeTrainingSession(workspace, session);
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+function parseSession(value: string): TrainingSession | null {
+  try {
+    const session = JSON.parse(value) as
       (TrainingSession & { setDraft?: TrainingSetDraft & { exerciseId: string } }) | null;
     if (!session || typeof session.logId !== 'string' || !Number.isFinite(session.startedAt)
       || typeof session.plan?.id !== 'string' || typeof session.plan.name !== 'string'
@@ -51,7 +69,16 @@ export function readTrainingSession(workspace: string): TrainingSession | null {
       && session.hold.setNumber === (session.sets[session.hold.exerciseId]?.length ?? 0) + 1
       && Number.isFinite(session.hold.deadline) && session.hold.deadline <= now + 600_000 ? session.hold : undefined;
     const coach = readCoach(session, now);
-    return { ...saved, restDeadline, activeExercise, setDrafts, hold, coach };
+    const skippedExerciseIds = Array.isArray(session.skippedExerciseIds) ? [...new Set(session.skippedExerciseIds)]
+      .filter((id) => session.plan.exercises.some(({ exerciseId }) => exerciseId === id)) : undefined;
+    const restSeconds = Number.isSafeInteger(session.restSeconds) && (session.restSeconds ?? -1) >= 0
+      && (session.restSeconds ?? 0) <= 300 ? session.restSeconds : undefined;
+    const cue = session.formCue;
+    const formCue = cue && typeof cue.text === 'string' && cue.text.length > 0 && cue.text.length <= 600
+      && typeof cue.clipId === 'string' && Number.isFinite(cue.startSeconds) && cue.startSeconds >= 0
+      && Number.isFinite(cue.timestamp) && cue.timestamp >= 0
+      && session.plan.exercises.some(({ exerciseId }) => exerciseId === cue.exerciseId) ? cue : undefined;
+    return { ...saved, restDeadline, restSeconds, activeExercise, setDrafts, hold, coach, formCue, skippedExerciseIds };
   } catch {
     return null;
   }
@@ -67,11 +94,79 @@ function readCoach({ coach, plan }: TrainingSession, now: number): SessionCoachS
     restUntil: coach.stage === 'rest' && validRest ? coach.restUntil : undefined };
 }
 
-export function writeTrainingSession(workspace: string, session: TrainingSession | null) {
+export function writeTrainingSession(workspace: string, session: TrainingSession | null): boolean {
+  const suffix = 'training:' + workspace;
+  let persistent = false;
   try {
-    const suffix = 'training:' + workspace;
-    const key = 'liftmorrow-' + suffix;
-    if (session) sessionStorage.setItem(key, JSON.stringify(session));
-    else removeSessionValue(key, suffix);
+    if (session) localStorage.setItem(sessionKey(workspace), JSON.stringify(session));
+    else localStorage.removeItem(sessionKey(workspace));
+    persistent = true;
   } catch {}
+  try {
+    if (!session || persistent) removeSessionValue(suffix);
+    else writeSessionValue(suffix, JSON.stringify(session));
+  } catch {}
+  return persistent;
+}
+
+export function readPendingTrainingLogs(workspace: string): PendingTrainingLog[] {
+  try {
+    const prefix = pendingPrefix(workspace);
+    return Object.keys(localStorage).flatMap((key) => {
+      if (!key.startsWith(prefix)) return [];
+      try {
+        const pending = JSON.parse(localStorage.getItem(key) ?? 'null');
+        const session = pending && parseSession(JSON.stringify(pending.session));
+        return session && key === prefix + session.logId && typeof pending.separate === 'boolean'
+          ? [{ session, separate: pending.separate }] : [];
+      } catch {
+        return [];
+      }
+    }).sort((a, b) => a.session.startedAt - b.session.startedAt);
+  } catch {
+    return [];
+  }
+}
+
+export function writePendingTrainingLog(workspace: string, pending: PendingTrainingLog) {
+  try {
+    localStorage.setItem(pendingPrefix(workspace) + pending.session.logId, JSON.stringify(pending));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function removePendingTrainingLog(workspace: string, logId: string) {
+  try { localStorage.removeItem(pendingPrefix(workspace) + logId); } catch {}
+}
+
+export function removeTrainingSessionData(workspace: string) {
+  writeTrainingSession(workspace, null);
+  try {
+    const prefix = pendingPrefix(workspace);
+    for (const key of Object.keys(localStorage)) if (key.startsWith(prefix)) localStorage.removeItem(key);
+  } catch {}
+}
+
+export function watchTrainingSession(workspace: string, onSession: () => void, onQueue: () => void, onOnline: () => void) {
+  function onStorage(event: StorageEvent) {
+    if (event.key === sessionKey(workspace) || event.key === null) onSession();
+    if (event.key === null || event.key.startsWith(pendingPrefix(workspace))) onQueue();
+  }
+  function onVisible() {
+    if (document.visibilityState === 'visible') onOnline();
+  }
+  window.addEventListener('storage', onStorage);
+  window.addEventListener('online', onOnline);
+  document.addEventListener('visibilitychange', onVisible);
+  return () => {
+    window.removeEventListener('storage', onStorage);
+    window.removeEventListener('online', onOnline);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
+}
+
+export function trainingServerMayBeReachable() {
+  return navigator.onLine;
 }

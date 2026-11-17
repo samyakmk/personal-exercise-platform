@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Download } from 'lucide-react-native';
 import { Copy } from '../components/ui';
-import { color } from '../theme';
+import { color, radius } from '../theme';
 import type { DownloadLinkProps } from './DownloadLink';
 
 function saveFile(data: Blob, filename: string) {
@@ -48,7 +48,7 @@ export function DownloadLink({ href, label, compact, accessibilityLabel, validat
         return;
       }
       if (response.headers.get('content-type')?.split(';', 1)[0] !== 'application/json') {
-        if (pending.current === request) validated.onError('Liftmorrow received an unreadable backup. Try again.');
+        if (pending.current === request) validated.onError('Trainer Plus received an unreadable backup. Try again.');
         return;
       }
       const data = await response.blob();
@@ -69,10 +69,10 @@ export function DownloadLink({ href, label, compact, accessibilityLabel, validat
   return <a href={href} download={validated?.filename ?? true} aria-label={accessibilityLabel ?? label} onClick={validated ? download : undefined}
     aria-busy={busy || undefined} style={{
     display: 'inline-flex', gap: 7, minHeight: compact ? 35 : 42, alignItems: 'center', alignSelf: 'flex-start',
-    padding: compact ? '0 10px' : '0 13px', boxSizing: 'border-box', borderRadius: 9, border: '1px solid ' + color.control,
+    padding: compact ? '0 10px' : '0 13px', boxSizing: 'border-box', borderRadius: radius.control, border: '1px solid ' + color.control,
     background: color.surface, textDecoration: 'none', opacity: busy ? 0.7 : 1,
   }}>
-    <Download color={color.plum} size={compact ? 15 : 17} aria-hidden />
+    <Download color={color.forest} size={compact ? 15 : 17} aria-hidden />
     <Copy size={compact ? 12 : 13} weight="semibold">{busy ? 'Preparing download…' : label}</Copy>
   </a>;
 }

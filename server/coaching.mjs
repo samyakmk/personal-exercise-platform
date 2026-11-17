@@ -11,9 +11,15 @@ import { answerTrainingChat } from './training-chat.mjs';
 export const reviewVersion = 30;
 
 const interrupted = 'Analysis was interrupted. Try again when you’re ready.';
+const busy = 'The service is busy. Try again shortly.';
 const cancelled = 'cancelled';
 const maxActiveReviews = 3;
 const reviewConflict = 'This video is already being analyzed. Wait for that review to finish.';
+
+function reviewError({ error, errorStatus }) {
+  if (!error || !/\b(?:AI|OpenAI)\b/.test(error)) return error ?? interrupted;
+  return errorStatus === 422 ? 'Couldn’t review this clip. Try a different clip or section.' : 'Analysis could not finish. Try again.';
+}
 
 export function createCoaching(store, { respond, sampleFrames, estimate, reviewLeaseMs = 20_000, reviewHeartbeatMs = 1_000 } = {}) {
   const pending = new Map();
@@ -25,7 +31,7 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
 
   function admit(workspace) {
     if (shutdown) throw new AiError(503, interrupted);
-    if (!respond) throw new AiError(503, 'AI is unavailable because the server has no OpenAI key configured.');
+    if (!respond) throw new AiError(503, 'The service is currently unavailable.');
     const now = Date.now();
     for (const [id, limit] of workspaceLimits) {
       if (limit.until <= now) workspaceLimits.delete(id);
@@ -35,7 +41,7 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
     if (limit.starts >= 6 || globalLimit.starts >= 20 || pending.size >= 3) {
       const retry = Math.max(2, Math.ceil(((limit.starts >= 6 ? limit.until : now) - now) / 1000),
         Math.ceil(((globalLimit.starts >= 20 ? globalLimit.until : now) - now) / 1000));
-      throw new AiError(429, 'AI is busy. Try again in a moment.', undefined, retry);
+      throw new AiError(429, busy, undefined, retry);
     }
     return () => {
       limit.starts += 1;
@@ -63,11 +69,11 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
     if (attempt.until != null) return { state: 'failed', sequence, startSeconds, error: interrupted };
     if (attempt.owner && attempt.error) return attempt.error === cancelled
       ? { state: 'cancelled', sequence, startSeconds }
-      : { state: 'failed', sequence, startSeconds, error: attempt.error };
+      : { state: 'failed', sequence, startSeconds, error: reviewError(attempt) };
     if (attempt?.version === reviewVersion) {
       if (attempt.error === cancelled) return { state: 'cancelled', sequence, startSeconds };
       if (!review || review.version !== reviewVersion || (review.sequence ?? sequence) !== sequence) {
-        return { state: 'failed', sequence, startSeconds, error: attempt.error ?? interrupted };
+        return { state: 'failed', sequence, startSeconds, error: reviewError(attempt) };
       }
     }
     if (review) return { state: 'complete', sequence, startSeconds: review.startSeconds ?? 0 };
@@ -92,7 +98,7 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
   function attemptError(attempt) {
     return attempt.error === cancelled
       ? new AiError(409, 'Analysis was cancelled.')
-      : new AiError(attempt.errorStatus ?? 503, attempt.error ?? interrupted);
+      : new AiError(attempt.errorStatus ?? 503, reviewError(attempt));
   }
 
   async function waitForReview(workspace, id, original, signal) {
@@ -113,12 +119,13 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
 
   function requestReview(workspace, id, startSeconds, refresh) {
     if (shutdown) throw new AiError(503, interrupted);
+    if (store.clip(workspace, id)?.size === 0) throw new AiError(422, 'Import the original video before analyzing another section.');
     const claim = store.claimReview(workspace, id, {
       version: reviewVersion, startSeconds, refresh, owner: randomUUID(), leaseMs: reviewLeaseMs,
       maxActive: maxActiveReviews, admit: () => admit(workspace),
     });
     if (claim.state === 'missing') throw new AiError(404, 'Video not found.');
-    if (claim.state === 'busy') throw new AiError(429, 'AI is busy. Try again in a moment.', undefined, 2);
+    if (claim.state === 'busy') throw new AiError(429, busy, undefined, 2);
     const { review, attempt } = claim;
     if (claim.state === 'complete') return { review, reviewStatus: reviewStatus(review, attempt) };
     if (attempt.startSeconds !== startSeconds) throw new AiError(409, reviewConflict);
@@ -179,7 +186,7 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
         try {
           store.abandonReviewAttempt(workspace, id, attempt, interrupted);
         } catch {
-          console.error('Liftmorrow could not release a review lease during shutdown.');
+          console.error('Trainer Plus could not release a review lease during shutdown.');
         }
       }
       controller.abort(new AiError(503, interrupted));
@@ -216,7 +223,7 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
       clientSignal.throwIfAborted();
       const safetyReply = workoutSafetyReply(input.message);
       if (safetyReply) return { reply: safetyReply };
-      if (!respond) throw new AiError(503, 'Chat needs an OpenAI key configured on the Liftmorrow server.');
+      if (!respond) throw new AiError(503, 'Chat is currently unavailable.');
       const key = 'training-chat:' + workspace;
       if (pending.has(key)) throw new AiError(429, 'Chat is still answering your previous message. Try again shortly.', undefined, 2);
       admit(workspace)();
@@ -262,8 +269,8 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
     startReview(workspace, id, startSeconds, refresh) {
       const { review, reviewStatus, result, started } = requestReview(workspace, id, startSeconds, refresh);
       if (started) void result.catch((error) => {
-        if (error instanceof AiError && error.diagnostic) console.warn('Liftmorrow AI request failed:', error.diagnostic);
-        else if (!(error instanceof AiError)) console.error('Liftmorrow review failed:', error.name);
+        if (error instanceof AiError && error.diagnostic) console.warn('Trainer Plus AI request failed:', error.diagnostic);
+        else if (!(error instanceof AiError)) console.error('Trainer Plus review failed:', error.name);
       });
       return { review, reviewStatus };
     },

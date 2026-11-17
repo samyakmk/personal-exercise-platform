@@ -9,19 +9,19 @@ import { createStore } from './store.mjs';
 import { createStaticHandler } from './static.mjs';
 import { closeAfterResponse } from './http.mjs';
 import { createPosePool } from './pose-pool.mjs';
+import { trainerPlusEnv } from './config.mjs';
 
 function defaultDatabase() {
-  const current = resolve('.data/liftmorrow.sqlite');
-  const previous = resolve('.data/repform.sqlite');
   // Open the existing database in place so its WAL and active readers stay intact.
-  return existsSync(current) || !existsSync(previous) ? current : previous;
+  const databases = ['trainer-plus', 'liftmorrow', 'repform'].map((name) => resolve('.data', name + '.sqlite'));
+  return databases.find((database) => existsSync(database)) ?? databases[0];
 }
 
-export function createLiftmorrowServer({
-  database = process.env.LIFTMORROW_DB ?? defaultDatabase(),
+export function createTrainerPlusServer({
+  database = trainerPlusEnv('DB') ?? defaultDatabase(),
   dist = resolve('dist'),
-  webOrigin = process.env.LIFTMORROW_WEB_ORIGIN,
-  secureCookies = process.env.LIFTMORROW_SECURE_COOKIES === '1',
+  webOrigin = trainerPlusEnv('WEB_ORIGIN'),
+  secureCookies = trainerPlusEnv('SECURE_COOKIES') === '1',
   respond = createOpenAi(),
   sampleFrames,
   posePool = sampleFrames ? null : createPosePool(),
@@ -30,7 +30,7 @@ export function createLiftmorrowServer({
   convertVideo,
   uploadIdleTimeoutMs,
   legacyReadBudgetBytes,
-  allowedHosts = process.env.LIFTMORROW_ALLOWED_HOSTS?.split(','),
+  allowedHosts = trainerPlusEnv('ALLOWED_HOSTS')?.split(','),
 } = {}) {
   const store = createStore(database);
   const coaching = createCoaching(store, { respond, sampleFrames, estimate: posePool?.estimate, reviewLeaseMs, reviewHeartbeatMs });
@@ -45,7 +45,7 @@ export function createLiftmorrowServer({
       const hostname = address?.replace(/:\d+$/, '');
       if (!address || (!hosts.has(address) && !hosts.has(hostname))) {
         closeAfterResponse(req, res);
-        res.writeHead(421, { 'Cache-Control': 'no-store' }).end('This host is not configured for Liftmorrow.');
+        res.writeHead(421, { 'Cache-Control': 'no-store' }).end('This host is not configured for Trainer Plus.');
         return;
       }
       const url = new URL(req.url, 'http://localhost');
@@ -78,8 +78,8 @@ export function createLiftmorrowServer({
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT ?? 4173);
   const host = process.env.HOST ?? '127.0.0.1';
-  const server = createLiftmorrowServer();
-  server.listen(port, host, () => console.log(`Liftmorrow is running at http://${host}:${port}`));
+  const server = createTrainerPlusServer();
+  server.listen(port, host, () => console.log(`Trainer Plus is running at http://${host}:${port}`));
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.once(signal, () => {
       server.close();

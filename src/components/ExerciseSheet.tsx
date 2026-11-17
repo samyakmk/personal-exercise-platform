@@ -40,6 +40,23 @@ export function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClo
 
   return <Sheet title={exercise.name} detail={exercise.description === exercise.category ? undefined : exercise.description}
     onClose={onClose} wide={split}>
+    {(exercise.demonstration || saved) && <View style={styles.actions}>
+      {exercise.demonstration && <Button kind="primary" icon={Plus} onPress={() => open('add')}>Add to workout</Button>}
+      {(exercise.demonstration || saved) && <Button icon={Bookmark} disabled={busy} onPress={() => void toggleBookmark()}>
+        {saved ? 'Remove saved exercise' : 'Save exercise'}
+      </Button>}
+    </View>}
+    <View role="group" accessibilityLabel="Exercise actions" style={[styles.actions, styles.secondaryActions]}>
+      {exercise.demonstration && <>
+        <Button compact kind="quiet" icon={Plus} onPress={() => open('new-session')}>New session</Button>
+        <Button compact kind="quiet" icon={Video} onPress={() => open('review')}>Upload my form</Button>
+      </>}
+      <Button compact kind="quiet" icon={History} onPress={() => {
+        onClose();
+        router.push({ pathname: '/progress', params: { exercise: exercise.id } });
+      }}>My exercise history</Button>
+    </View>
+    {error && <Notice error>{error}</Notice>}
     <View style={[styles.content, split && styles.columns]}>
       {exercise.demonstration && <View style={split && styles.mediaColumn}><Demonstration exercise={exercise} /></View>}
       <View style={[styles.instructions, split && styles.instructionColumn]}>
@@ -56,7 +73,7 @@ export function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClo
           <SectionTitle title="How to do it" level={3} />
           {exercise.cues.map((cue, index) => (
             <View key={cue} style={styles.cue}>
-              <View style={styles.number}><Copy weight="bold" size={11} tone={color.plum}>{index + 1}</Copy></View>
+              <View style={styles.number}><Copy weight="bold" size={11} tone={color.forest}>{index + 1}</Copy></View>
               <Copy size={14} style={styles.cueText}>{cue}</Copy>
             </View>
           ))}
@@ -64,25 +81,6 @@ export function ExerciseSheet({ exercise, onClose }: { exercise: Exercise; onClo
       </View>
     </View>
     <TechniqueTips exercise={exercise} sideBySide={width >= 620} />
-    <View style={styles.footer}>
-      <View style={[styles.actions, styles.footerActions]}>
-        {exercise.demonstration && <>
-          <Button kind="primary" icon={Plus} onPress={() => open('add')}>Add to workout</Button>
-          <Button icon={Plus} onPress={() => open('new-session')}>New session</Button>
-        </>}
-        {(exercise.demonstration || saved) && <Button icon={Bookmark} disabled={busy} onPress={() => void toggleBookmark()}>
-          {saved ? 'Remove saved exercise' : 'Save exercise'}
-        </Button>}
-      </View>
-      <View style={[styles.actions, styles.footerActions]}>
-        {exercise.demonstration && <Button icon={Video} kind="quiet" compact onPress={() => open('review')}>Upload my form</Button>}
-        <Button icon={History} kind="quiet" compact onPress={() => {
-          onClose();
-          router.push({ pathname: '/progress', params: { exercise: exercise.id } });
-        }}>My exercise history</Button>
-      </View>
-    </View>
-    {error && <Notice error>{error}</Notice>}
   </Sheet>;
 }
 
@@ -110,7 +108,5 @@ const styles = StyleSheet.create({
   cueText: { flex: 1, paddingTop: 1 },
   number: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: color.tint },
   actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 },
-  footer: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between',
-    gap: 8, paddingTop: 14, borderTopWidth: 1, borderColor: color.line },
-  footerActions: { maxWidth: '100%' },
+  secondaryActions: { gap: 4, borderBottomWidth: 1, borderColor: color.line, paddingBottom: 8 },
 });

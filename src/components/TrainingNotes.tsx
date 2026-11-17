@@ -49,5 +49,5 @@ const styles = StyleSheet.create({
   panel: { gap: 12, padding: 19 },
   row: { borderTopColor: color.line, borderTopWidth: 1, paddingTop: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
   detail: { flex: 1, minWidth: 0, gap: 4 },
-  link: { color: color.plum, textDecorationLine: 'underline' },
+  link: { color: color.forest, textDecorationLine: 'underline' },
 });

@@ -26,9 +26,10 @@ function* calendarLines(workouts, now) {
   const stamp = now.toISOString().slice(0, 19).replace(/[-:]/g, '') + 'Z';
   yield 'BEGIN:VCALENDAR';
   yield 'VERSION:2.0';
-  yield 'PRODID:-//Liftmorrow//Workouts//EN';
+  yield 'PRODID:-//Trainer Plus//Workouts//EN';
   for (const workout of workouts) {
     yield 'BEGIN:VEVENT';
+    // Preserve event identity when calendars are reimported after the rename.
     yield `UID:${workout.id}@liftmorrow.local`;
     yield `DTSTAMP:${stamp}`;
     yield `DTSTART:${workout.date.replace(/-/g, '')}T${workout.time.replace(':', '')}00`;

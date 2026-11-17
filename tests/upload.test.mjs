@@ -8,11 +8,11 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { createTestProfile } from './test-profile.mjs';
 
 async function start(t, options) {
-  const server = createLiftmorrowServer({ database: ':memory:', respond: null, ...options });
+  const server = createTrainerPlusServer({ database: ':memory:', respond: null, ...options });
   t.after(() => {
     server.closeAllConnections();
     return new Promise((resolve) => server.close(resolve));
@@ -67,7 +67,7 @@ test('an idle upload returns 408, releases its slot, and can be retried', { time
 });
 
 test('new workspace databases use private permissions and deleted clip payload is scrubbed on checkpoint', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-clip-delete-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-clip-delete-'));
   const database = join(directory, 'workspace.sqlite');
   const api = await start(t, { database });
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -95,7 +95,7 @@ test('new workspace databases use private permissions and deleted clip payload i
 });
 
 test('simultaneous uploads on separate server instances verify the winning bytes', { timeout: 6000 }, async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'liftmorrow-upload-race-'));
+  const root = await mkdtemp(join(tmpdir(), 'trainer-plus-upload-race-'));
   const database = join(root, 'workspace.sqlite');
   const playable = await readFile(new URL('./fixtures/synthetic.mp4', import.meta.url));
   const source = Buffer.from(playable);

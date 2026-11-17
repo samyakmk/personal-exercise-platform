@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { createTestProfile } from './test-profile.mjs';
 
 const upcomingSet = {
@@ -11,7 +11,7 @@ const upcomingSet = {
 };
 
 async function startCoach(t, respond) {
-  const server = createLiftmorrowServer({ database: ':memory:', respond, posePool: null });
+  const server = createTrainerPlusServer({ database: ':memory:', respond, posePool: null });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((done) => server.close(done)));
@@ -21,7 +21,7 @@ async function startCoach(t, respond) {
   const { workspaceKey } = await (await request('workspace', { headers: { cookie } })).json();
   const ask = (body = upcomingSet, headers = {}, signal) => request('session-coach', {
     method: 'POST', signal, body: JSON.stringify(body),
-    headers: { cookie, 'X-Liftmorrow-Profile': workspaceKey, 'Content-Type': 'application/json', ...headers },
+    headers: { cookie, 'X-Trainer-Plus-Profile': workspaceKey, 'Content-Type': 'application/json', ...headers },
   });
   return { ask, request, cookie, workspaceKey };
 }
@@ -33,7 +33,7 @@ test('session coach validates workspace and context and returns only catalog-gro
     return { choice: calls.length === 1 ? 'target' : 'constructor', reply: 'Use twice the weight.' };
   });
   assert.equal((await ask(upcomingSet, { cookie: '' })).status, 404);
-  assert.equal((await ask(upcomingSet, { 'X-Liftmorrow-Profile': 'other-profile' })).status, 409);
+  assert.equal((await ask(upcomingSet, { 'X-Trainer-Plus-Profile': 'other-profile' })).status, 409);
   assert.equal((await ask(upcomingSet, { Origin: 'https://other.example' })).status, 403);
   for (const invalid of [
     { exerciseId: 'unknown' }, { phase: 'unknown' }, { setNumber: 0 }, { question: '' }, { question: 'q'.repeat(281) },

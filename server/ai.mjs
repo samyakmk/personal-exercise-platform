@@ -1,6 +1,10 @@
+import { trainerPlusEnv } from './config.mjs';
 import { catalog } from './catalog.mjs';
 
 const apiUrl = 'https://api.openai.com/v1/responses';
+const busy = 'The service is busy. Try again shortly.';
+const timeout = 'The request took too long. Try again.';
+const unsupported = 'Couldn’t process this request. Try a different clip or selection.';
 const transportCodes = new Map([
   ['EAI_AGAIN', 'dns_temporary'], ['ENOTFOUND', 'dns_not_found'],
   ['UND_ERR_CONNECT_TIMEOUT', 'connect_timeout'], ['ETIMEDOUT', 'connect_timeout'],
@@ -38,11 +42,11 @@ function transportDiagnostic(error) {
 }
 
 export function openAiModel() {
-  return process.env.LIFTMORROW_AI_MODEL || 'gpt-5.4-mini';
+  return trainerPlusEnv('AI_MODEL') || 'gpt-5.4-mini';
 }
 
 export function openAiFormModel() {
-  return process.env.LIFTMORROW_FORM_MODEL || 'gpt-6.1-terra';
+  return trainerPlusEnv('FORM_MODEL') || 'gpt-6.1-terra';
 }
 
 export function createOpenAi({ key = process.env.CHATGPT_API_KEY, model, formModel = model ?? openAiFormModel(), fetchImpl = fetch } = {}) {
@@ -50,12 +54,12 @@ export function createOpenAi({ key = process.env.CHATGPT_API_KEY, model, formMod
   const generalModel = model ?? openAiModel();
   const retryAt = new Map();
 
-  return async function respond({ name, schema, instructions, content, signal }) {
+  async function respond({ name, schema, instructions, content, signal }) {
     signal?.throwIfAborted();
     const isFormReview = name === 'exercise_form_review';
     const requestModel = isFormReview ? formModel : generalModel;
     const coolingDown = Math.ceil(((retryAt.get(requestModel) ?? 0) - Date.now()) / 1000);
-    if (coolingDown > 0) throw new AiError(503, 'OpenAI is temporarily busy. Try again shortly.', 'cooldown', coolingDown);
+    if (coolingDown > 0) throw new AiError(503, busy, 'cooldown', coolingDown);
     const deadline = AbortSignal.timeout(isFormReview ? 60_000 : 45_000);
     const requestSignal = signal ? AbortSignal.any([deadline, signal]) : deadline;
     let response;
@@ -77,43 +81,43 @@ export function createOpenAi({ key = process.env.CHATGPT_API_KEY, model, formMod
       });
     } catch (error) {
       signal?.throwIfAborted();
-      if (deadline.aborted) throw new AiError(504, 'OpenAI took too long to respond. Try again.', 'timeout');
-      throw new AiError(503, 'Could not reach OpenAI. Try again in a moment.', transportDiagnostic(error));
+      if (deadline.aborted) throw new AiError(504, timeout, 'timeout');
+      throw new AiError(503, 'The service is temporarily unavailable. Try again shortly.', transportDiagnostic(error));
     }
     if (!response.ok) {
       const status = response.status;
       if (status === 429 || status === 503) {
         const payload = await response.json().catch(() => null);
         signal?.throwIfAborted();
-        if (deadline.aborted) throw new AiError(504, 'OpenAI took too long to respond. Try again.', 'timeout');
+        if (deadline.aborted) throw new AiError(504, timeout, 'timeout');
         const code = payload?.error?.code;
         if (code === 'insufficient_quota' || code === 'billing_hard_limit_reached') {
-          throw new AiError(503, 'The OpenAI account is out of quota. Analysis can resume when quota is available.', 'quota');
+          throw new AiError(503, 'The service is currently unavailable.', 'quota');
         }
         const seconds = retrySeconds(response.headers.get('retry-after')) ?? 2;
         retryAt.set(requestModel, Math.max(retryAt.get(requestModel) ?? 0, Date.now() + seconds * 1000));
-        throw new AiError(503, 'OpenAI is temporarily busy. Try again shortly.', status, seconds);
+        throw new AiError(503, busy, status, seconds);
       }
       await response.body?.cancel().catch(() => {});
       signal?.throwIfAborted();
       if (status === 401 || status === 403 || status === 404) {
-        throw new AiError(503, 'OpenAI rejected the server credentials or model access.', status);
+        throw new AiError(503, 'The service is currently unavailable.', status);
       }
-      throw new AiError(502, 'OpenAI could not complete the request. Try again.', status);
+      throw new AiError(502, 'Couldn’t complete the request. Try again.', status);
     }
 
     try {
       const result = await response.json();
       signal?.throwIfAborted();
       if (result.status === 'incomplete' && result.incomplete_details?.reason === 'content_filter') {
-        throw new AiError(422, 'OpenAI could not review this input. Try a different clip or selection.', 'content_filter');
+        throw new AiError(422, unsupported, 'content_filter');
       }
       if (result.status === 'incomplete' && result.incomplete_details?.reason === 'max_output_tokens') {
-        throw new AiError(502, 'OpenAI did not finish the feedback. Try again.', 'output_limit');
+        throw new AiError(502, 'The response was incomplete. Try again.', 'output_limit');
       }
       const parts = result.output?.filter((item) => item.type === 'message').flatMap((item) => item.content) ?? [];
       if (parts.some((part) => part.type === 'refusal')) {
-        throw new AiError(422, 'OpenAI could not review this input. Try a different clip or selection.');
+        throw new AiError(422, unsupported);
       }
       const output = parts.find((part) => part.type === 'output_text');
       if (result.status !== 'completed' || !output) throw new Error('Incomplete output');
@@ -121,10 +125,14 @@ export function createOpenAi({ key = process.env.CHATGPT_API_KEY, model, formMod
     } catch (error) {
       if (error instanceof AiError) throw error;
       signal?.throwIfAborted();
-      if (deadline.aborted) throw new AiError(504, 'OpenAI took too long to respond. Try again.', 'timeout');
-      throw new AiError(502, 'OpenAI returned an incomplete response. Try again.', 'response_format');
+      if (deadline.aborted) throw new AiError(504, timeout, 'timeout');
+      throw new AiError(502, 'The response was incomplete. Try again.', 'response_format');
     }
-  };
+  }
+  const modelLabel = (name) => /^[\w.:-]{1,128}$/.test(name) && !/(^|:)sk[-_]/i.test(name) ? name : 'custom';
+  return Object.assign(respond, {
+    formConfiguration: Object.freeze({ critique: modelLabel(formModel), detection: modelLabel(generalModel), reference: modelLabel(generalModel) }),
+  });
 }
 
 const string = { type: 'string' };
@@ -157,7 +165,8 @@ export async function detectExercise(respond, { frames, signal }) {
   });
   signal?.throwIfAborted();
   if (result?.exerciseId === null) {
-    throw new AiError(422, 'Couldn’t identify the exercise in this section. Choose the exercise or try a start time that shows the movement clearly.');
+    throw new AiError(422, 'Couldn’t identify the exercise in this section. Choose the exercise or try a start time that shows the movement clearly.',
+      'exercise_detection_unclear');
   }
   const exercise = detectionCandidates.get(result?.exerciseId);
   if (!exercise) throw invalidOutput();
@@ -209,7 +218,7 @@ const acceptableFormText = (value) => !incidentalScene.test(value) && !unsafeFor
 const noClearCorrection = 'The sampled positions didn’t establish a specific correction.';
 
 function invalidOutput() {
-  return new AiError(502, 'OpenAI returned feedback this app could not display. Try again.', 'output_validation');
+  return new AiError(502, 'Couldn’t display the response. Try again.', 'output_validation');
 }
 
 const recommendationReasons = ['target', 'equipment', 'familiar', 'variety'];

@@ -6,15 +6,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { createTestProfile } from './test-profile.mjs';
 
-const webOrigin = 'https://liftmorrow.test';
+const webOrigin = 'https://trainer-plus.test';
 const condition = (tag) => ({ headers: { 'If-None-Match': tag } });
 const payload = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 async function start(t, options) {
-  const server = createLiftmorrowServer({ database: ':memory:', respond: null, webOrigin, ...options });
+  const server = createTrainerPlusServer({ database: ':memory:', respond: null, webOrigin, ...options });
   t.after(async () => {
     const closed = once(server, 'close');
     server.close();
@@ -74,7 +74,7 @@ test('workspace validators are private, cookie-scoped and available to configure
 });
 
 test('sign-up claims an older workspace without changing its draft key', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-workspace-legacy-profile-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-workspace-legacy-profile-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const database = join(directory, 'workspace.sqlite');
   const id = randomUUID();
@@ -89,7 +89,7 @@ test('sign-up claims an older workspace without changing its draft key', async (
   const signup = await call('profiles', legacy, payload('POST', { username: 'legacy-user' }));
   assert.equal(signup.status, 201);
   const [issued, expired] = signup.headers.getSetCookie();
-  assert.match(issued, /^liftmorrow_browser=[a-f0-9]{64};.*HttpOnly.*SameSite=Lax.*Secure/);
+  assert.match(issued, /^trainer_plus_browser=[a-f0-9]{64};.*HttpOnly.*SameSite=Lax.*Secure/);
   assert.match(expired, /^repform_workspace=;.*Secure.*Max-Age=0$/);
   const cookie = issued.split(';')[0];
   const { active } = await signup.json();
@@ -109,7 +109,7 @@ test('a large workspace supports gzip and identity with the same private weak va
     notes: 'Keep the same setup. '.repeat(35), exercises: [{ exerciseId: 'push-up', sets: 3, reps: 8 }] };
   const workouts = Array.from({ length: 16 }, () => ({ ...sample, id: randomUUID() }));
   const restore = await call('workspace/training-backup', cookie,
-    payload('POST', { format: 'liftmorrow-training', version: 1, equipment: null, workouts }));
+    payload('POST', { format: 'trainer-plus-training', version: 1, equipment: null, workouts }));
   assert.equal(restore.status, 200);
   await restore.arrayBuffer();
 
@@ -129,7 +129,7 @@ test('a large workspace supports gzip and identity with the same private weak va
 });
 
 test('validators invalidate across SQLite instances for settings, workouts, and review changes or expiry', { timeout: 6000 }, async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-workspace-condition-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-workspace-condition-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const database = join(directory, 'workspace.sqlite');
   const server = await start(t, { database });
@@ -187,7 +187,7 @@ test('validators invalidate across SQLite instances for settings, workouts, and 
 });
 
 test('legacy workspaces receive a durable validator when the database opens', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-workspace-legacy-condition-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-workspace-legacy-condition-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const database = join(directory, 'workspace.sqlite');
   const id = randomUUID();

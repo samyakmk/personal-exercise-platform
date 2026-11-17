@@ -17,7 +17,6 @@ export function TrainingBackup({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState('');
   const [downloadError, setDownloadError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [split, setSplit] = useState(false);
   const [from, setFrom] = useState('');
   const [before, setBefore] = useState('');
   const loading = useRef(false);
@@ -41,7 +40,7 @@ export function TrainingBackup({ onClose }: { onClose: () => void }) {
       setSelected({ name: file.name, contents, workouts: backup.workouts.length, equipment: Array.isArray(backup.equipment),
         bookmarks: Array.isArray(backup.bookmarks) ? backup.bookmarks.length : 0 });
     } catch {
-      setError('Choose a valid Liftmorrow training backup JSON file.');
+      setError('Choose a valid Trainer Plus training backup JSON file.');
     } finally {
       loading.current = false;
       setBusy(false);
@@ -74,12 +73,9 @@ export function TrainingBackup({ onClose }: { onClose: () => void }) {
   const validRange = Boolean(from || before) && (!from || isWorkoutDate(from)) && (!before || isWorkoutDate(before))
     && (!from || !before || from < before);
   const download = {
-    filename: 'liftmorrow-training-backup.json',
+    filename: 'trainer-plus-training-backup.json',
     onStart: () => setDownloadError(''),
-    onError: (message: string, status?: number) => {
-      setDownloadError(message);
-      if (status === 413 && hasWorkouts) setSplit(true);
-    },
+    onError: setDownloadError,
   };
   return <Sheet title="Export and backup" detail="Download your workout records or move training data to another workspace."
     onClose={() => { if (!loading.current) onClose(); }}>
@@ -93,14 +89,9 @@ export function TrainingBackup({ onClose }: { onClose: () => void }) {
     {hasData && <View style={styles.section}>
       <SectionTitle title="Training backup" level={3} />
       <Copy size={13} tone={color.muted}>Save workouts, saved exercises, and equipment preferences. Video files have their own downloads.</Copy>
-      <View style={styles.actions}>
-        <DownloadLink href={api.trainingBackupUrl()} label="Download training backup" validated={download} />
-        {hasWorkouts && <Button kind="quiet" onPress={() => setSplit(!split)} aria-expanded={split}>
-          {split ? 'Hide date options' : 'Choose a date range'}
-        </Button>}
-      </View>
+      <DownloadLink href={api.trainingBackupUrl()} label="Download training backup" validated={download} />
       {downloadError && <Notice error>{downloadError}</Notice>}
-      {split && <View style={styles.range}>
+      {hasWorkouts && <View style={styles.range}>
         <Copy size={13} tone={color.muted}>Choose a date range for one part of a large backup. Leave a date blank for an open end.</Copy>
         <View style={styles.dates}>
           <DateTimeField kind="date" label="Include workouts from" value={from}

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react';
 import { createWorkspaceApi, RequestError } from './api';
 import { compareWorkoutTime, workoutTime } from './dates';
+import { readCachedCatalog, readOfflineWorkspace, writeCachedCatalog, writeOfflineWorkspace } from './platform/offline';
 import { signalWorkspaceUpdate, watchWorkspaceUpdates } from './platform/workspaceUpdates';
 import { completedWorkouts } from './trainingProgress';
 import type { Clip, ClipReview, Exercise, Snapshot, Workspace, WorkspaceChange } from './types';
@@ -75,6 +76,7 @@ export function WorkspaceProvider({ workspaceKey, refreshProfile, children }: {
   const api = useMemo(() => createWorkspaceApi(workspaceKey), [workspaceKey]);
   const now = useLocalClock();
   const [data, setData] = useState<Workspace | null>(null);
+  const [catalogBundle, setCatalogBundle] = useState<Awaited<ReturnType<typeof api.exerciseCatalog>>>();
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<{ message: string }>();
   const queue = useRef<Promise<unknown>>(Promise.resolve());
@@ -105,10 +107,14 @@ export function WorkspaceProvider({ workspaceKey, refreshProfile, children }: {
             ? { ...workspace, clips: mergeClips(current.clips, workspace.clips) }
             : workspace);
         } catch (failure) {
-          if (failure instanceof RequestError && [404, 409].includes(failure.status)) {
+          if (failure instanceof RequestError && [401, 403, 404, 409].includes(failure.status)) {
             setData(null);
             snapshotTag.current = undefined;
+            writeOfflineWorkspace(workspaceKey, null);
             refreshProfile();
+          } else if (!(failure instanceof RequestError)) {
+            const cached = readOfflineWorkspace(workspaceKey);
+            if (cached) setData((current) => current ?? cached);
           }
           setError((failure as Error).message);
         }
@@ -121,6 +127,35 @@ export function WorkspaceProvider({ workspaceKey, refreshProfile, children }: {
     reload();
     return watchWorkspaceUpdates(reload);
   }, [reload]);
+
+  useEffect(() => {
+    if (data && !error) writeOfflineWorkspace(workspaceKey, data);
+  }, [data, error, workspaceKey]);
+
+  const version = data?.catalogVersion;
+  const catalogLoaded = !version || catalogBundle?.catalogVersion === version;
+  useEffect(() => {
+    if (!version || catalogLoaded) return;
+    const controller = new AbortController();
+    const load = async () => {
+      const cached = await readCachedCatalog(version);
+      if (controller.signal.aborted) return;
+      if (cached) return setCatalogBundle(cached);
+      try {
+        const bundle = await api.exerciseCatalog(controller.signal);
+        if (controller.signal.aborted) return;
+        if (bundle.catalogVersion !== version) return reload();
+        setCatalogBundle(bundle);
+        void writeCachedCatalog(bundle);
+      } catch { /* The plan and known exercise records remain usable during a catalog outage. */ }
+    };
+    void load();
+    const unwatch = watchWorkspaceUpdates(() => { void load(); });
+    return () => { controller.abort(); unwatch(); };
+  }, [api, catalogLoaded, reload, version]);
+
+  const workspace = useMemo(() => data && version && catalogLoaded && catalogBundle ? { ...data, ...catalogBundle } : data,
+    [catalogBundle, catalogLoaded, data, version]);
 
   useEffect(() => {
     if (!notice) return;
@@ -226,18 +261,18 @@ export function WorkspaceProvider({ workspaceKey, refreshProfile, children }: {
   const recommendationContext = useMemo(() => {
     const recent = data && completedWorkouts(data.workouts, workoutTime(now), 5)
       .map((workout) => workout.exercises.map(({ exerciseId }) => exerciseId));
-    return JSON.stringify([data?.equipment, recent, data?.catalog.map(({ id }) => id)]);
-  }, [data?.equipment, data?.workouts, data?.catalog, now]);
+    return JSON.stringify([data?.equipment, recent, version ?? data?.catalog.map(({ id }) => id)]);
+  }, [data?.equipment, data?.workouts, data?.catalog, now, version]);
 
-  const catalog = data?.catalog;
-  const archivedExercises = data?.archivedExercises;
+  const catalog = workspace?.catalog;
+  const archivedExercises = workspace?.archivedExercises;
   const exerciseRecords = useMemo(() => new Map(
     [...(catalog ?? []), ...(archivedExercises ?? [])].map((exercise) => [exercise.id, exercise]),
   ), [catalog, archivedExercises]);
   const value = useMemo(() => ({
-    api, data, exerciseRecords, error, reload, mutate, transferClip, refreshAfterRestore, recommendationContext, startReview, cancelReview,
+    api, data: workspace, exerciseRecords, error, reload, mutate, transferClip, refreshAfterRestore, recommendationContext, startReview, cancelReview,
     notice: notice?.message ?? '', announce,
-  }), [api, data, exerciseRecords, error, reload, mutate, transferClip, refreshAfterRestore, recommendationContext, startReview, cancelReview, notice, announce]);
+  }), [api, workspace, exerciseRecords, error, reload, mutate, transferClip, refreshAfterRestore, recommendationContext, startReview, cancelReview, notice, announce]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

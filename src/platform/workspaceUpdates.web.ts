@@ -1,6 +1,7 @@
 type Topic = 'workspace' | 'profile' | 'companion';
 
 const channels = new Map<string, BroadcastChannel>();
+// Older tabs still use this channel to detect profile and workspace changes.
 const keyFor = (topic: Topic) => 'liftmorrow-' + topic + '-update';
 
 function broadcastChannel(key: string) {
@@ -21,11 +22,13 @@ export function watchWorkspaceUpdates(refresh: () => void, topic: Topic = 'works
   };
   window.addEventListener('storage', onStorage);
   window.addEventListener('pageshow', refresh);
+  window.addEventListener('online', refresh);
   document.addEventListener('visibilitychange', onVisibility);
   channel?.addEventListener('message', refresh);
   return () => {
     window.removeEventListener('storage', onStorage);
     window.removeEventListener('pageshow', refresh);
+    window.removeEventListener('online', refresh);
     document.removeEventListener('visibilitychange', onVisibility);
     channel?.removeEventListener('message', refresh);
   };

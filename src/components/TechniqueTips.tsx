@@ -18,7 +18,7 @@ export function TechniqueTips({ exercise, sideBySide = false }: { exercise: Exer
 function Tip({ label, text, sideBySide }: { label: 'Do' | 'Avoid'; text: string; sideBySide: boolean }) {
   const avoid = label === 'Avoid';
   const Icon = avoid ? X : Check;
-  const tone = avoid ? color.danger : color.plum;
+  const tone = avoid ? color.danger : color.forest;
   return <View style={[styles.tip, sideBySide && styles.column]}>
     <View aria-hidden style={[styles.badge, { backgroundColor: avoid ? color.dangerSoft : color.tint }]}>
       <Icon size={16} color={tone} />

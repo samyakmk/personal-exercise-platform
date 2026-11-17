@@ -80,9 +80,14 @@ test('manual sessions preserve individual sets, and edits and deletion update th
 });
 
 test('exercise details use the same session flow and suggest an exercise after creation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 850 });
   await page.route('https://www.youtube-nocookie.com/**', (route) => route.fulfill({ body: '' }));
   await page.goto('/explore?exercise=push-up');
-  await page.getByRole('dialog', { name: 'Push-Up', exact: true }).getByRole('button', { name: 'New session' }).click();
+  const exercise = page.getByRole('dialog', { name: 'Push-Up', exact: true });
+  const actions = exercise.getByRole('group', { name: 'Exercise actions' });
+  await expect(actions.getByRole('button', { name: 'Upload my form' })).toBeInViewport();
+  await expect(actions.getByRole('button', { name: 'My exercise history' })).toBeInViewport();
+  await actions.getByRole('button', { name: 'New session' }).click();
   const setup = page.getByRole('dialog', { name: 'New session' });
   await expect(setup.getByLabel('Session name')).toHaveValue('Push-Up session');
   await setup.getByLabel('Session name').fill('Quick training');
@@ -159,6 +164,31 @@ test('a metadata-only session can be saved and filled in later on a narrow scree
   await expect(page.getByText('Morning session')).toBeVisible();
 });
 
+
+test('a narrow session list opens earlier session details directly beneath the selected row', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 720 });
+  const earlier = { id: randomUUID(), name: 'Earlier session', date: '2026-10-20' };
+  const latest = { id: randomUUID(), name: 'Latest session', date: '2026-10-22' };
+  for (const workout of [earlier, latest]) {
+    const response = await page.request.post('/api/workouts', { data: {
+      ...workout, time: '12:00', status: 'completed',
+      exercises: [{ exerciseId: 'push-up', sets: 1, reps: 8 }],
+    } });
+    expect(response.ok()).toBe(true);
+  }
+  await page.goto('/sessions');
+  const earlierRow = page.getByRole('button', { name: /^Earlier session/ });
+  const latestRow = page.getByRole('button', { name: /^Latest session/ });
+  await expect(latestRow).toHaveAttribute('aria-expanded', 'false');
+  await earlierRow.press('Enter');
+  await expect(earlierRow).toHaveAttribute('aria-expanded', 'true');
+  await expect(latestRow).toHaveAttribute('aria-expanded', 'false');
+  await expect(earlierRow.locator('xpath=following-sibling::*[1]').getByRole('heading', { name: earlier.name })).toBeVisible();
+  await page.reload();
+  await expect(earlierRow).toHaveAttribute('aria-expanded', 'true');
+  await earlierRow.click();
+  await expect(earlierRow).toHaveAttribute('aria-expanded', 'false');
+});
 
 test('retrying metadata save after a lost response opens the same session', async ({ page }) => {
   await page.goto('/sessions');

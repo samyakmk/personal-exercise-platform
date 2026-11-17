@@ -12,7 +12,7 @@ export function Demonstration({ exercise }: { exercise: Exercise }) {
   const embed = vimeo ? `https://player.vimeo.com/video/${id}?dnt=1`
     : `https://www.youtube-nocookie.com/embed/${id}?rel=0&playsinline=1`;
   const watch = vimeo ? `https://vimeo.com/${id}` : `https://www.youtube.com/watch?v=${id}`;
-  const linkStyle = { display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: font.semibold, fontSize: 12, color: color.plum } as const;
+  const linkStyle = { display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: font.semibold, fontSize: 12, color: color.forest } as const;
   return <View style={{ gap: 9 }}>
     <iframe
       title={exercise.name + ' demonstration'}
@@ -26,7 +26,7 @@ export function Demonstration({ exercise }: { exercise: Exercise }) {
       {source ? <a href={source} target="_blank" rel="noreferrer" style={linkStyle}>{creator}</a>
         : <Copy size={12} tone={color.muted}>{creator}</Copy>}
       <a href={watch} target="_blank" rel="noreferrer" style={linkStyle}>
-        {vimeo ? 'Watch on Vimeo' : 'Watch on YouTube'} <ExternalLink size={13} color={color.plum} />
+        {vimeo ? 'Watch on Vimeo' : 'Watch on YouTube'} <ExternalLink size={13} color={color.forest} />
       </a>
     </View>
   </View>;

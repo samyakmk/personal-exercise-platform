@@ -14,7 +14,7 @@ const effortOptions = [
 const sourceOptions = [
   { value: 'manual', label: 'On my own' },
   { value: 'trainer', label: 'With my trainer' },
-  { value: 'recommended', label: 'Suggested by Liftmorrow' },
+  { value: 'recommended', label: 'Suggested by Trainer Plus' },
 ];
 
 export function EffortField({ value, onChange, disabled }: {
@@ -37,6 +37,6 @@ export function SourceField({ value, onChange, disabled }: {
 }
 
 export const sessionSourceLabel = (source?: WorkoutSource) =>
-  source === 'trainer' ? 'Trainer session' : source === 'recommended' ? 'Liftmorrow suggestion' : '';
+  source === 'trainer' ? 'Trainer session' : source === 'recommended' ? 'Trainer Plus suggestion' : '';
 
 const styles = StyleSheet.create({ field: { gap: 4, minWidth: 165 } });

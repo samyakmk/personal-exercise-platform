@@ -1,12 +1,13 @@
+import { trainerPlusEnv } from '../server/config.mjs';
 import { spawn } from 'node:child_process';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 
-const apiPort = Number(process.env.LIFTMORROW_API_PORT ?? 4173);
-const webPort = Number(process.env.LIFTMORROW_WEB_PORT ?? 8081);
+const apiPort = Number(trainerPlusEnv('API_PORT') ?? 4173);
+const webPort = Number(trainerPlusEnv('WEB_PORT') ?? 8081);
 const expoEnv = Object.fromEntries(Object.keys(process.env)
   .filter((name) => name !== 'CHATGPT_API_KEY')
   .map((name) => [name, process.env[name]]));
-const server = createLiftmorrowServer({ webOrigin: `http://localhost:${webPort}` });
+const server = createTrainerPlusServer({ webOrigin: `http://localhost:${webPort}` });
 
 server.listen(apiPort, '127.0.0.1', () => {
   const expo = spawn(process.execPath, [

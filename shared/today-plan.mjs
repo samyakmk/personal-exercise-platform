@@ -1,14 +1,17 @@
+import { recordedSetCount } from './training-records.mjs';
+
 // Starter movements have a demonstration and a known role; familiar and
 // explicitly preferred library movements can join this pool.
 export const broadPriorities = ['Upper body'];
 
-const starter = [
+export const starterExerciseIds = [
   'incline-push-up', 'bodyweight-squat', 'bird-dog', 'dumbbell-row', 'glute-bridge',
   'fedb-bent-over-two-dumbbell-row', 'fedb-band-pull-apart',
   'dumbbell-curl', 'dumbbell-shoulder-press', 'dead-bug', 'reverse-lunge',
   'goblet-squat', 'dumbbell-bench-press', 'dumbbell-rdl', 'forearm-plank',
   'push-up', 'fedb-triceps-pushdown',
 ];
+const starter = starterExerciseIds;
 const regions = new Map(Object.entries({
   Chest: 'push', Shoulders: 'push', Triceps: 'push',
   Lats: 'pull', 'Mid-back': 'pull', Traps: 'pull', Biceps: 'pull', Forearms: 'pull',
@@ -17,7 +20,6 @@ const regions = new Map(Object.entries({
 }));
 const byDate = ({ date, time, id }) => `${date}T${time}/${id}`;
 const ageDays = (today, day) => Math.round((Date.parse(today + 'T12:00Z') - Date.parse(day + 'T12:00Z')) / 86_400_000);
-const countSets = (movement) => movement.setDetails?.length ?? movement.sets;
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const validEffort = (value) => Number.isInteger(value) && value >= 1 && value <= 10;
 
@@ -37,6 +39,10 @@ export function applyTrainingNotes(preferences, notes = []) {
     if (kind === 'prefer') preferred.add(exerciseId);
     handled.add(exerciseId);
   }
+  for (const { kind, exerciseId } of preferences?.instructions ?? []) {
+    if (kind === 'avoid') excluded.add(exerciseId);
+    if (kind === 'prefer') preferred.add(exerciseId);
+  }
   return {
     ...preferences, preferred: [...preferred].filter((id) => !excluded.has(id)), excluded: [...excluded],
     shorter: notes.some(({ kind }) => kind === 'shorter'),
@@ -45,14 +51,14 @@ export function applyTrainingNotes(preferences, notes = []) {
 
 export function buildTodayPlan({ current, catalog, equipment, preferences, workouts, adjustment, forSchedule = false, trainingNotes }) {
   preferences = applyTrainingNotes(preferences, trainingNotes);
-  const rest = (reason, summary) => ({ kind: 'rest', name: 'A day to recover', summary, reasons: [reason], exercises: [] });
+  const rest = (reason, summary) => ({ kind: 'rest', readiness: 'rest', name: 'A day to recover', summary, reasons: [reason], exercises: [] });
   if (adjustment === 'rest') {
     return rest('You asked to rest today.', 'Pick up with a fresh suggestion the next time you train.');
   }
   const exerciseById = new Map(catalog.map((exercise) => [exercise.id, exercise]));
   const history = workouts.filter((workout) => workout.status === 'completed' && !workout.example
     && byDate(workout) <= `${current.date}T${current.time}/\uffff`
-    && (workout.source === 'trainer' || workout.exercises.some((item) => countSets(item) > 0)))
+    && (workout.source === 'trainer' || workout.exercises.some((item) => recordedSetCount(item) > 0)))
     .sort((a, b) => byDate(b).localeCompare(byDate(a)));
   if (!forSchedule && history[0]?.date === current.date) {
     return rest(history[0].source === 'trainer' ? 'A trainer session is already logged today.' : 'You already logged training today.',
@@ -61,7 +67,7 @@ export function buildTodayPlan({ current, catalog, equipment, preferences, worko
   const recent = history.filter((workout) => ageDays(current.date, workout.date) <= 14);
   const latest = recent[0];
   const yesterday = !forSchedule && latest && ageDays(current.date, latest.date) === 1;
-  const difficult = latest && validEffort(latest.effort) && latest.effort >= 8 && ageDays(current.date, latest.date) <= 3;
+  const difficult = !forSchedule && latest && validEffort(latest.effort) && latest.effort >= 8 && ageDays(current.date, latest.date) <= 3;
   const trainerYesterday = yesterday && latest.source === 'trainer';
   if (yesterday && latest.effort >= 9) {
     return rest('Yesterday’s session was rated ' + latest.effort + ' out of 10.', 'You can leave today open for recovery.');
@@ -77,7 +83,7 @@ export function buildTodayPlan({ current, catalog, equipment, preferences, worko
   for (const workout of history) {
     const days = ageDays(current.date, workout.date);
     for (const movement of workout.exercises) {
-      const count = countSets(movement);
+      const count = recordedSetCount(movement);
       if (!count) continue;
       const exercise = exerciseById.get(movement.exerciseId);
       if (days <= 60 && !familiar.has(movement.exerciseId)) familiar.set(movement.exerciseId, { movement, effort: workout.effort });
@@ -146,7 +152,7 @@ export function buildTodayPlan({ current, catalog, equipment, preferences, worko
     const easierAmount = seconds ? 5 : 1;
     const smallIncrease = !easier && priorTarget !== undefined && validEffort(prior.effort) && prior.effort <= 4;
     const reps = clamp(base + (easier ? -easierAmount : smallIncrease ? (seconds ? 5 : 1) : 0), 1, seconds ? 45 : 15);
-    const sets = easier ? 1 : prior ? clamp(countSets(prior.movement), 1, 2) : 2;
+    const sets = easier ? 1 : prior ? clamp(recordedSetCount(prior.movement), 1, 2) : 2;
     progressed ||= smallIncrease && reps > base;
     reduced ||= easier;
     return { exerciseId: exercise.id, sets, reps };
@@ -166,6 +172,7 @@ export function buildTodayPlan({ current, catalog, equipment, preferences, worko
   if (!reasons.length) reasons.push('Uses recent training to rotate which muscle groups get attention.');
   return {
     kind: 'train',
+    readiness: light ? 'lighter' : 'usual',
     name: light ? 'A lighter strength session' : balanced ? 'Balanced strength' : 'Strength for your priorities',
     summary: `${exercises.length} ${exercises.length === 1 ? 'exercise' : 'exercises'} · ${exercises.reduce((total, { sets }) => total + sets, 0)} sets`,
     reasons,

@@ -14,7 +14,7 @@ const completed = (n) => Response.json({ model: 'gpt-5.4-mini-2026-03-17',
   usage: { input_tokens: n, output_tokens: 10, input_tokens_details: { cached_tokens: 1 } } });
 
 test('both endpoints use the same payload inputs and usage is accounted across runs', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'liftmorrow-budget-'));
+  const dir = mkdtempSync(join(tmpdir(), 'trainer-plus-budget-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const calls = [];
   const options = { targetInput: 100, maxPreflights: 2, fetchImpl: async (url, { body }) => {

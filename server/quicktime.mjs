@@ -1,3 +1,4 @@
+import { trainerPlusEnv } from './config.mjs';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,9 +8,9 @@ import { AiError } from './ai.mjs';
 
 const run = promisify(execFile);
 
-export async function convertQuickTime(bytes, { limit, signal, binary = process.env.LIFTMORROW_FFMPEG || 'ffmpeg' }) {
+export async function convertQuickTime(bytes, { limit, signal, binary = trainerPlusEnv('FFMPEG') || 'ffmpeg' }) {
   signal?.throwIfAborted();
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-quicktime-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-quicktime-'));
   const input = join(directory, 'clip.mov');
   const output = join(directory, 'clip.mp4');
   try {

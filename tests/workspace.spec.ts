@@ -20,7 +20,7 @@ test('filters, empty state, saved gear, and the YouTube demonstration', async ({
   }));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Training overview' })).toBeVisible();
-  await page.getByRole('button', { name: 'Explore exercises' }).click();
+  await page.getByRole('link', { name: 'Exercises', exact: true }).click();
   await expect(page.getByText('689 exercises', { exact: true })).toBeVisible();
   const barbellSquat = page.getByRole('button', { name: /^Barbell Squat Legs/ });
   await expect(barbellSquat).toHaveCount(0);
@@ -28,8 +28,6 @@ test('filters, empty state, saved gear, and the YouTube demonstration', async ({
     await page.getByRole('button', { name: 'Show more exercises' }).click();
   }
   await expect(barbellSquat).toBeVisible();
-  await expect(page.getByLabel('Difficulty')).toHaveCount(0);
-  await page.getByRole('button', { name: /^Filters/ }).click();
   await page.getByLabel('Difficulty').selectOption('Intermediate');
   await expect(page.getByText('229 exercises', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Push-Up Chest/ })).toBeVisible();
@@ -69,7 +67,6 @@ test('the library filters and opens imported exercise demos with muscle tags and
   await page.route('https://i.ytimg.com/**', (route) => route.abort());
   await page.route('https://i.vimeocdn.com/**', (route) => route.abort());
   await page.goto('/explore');
-  await page.getByRole('button', { name: 'Filters', exact: true }).click();
   await page.getByLabel('Exercise type').selectOption('Strength');
   await page.getByRole('textbox', { name: 'Search exercises' }).fill('barbell squat quadriceps');
   const card = page.getByRole('button', { name: /^Barbell Squat Legs/ });
@@ -97,6 +94,7 @@ test('an exercise picker narrows the catalog while typing and saves an imported 
   await page.setViewportSize({ width: 390, height: 750 });
   await page.goto('/workouts');
   await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Choose exercises manually' }).click();
   const editor = page.getByRole('dialog', { name: 'Schedule a workout' });
   const picker = editor.getByRole('combobox', { name: 'Choose an exercise' });
   const list = editor.getByRole('listbox', { name: 'Choose an exercise' });
@@ -196,7 +194,9 @@ test('saved exercises survive reload and rise to the top of the workout picker',
   await page.getByRole('button', { name: 'Saved exercises (1)' }).click();
   await expect(page.getByText('1 exercise', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Incline Push-Up Chest/ })).toBeVisible();
-  await page.getByRole('button', { name: 'New workout' }).click();
+  await page.getByRole('link', { name: 'Workouts', exact: true }).click();
+  await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Choose exercises manually' }).click();
   const editor = page.getByRole('dialog', { name: 'Schedule a workout' });
   const picker = editor.getByRole('combobox', { name: 'Choose an exercise' });
   await picker.press('ArrowDown');
@@ -229,7 +229,6 @@ test('an exercise demonstration link opens directly and can be closed without cl
   await expect(page.getByRole('textbox', { name: 'Search exercises' })).toHaveValue('incline');
   await page.getByRole('textbox', { name: 'Search exercises' }).clear();
   await page.getByRole('button', { name: 'Chest', exact: true }).click();
-  await page.getByRole('button', { name: /^Filters/ }).click();
   await page.getByRole('button', { name: 'Bodyweight only' }).click();
   await page.getByLabel('Difficulty').selectOption('Intermediate');
   await expect(page.getByText('3 exercises', { exact: true })).toBeVisible();
@@ -240,8 +239,6 @@ test('an exercise demonstration link opens directly and can be closed without cl
   await expect(pushup.getByRole('heading', { name: 'Do and avoid' })).toBeVisible();
   await pushup.getByRole('button', { name: 'Close dialog' }).click();
   await expect(page.getByRole('button', { name: 'Chest', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: 'Filters (2)' })).toHaveAttribute('aria-expanded', 'false');
-  await page.getByRole('button', { name: 'Filters (2)' }).click();
   await expect(page.getByRole('button', { name: 'Bodyweight only' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByLabel('Difficulty')).toHaveValue('Intermediate');
   await expect(page.getByText('3 exercises', { exact: true })).toBeVisible();
@@ -263,15 +260,14 @@ test('creates and edits a workout from Explore, logs actual sets, and deletes it
   await editor.getByRole('button', { name: 'Move Forearm Plank up' }).click();
   await editor.getByRole('button', { name: 'Save workout', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Strength practice' })).toBeVisible();
-  await openWorkoutDetails(page, 'Strength practice');
+  await expect(page.getByRole('button', { name: 'Details · Strength practice' })).toHaveAttribute('aria-expanded', 'false');
   const [calendar] = await Promise.all([
     page.waitForEvent('download'),
     page.getByRole('link', { name: 'Download calendar file · Strength practice' }).click(),
   ]);
-  expect(calendar.suggestedFilename()).toBe('liftmorrow-calendar.ics');
+  expect(calendar.suggestedFilename()).toBe('trainer-plus-calendar.ics');
   expect(await readFile((await calendar.path())!, 'utf8')).toContain('SUMMARY:Strength practice');
   await page.reload();
-  await openWorkoutDetails(page, 'Strength practice');
   await page.getByRole('button', { name: 'Edit workout · Strength practice' }).click();
   editor = page.getByRole('dialog');
   const setFields = editor.getByRole('textbox', { name: /^Sets · / });
@@ -280,40 +276,40 @@ test('creates and edits a workout from Explore, logs actual sets, and deletes it
   await expect(setFields.nth(1)).toHaveAccessibleName('Sets · Goblet Squat');
   await editor.getByRole('textbox', { name: 'Workout name' }).fill('Strength practice revised');
   await editor.getByRole('button', { name: 'Save workout', exact: true }).click();
-  await openWorkoutDetails(page, 'Strength practice revised');
   await page.getByRole('button', { name: 'Log as completed · Strength practice revised' }).click();
   await editor.getByRole('textbox', { name: 'Sets · Goblet Squat' }).fill('2');
   await editor.getByRole('textbox', { name: 'Reps · Goblet Squat' }).fill('8');
   await editor.getByRole('button', { name: 'Save workout log' }).click();
-  await openWorkoutDetails(page, 'Strength practice revised');
-  await expect(page.getByText('2 × 8 reps · 12.5 kg', { exact: true })).toBeVisible();
-  await expect(page.getByText('3 × 35 sec', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/sessions\?session=/);
+  await expect(page.getByRole('list', { name: 'Sets for Goblet Squat' }).getByText('8 reps · 12.5 kg per dumbbell')).toHaveCount(2);
+  await expect(page.getByRole('list', { name: 'Sets for Forearm Plank' }).getByText('35 sec')).toHaveCount(3);
+  await page.getByRole('link', { name: 'Workouts', exact: true }).click();
   await page.getByRole('button', { name: 'Export and backup' }).click();
   const [historyExport] = await Promise.all([
     page.waitForEvent('download'),
     page.getByRole('link', { name: 'Download history CSV' }).click(),
   ]);
-  expect(historyExport.suggestedFilename()).toBe('liftmorrow-history.csv');
+  expect(historyExport.suggestedFilename()).toBe('trainer-plus-history.csv');
   expect(await readFile((await historyExport.path())!, 'utf8')).toContain('Strength practice revised,Goblet Squat,2,8,reps,12.5,kg');
   await page.getByRole('button', { name: 'Close dialog' }).click();
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
-  await expect(page.getByText('Workouts logged', { exact: true }).locator('..')).toContainText('1');
+  await expect(page.getByRole('list', { name: 'Training over the last seven days' }).getByRole('listitem', { name: /1 workout logged/ })).toHaveCount(1);
   await page.getByRole('link', { name: 'Workouts', exact: true }).click();
-  await page.getByRole('button', { name: 'History (1)' }).click();
-  await openWorkoutDetails(page, 'Strength practice revised');
+  await page.getByRole('link', { name: 'Session history' }).click();
+  await expect(page.getByRole('heading', { name: 'Strength practice revised' })).toBeVisible();
+  await page.goto('/workouts?view=history');
   await page.getByRole('button', { name: 'Repeat workout · Strength practice revised' }).click();
   await expect(editor.getByRole('textbox', { name: 'Weight per dumbbell · Goblet Squat' })).toHaveValue('12.5');
   await editor.getByRole('textbox', { name: 'Workout name' }).fill('Next strength workout');
   await editor.getByRole('button', { name: 'Save workout', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Next strength workout' })).toBeVisible();
-  await page.getByRole('button', { name: 'History (1)' }).click();
+  await page.goto('/workouts?view=history');
   const history = page.getByRole('textbox', { name: 'Search workout history' });
   await history.fill('plank');
   await expect(page.getByRole('heading', { name: 'Strength practice revised' })).toBeVisible();
   await history.fill('something else');
   await expect(page.getByText('No matching workouts')).toBeVisible();
   await page.getByRole('button', { name: 'Clear workout search' }).click();
-  await openWorkoutDetails(page, 'Strength practice revised');
   await page.getByRole('button', { name: 'Edit workout · Strength practice revised' }).click();
   await editor.getByRole('button', { name: 'Delete workout' }).click();
   await editor.getByRole('button', { name: 'Delete workout' }).click();
@@ -325,7 +321,7 @@ test('uses local workout times for next up and logs a planned session at the act
   await page.clock.install({ time: new Date(2026, 10, 12, 17, 29, 0) });
   await page.goto('/');
   await page.getByRole('button', { name: 'Load sample workouts' }).click();
-  await expect(page.getByText('Workouts logged', { exact: true }).locator('..')).toContainText('0');
+  await expect(page.getByRole('heading', { name: 'Last 7 days' })).toHaveCount(0);
   await expect(page.getByText('Upper Body Strength', { exact: true })).toBeVisible();
   await page.clock.fastForward(2 * 60_000);
   await expect(page.getByText('Lower Body Strength', { exact: true })).toBeVisible();
@@ -345,7 +341,6 @@ test('uses local workout times for next up and logs a planned session at the act
   await expect(rest.getByRole('status')).toHaveText('Rest complete');
   await rest.getByRole('button', { name: 'Done' }).click();
   await page.setViewportSize({ width: 390, height: 844 });
-  await editor.getByRole('button', { name: 'Custom rest duration' }).click();
   await expect(editor.getByRole('button', { name: 'Start custom timer' })).toBeDisabled();
   await editor.getByRole('textbox', { name: 'Rest seconds' }).fill('95');
   await editor.getByRole('textbox', { name: 'Rest seconds' }).press('Enter');
@@ -362,7 +357,7 @@ test('progress summarizes completed personal workouts and compares dumbbell unit
   await page.clock.install({ time: new Date(2026, 10, 12, 17, 29, 0) });
   await page.goto('/');
   await page.getByRole('button', { name: 'Load sample workouts' }).click();
-  await page.getByRole('button', { name: 'View progress' }).click();
+  await page.getByRole('link', { name: 'Progress', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Training progress' })).toBeVisible();
   await expect(page.getByText('Your first workout goes here')).toBeVisible();
   const entries = [
@@ -394,14 +389,18 @@ test('progress summarizes completed personal workouts and compares dumbbell unit
   await expect(page.getByRole('heading', { name: 'Second practice' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'First practice' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Future completed record' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'History (2)' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: 'Show all history' })).toBeVisible();
-  await page.getByRole('button', { name: 'Show all history' }).click();
+  await expect(page).toHaveURL(/\/sessions\?week=/);
+  await expect(page.getByRole('button', { name: 'Show all sessions' })).toBeVisible();
+  await page.getByRole('button', { name: 'Show all sessions' }).click();
   await expect(page.getByRole('heading', { name: 'Future completed record' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'First practice' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /First practice/ })).toBeVisible();
   await page.getByRole('link', { name: 'Progress', exact: true }).click();
-  await page.getByRole('button', { name: 'Open workout · Second practice' }).click();
-  await expect(page.getByRole('textbox', { name: 'Workout name' })).toHaveValue('Second practice');
+  await page.getByRole('group', { name: 'Exercise trend metric' }).getByRole('button', { name: 'Sets' }).click();
+  await expect(page.getByRole('list', { name: 'Recorded sets across recent sessions' }).getByRole('listitem', { name: /Second practice.*3 sets/ })).toBeVisible();
+  await page.getByRole('link', { name: 'Open session · Second practice' }).click();
+  await expect(page.getByRole('heading', { name: 'Second practice' })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit session' }).click();
+  await expect(page.getByRole('textbox', { name: 'Session name' })).toHaveValue('Second practice');
   await page.keyboard.press('Escape');
 
   await page.getByRole('link', { name: 'Progress', exact: true }).click();
@@ -410,12 +409,15 @@ test('progress summarizes completed personal workouts and compares dumbbell unit
   await page.reload();
   await expect(page.getByLabel('Exercise history')).toHaveValue('Forearm Plank');
   await page.getByRole('button', { name: 'Log Forearm Plank' }).click();
-  await expect(page.getByRole('textbox', { name: 'Seconds · Forearm Plank' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Session name' })).toHaveValue('Forearm Plank session');
+  await page.getByRole('button', { name: 'Save and continue' }).click();
+  const exerciseEditor = page.getByRole('dialog', { name: 'Session exercises' });
+  await exerciseEditor.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(exerciseEditor.getByRole('textbox', { name: 'Seconds · Set 1 · Forearm Plank' })).toBeVisible();
 });
 
 test('individual sets can vary by reps and weight and are restored after reload', async ({ page }) => {
-  await page.goto('/workouts');
-  await page.getByRole('button', { name: 'History (0)' }).click();
+  await page.goto('/workouts?view=history');
   await page.getByRole('button', { name: 'Log workout', exact: true }).first().click();
   const editor = page.getByRole('dialog', { name: 'Log a workout' });
   await editor.getByRole('textbox', { name: 'Workout name' }).fill('Varying weights');
@@ -456,20 +458,23 @@ test('individual sets can vary by reps and weight and are restored after reload'
 test('an unfinished workout draft can be resumed after reloading the same tab', async ({ page, context }) => {
   await page.goto('/workouts');
   await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Choose exercises manually' }).click();
   const editor = page.getByRole('dialog');
   await editor.getByRole('textbox', { name: 'Workout name' }).fill('Unfinished workout');
-  await expect(editor.getByRole('textbox', { name: 'Workout notes' })).toHaveCount(0);
-  await editor.getByRole('button', { name: 'Workout options' }).click();
+  await expect(editor.getByRole('textbox', { name: 'Workout notes' })).toBeVisible();
   await editor.getByRole('textbox', { name: 'Workout notes' }).fill('Leave time for a warm-up.');
   await chooseExercise(editor, 'Choose an exercise', 'Dead Bug');
   await editor.getByRole('button', { name: 'Add', exact: true }).click();
   await editor.getByRole('textbox', { name: 'Reps · Dead Bug' }).fill('14');
-  await page.evaluate(() => {
-    const key = Object.keys(sessionStorage).find((name) => name.startsWith('liftmorrow-workout-draft:'))!;
-    sessionStorage.setItem(key.replace('liftmorrow-', 'repform-'), sessionStorage.getItem(key)!);
-    sessionStorage.removeItem(key);
-  });
-  await page.reload();
+  for (const previousPrefix of ['repform-', 'liftmorrow-']) {
+    await page.evaluate((prefix) => {
+      const key = Object.keys(sessionStorage).find((name) => name.startsWith('trainer-plus-workout-draft:'))!;
+      sessionStorage.setItem(key.replace('trainer-plus-', prefix), sessionStorage.getItem(key)!);
+      sessionStorage.removeItem(key);
+    }, previousPrefix);
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Resume draft' })).toBeVisible();
+  }
   await page.getByRole('button', { name: 'Resume draft' }).click();
   await expect(editor.getByRole('textbox', { name: 'Workout name' })).toHaveValue('Unfinished workout');
   await expect(editor.getByRole('textbox', { name: 'Reps · Dead Bug' })).toHaveValue('14');
@@ -495,6 +500,7 @@ test('guided session resumes recorded sets and saves only the work performed', a
   await page.route('https://www.youtube-nocookie.com/**', (route) => route.fulfill({ body: '' }));
   await page.goto('/workouts');
   await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Choose exercises manually' }).click();
   const editor = page.getByRole('dialog');
   await editor.getByRole('textbox', { name: 'Workout name' }).fill('Guided strength');
   await chooseExercise(editor, 'Choose an exercise', 'Goblet Squat');
@@ -517,7 +523,6 @@ test('guided session resumes recorded sets and saves only the work performed', a
   await expect(session.getByText('9 reps · 12.5 kg per dumbbell')).toBeVisible();
   const rest = page.getByRole('dialog', { name: 'Rest timer' });
   const hold = page.getByRole('dialog', { name: 'Hold timer' });
-  await session.getByRole('button', { name: 'Custom rest duration' }).click();
   await session.getByRole('textbox', { name: 'Rest minutes' }).fill('2');
   await session.getByRole('textbox', { name: 'Rest seconds' }).fill('15');
   await session.getByRole('button', { name: 'Start custom timer' }).click();
@@ -528,7 +533,7 @@ test('guided session resumes recorded sets and saves only the work performed', a
   await session.getByRole('button', { name: 'Pause session' }).click();
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Current session' })).toBeVisible();
+  await expect(page.getByText('Current session', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Resume session', exact: true }).click();
   await expect(rest.getByRole('timer')).toHaveText(/^2:/);
   await rest.getByRole('button', { name: 'Minimize timer' }).click();
@@ -576,10 +581,9 @@ test('guided session resumes recorded sets and saves only the work performed', a
   await session.getByRole('button', { name: 'Save workout log' }).click();
   await expect(session).not.toBeVisible();
   await expect(page.getByRole('heading', { name: 'Guided strength' })).toBeVisible();
-  await openWorkoutDetails(page, 'Guided strength');
-  await expect(page.getByText('1 set · 9 reps')).toBeVisible();
+  await expect(page.getByText('9 reps · 12.5 kg per dumbbell')).toBeVisible();
   await expect(page.getByText('Paused between sets.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Schedule (0)' })).toBeVisible();
+  await expect(page).toHaveURL(/\/sessions\?session=/);
   const snapshot = await (await context.request.get('/api/workspace')).json();
   expect(snapshot.workouts).toHaveLength(1);
   expect(snapshot.workouts[0].exercises).toEqual([{
@@ -593,6 +597,7 @@ test('guided session resumes recorded sets and saves only the work performed', a
 test('a guided session saves a separate log when another tab updates the plan', async ({ page, context }) => {
   await page.goto('/workouts');
   await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Choose exercises manually' }).click();
   const editor = page.getByRole('dialog');
   await editor.getByRole('textbox', { name: 'Workout name' }).fill('Shared strength');
   await chooseExercise(editor, 'Choose an exercise', 'Push-Up');
@@ -631,6 +636,7 @@ test('a guided session saves a separate log when another tab updates the plan', 
 test('planned set targets carry over to the matching guided sets', async ({ page }) => {
   await page.goto('/workouts');
   await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Choose exercises manually' }).click();
   const editor = page.getByRole('dialog', { name: 'Schedule a workout' });
   await editor.getByRole('textbox', { name: 'Workout name' }).fill('Warm-up and working set');
   await chooseExercise(editor, 'Choose an exercise', 'Goblet Squat');
@@ -656,11 +662,11 @@ test('planned set targets carry over to the matching guided sets', async ({ page
 test('weekly scheduling previews the last date and creates independently editable workouts', async ({ page, context }) => {
   await page.goto('/workouts');
   await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Choose exercises manually' }).click();
   const editor = page.getByRole('dialog', { name: 'Schedule a workout' });
   await editor.getByRole('textbox', { name: 'Workout name' }).fill('Weekly core');
   await editor.getByLabel('Date', { exact: true }).fill('2027-03-07');
   await editor.getByLabel('Time', { exact: true }).fill('16:00');
-  await editor.getByRole('button', { name: 'Workout options' }).click();
   await editor.getByLabel('Repeat weekly').selectOption('3');
   await expect(editor.getByText('Last session · Sun, Mar 21')).toBeVisible();
   await chooseExercise(editor, 'Choose an exercise', 'Forearm Plank');
@@ -672,8 +678,7 @@ test('weekly scheduling previews the last date and creates independently editabl
   expect(workouts.map(({ date, time }: { date: string; time: string }) => `${date} ${time}`)).toEqual([
     '2027-03-07 16:00', '2027-03-14 16:00', '2027-03-21 16:00',
   ]);
-  await openWorkoutDetails(page, 'Weekly core', 2);
-  await page.getByRole('button', { name: 'Edit workout · Weekly core' }).click();
+  await page.getByRole('button', { name: 'Edit workout · Weekly core' }).nth(2).click();
   const edit = page.getByRole('dialog', { name: 'Edit workout' });
   await expect(edit.getByLabel('Repeat weekly')).toHaveCount(0);
   await edit.getByRole('textbox', { name: 'Workout name' }).fill('Last core session');
@@ -728,7 +733,7 @@ test('the workout calendar jumps to a distant date and filters the selected day'
   await expect(page.getByRole('heading', { name: 'Selected date workout' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Previous week' }).click();
   await expect(page.getByRole('heading', { name: 'Selected date workout' })).toBeVisible();
-  await page.getByRole('button', { name: 'History (0)' }).click();
+  await page.goto('/workouts?view=history');
   await page.reload();
   await expect(page.getByRole('button', { name: 'History (0)' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('heading', { name: 'No workout logs' })).toBeVisible();
@@ -737,6 +742,7 @@ test('the workout calendar jumps to a distant date and filters the selected day'
 test('a training backup downloads and restores in a separate workspace', async ({ page, browser }) => {
   await page.goto('/workouts');
   await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Choose exercises manually' }).click();
   const editor = page.getByRole('dialog');
   await editor.getByRole('textbox', { name: 'Workout name' }).fill('Portable strength');
   await chooseExercise(editor, 'Choose an exercise', 'Push-Up');
@@ -745,17 +751,17 @@ test('a training backup downloads and restores in a separate workspace', async (
   await expect(editor).not.toBeVisible();
   await page.getByRole('button', { name: 'Export and backup' }).click();
   const backupDialog = page.getByRole('dialog', { name: 'Export and backup' });
+  await expect(backupDialog.getByLabel('Include workouts from')).toBeVisible();
   await page.route((url) => url.pathname === '/api/workspace/training-backup', (route) => route.fulfill({
     status: 413, json: { error: 'This workspace is too large for a single training backup. Choose a narrower date range.' },
   }), { times: 1 });
   await backupDialog.getByRole('link', { name: 'Download training backup' }).click();
   await expect(backupDialog.getByRole('alert')).toContainText('Choose a narrower date range.');
-  await expect(backupDialog.getByLabel('Include workouts from')).toBeVisible();
   const [download] = await Promise.all([
     page.waitForEvent('download'), page.getByRole('link', { name: 'Download training backup' }).click(),
   ]);
   await expect(backupDialog.getByRole('alert')).toHaveCount(0);
-  expect(download.suggestedFilename()).toBe('liftmorrow-training-backup.json');
+  expect(download.suggestedFilename()).toBe('trainer-plus-training-backup.json');
   const content = await readFile((await download.path())!);
   const archivedWorkout = JSON.parse(content.toString('utf8')).workouts[0];
   await page.getByLabel('Include workouts from').fill(archivedWorkout.date);
@@ -777,7 +783,7 @@ test('a training backup downloads and restores in a separate workspace', async (
     const backup = imported.getByRole('dialog', { name: 'Export and backup' });
     const input = backup.getByLabel('Training backup file');
     await input.setInputFiles({ name: 'unknown.json', mimeType: 'application/json', buffer: Buffer.from('{}') });
-    await expect(backup.getByText('Choose a valid Liftmorrow training backup JSON file.')).toBeVisible();
+    await expect(backup.getByText('Choose a valid Trainer Plus training backup JSON file.')).toBeVisible();
     const previousBackup = Buffer.from(JSON.stringify({ ...JSON.parse(content.toString('utf8')), format: 'repform-training' }));
     await input.setInputFiles({ name: 'earlier-training-backup.json', mimeType: 'application/json', buffer: previousBackup });
     await expect(backup.getByText('1 workout', { exact: true })).toBeVisible();
@@ -858,11 +864,11 @@ test('previews an upload, retries an API error, reopens privately, and deletes t
   await dialog.getByRole('button', { name: 'Delete video' }).click();
   await expect(dialog.getByRole('button', { name: 'Close dialog' })).toBeFocused();
   await dialog.getByRole('button', { name: 'Delete video' }).click();
-  await expect(page.getByText('Your uploaded videos will appear here.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Open video ·/ })).toHaveCount(0);
   await expect(page.getByRole('main')).toBeFocused();
   await expect(page).toHaveURL(/\/form-review$/);
   expect((await page.request.get(clipUrl)).status()).toBe(404);
-  await expect(page.getByText(/AI analysis is unavailable on this server/)).toBeVisible();
+  await expect(page.getByText('Form feedback is unavailable. You can still save and play your videos.')).toBeVisible();
 });
 
 test('saved video search matches both filenames and exercise names', async ({ page }) => {
@@ -942,7 +948,9 @@ test('a video upload continues across navigation and can be retried on return', 
     await page.getByRole('button', { name: 'Upload video' }).click();
     await nav.getByRole('link', { name: 'Overview', exact: true }).click();
     await expect(page.getByText('Video upload in progress.')).toBeVisible();
-    await page.getByRole('button', { name: 'New workout', exact: true }).click();
+    await page.getByRole('link', { name: 'Workouts', exact: true }).click();
+    await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Choose exercises manually' }).click();
     const editor = page.getByRole('dialog', { name: 'Schedule a workout' });
     await editor.getByRole('textbox', { name: 'Workout name' }).fill('Plan during upload');
     await chooseExercise(editor, 'Choose an exercise', 'Push-Up');
@@ -1007,11 +1015,11 @@ test('a late upload response cannot restore a clip removed in another tab', asyn
         && (await response.json()).clips.length === 0;
     });
     await deletion.click();
-    await expect(second.getByText('Your uploaded videos will appear here.')).toBeVisible();
+    await expect(second.getByRole('button', { name: /^Open video ·/ })).toHaveCount(0);
     await refreshed;
     release.resolve();
     await expect(page.getByText('This video was removed before the upload was confirmed.')).toBeVisible();
-    await expect(page.getByText('Your uploaded videos will appear here.')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Open video ·/ })).toHaveCount(0);
     await expect(page.getByRole('dialog')).toHaveCount(0);
   } finally {
     release.resolve();
@@ -1107,7 +1115,6 @@ test('saved video sections switch between earlier and latest feedback', async ({
   const video = dialog.locator('video');
   await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.readyState)).toBeGreaterThan(0);
   await video.evaluate((element: HTMLVideoElement) => { element.currentTime = 1; });
-  await dialog.getByRole('button', { name: 'Choose start time' }).click();
   await dialog.getByRole('button', { name: 'Use current video time' }).click();
   await expect(dialog.getByText('Review starts at 0:01')).toBeVisible();
   await expect(dialog.getByText(earlier.summary)).toBeVisible();
@@ -1172,8 +1179,16 @@ test('narrow desktop browser window keeps navigation and the editor usable', asy
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Training overview' })).toBeVisible();
   const nav = page.getByRole('navigation', { name: 'Primary' });
-  await expect(nav.getByRole('link', { name: 'Form Review' })).toBeVisible();
-  await page.getByRole('button', { name: 'New workout' }).click();
+  const more = nav.getByRole('button', { name: 'More' });
+  await expect(more).toBeInViewport();
+  await more.press('Enter');
+  await page.getByRole('dialog', { name: 'More' }).getByRole('link', { name: 'Form Review' }).press('Enter');
+  await expect(page.getByRole('heading', { name: 'Form review' })).toBeVisible();
+  await expect(page.getByRole('main')).toBeFocused();
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('link', { name: 'Workouts', exact: true }).click();
+  await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Choose exercises manually' }).click();
   const editor = page.getByRole('dialog', { name: 'Schedule a workout' });
   await expect(editor.getByRole('textbox', { name: 'Workout name' })).toBeVisible();
   const rect = await editor.boundingBox();
@@ -1185,7 +1200,7 @@ test('narrow desktop browser window keeps navigation and the editor usable', asy
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
 
-test('AI recommendation failures leave the catalog usable and filter changes clear the previous picks', async ({ page }) => {
+test('recommendation failures leave the catalog usable and filter changes clear the previous picks', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 850 });
   await page.route('**/api/workspace', async (route) => {
     const response = await route.fetch();
@@ -1195,15 +1210,14 @@ test('AI recommendation failures leave the catalog usable and filter changes cle
     json: [{ exerciseId: 'push-up', reason: 'A bodyweight option for chest.' }],
   }));
   await page.route('**/api/exercises/recommendations?*', (route) => route.fulfill({
-    status: 503, headers: { 'Retry-After': '1' }, json: { error: 'AI temporarily unavailable.' },
+    status: 503, headers: { 'Retry-After': '1' }, json: { error: 'The service is busy. Try again shortly.' },
   }), { times: 1 });
 
   await page.goto('/explore');
-  await page.getByRole('button', { name: /^Filters/ }).click();
   await page.getByRole('button', { name: 'Bodyweight only' }).click();
   await page.getByRole('button', { name: 'Chest', exact: true }).click();
-  await page.getByRole('button', { name: 'Get AI recommendations' }).click();
-  await expect(page.getByText('AI temporarily unavailable.')).toBeVisible();
+  await page.getByRole('button', { name: 'Get recommendations', exact: true }).click();
+  await expect(page.getByText('The service is busy. Try again shortly.')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Push-Up Chest/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Retry shortly' })).toBeDisabled();
   await page.getByRole('button', { name: 'Try again' }).click();
@@ -1223,14 +1237,13 @@ test('keyboard users can skip navigation and find the current page and filter st
   await expect(skip).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('main')).toBeFocused();
-  await page.getByRole('button', { name: 'Filters' }).press('Enter');
   const bodyweight = page.getByRole('button', { name: 'Bodyweight only' });
   await expect(bodyweight).toHaveAttribute('aria-pressed', 'false');
   await bodyweight.focus();
   await page.keyboard.press('Space');
   await expect(bodyweight).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('link', { name: 'Progress' }).press('Enter');
-  await expect(page).toHaveTitle('Progress · Liftmorrow');
+  await expect(page).toHaveTitle('Progress · Trainer Plus');
   await expect(page.getByRole('main')).toBeFocused();
 });
 
@@ -1249,7 +1262,6 @@ test('open browser tabs share equipment changes when local storage is blocked', 
     await dialog.getByRole('button', { name: 'Save equipment' }).click();
     await expect(second.getByText('131 exercises', { exact: true })).toBeVisible();
     await expect(page.getByText('131 exercises', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Filters (1)' }).click();
     await expect(page.getByRole('button', { name: 'Bodyweight only' })).toHaveAttribute('aria-pressed', 'true');
   } finally { await second.close(); }
 });
@@ -1261,6 +1273,7 @@ test('a failed workspace refresh keeps the last data and exposes a working retry
     status: 503, json: { error: 'Temporary refresh problem.' },
   }), { times: 1 });
   await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Choose exercises manually' }).click();
   await page.getByRole('button', { name: 'Close dialog' }).click();
   await expect(page.getByText('Showing your last loaded workspace. The latest changes could not be fetched.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Workouts', exact: true })).toBeVisible();

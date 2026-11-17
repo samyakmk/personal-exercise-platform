@@ -1,24 +1,28 @@
+import { Platform } from 'react-native';
+
 export const color = {
-  canvas: '#f5f2ed',
-  surface: '#fffcf8',
-  rail: '#eee9e3',
-  text: '#25202a',
-  muted: '#645b65',
-  faint: '#726875',
-  line: '#ded6d1',
-  control: '#90808c',
-  soft: '#f0eae6',
-  ink: '#251b2e',
-  inkHover: '#3b2b46',
-  onInk: '#e1d5e5',
-  plum: '#5f3b6c',
-  accent: '#f4a77f',
-  accentHover: '#ffbc98',
-  tint: '#eee5f2',
-  danger: '#9b3342',
-  dangerHover: '#812437',
-  dangerSoft: '#fae8eb',
+  canvas: '#f2eee5',
+  surface: '#faf7ef',
+  text: '#20261e',
+  muted: '#566055',
+  faint: '#616b60',
+  line: '#d6d4c7',
+  control: '#818a77',
+  soft: '#ece8dc',
+  ink: '#102e1d',
+  inkHover: '#21442e',
+  inkLine: '#3b5642',
+  onInk: '#c2cfc0',
+  forest: '#31583a',
+  accent: '#d9ef77',
+  accentHover: '#e7f795',
+  tint: '#e7ebdb',
+  danger: '#923b30',
+  dangerHover: '#793025',
+  dangerSoft: '#f5e6dd',
 };
+
+export const radius = { panel: 4, control: 3 };
 
 export const font = {
   regular: 'InterRegular',
@@ -26,5 +30,6 @@ export const font = {
   semibold: 'InterSemiBold',
   bold: 'InterBold',
   extra: 'InterExtraBold',
-  display: 'InstrumentSerif',
+  display: Platform.OS === 'web' ? 'Georgia, "Times New Roman", serif' : 'InstrumentSerif',
+  mono: Platform.OS === 'web' ? 'ui-monospace, "SFMono-Regular", Consolas, monospace' : Platform.OS === 'ios' ? 'Menlo' : 'monospace',
 };

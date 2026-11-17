@@ -3,7 +3,14 @@ import { CloudUpload } from 'lucide-react-native';
 import { Button } from '../components/ui';
 import type { SelectedVideo } from '../types';
 
-export function VideoPicker({ onSelect, disabled }: { onSelect: (file: SelectedVideo) => void; disabled?: boolean }) {
+export type VideoPickerProps = {
+  onSelect: (file: SelectedVideo) => void;
+  disabled?: boolean;
+  compact?: boolean;
+  label?: string;
+};
+
+export function VideoPicker({ onSelect, disabled, compact, label = 'Choose video' }: VideoPickerProps) {
   async function choose() {
     const result = await DocumentPicker.getDocumentAsync({ type: ['video/mp4', 'video/webm', 'video/quicktime'] });
     if (result.canceled) return;
@@ -14,5 +21,5 @@ export function VideoPicker({ onSelect, disabled }: { onSelect: (file: SelectedV
       dispose: () => {},
     });
   }
-  return <Button onPress={choose} icon={CloudUpload} disabled={disabled}>Choose video</Button>;
+  return <Button kind={compact ? 'outline' : 'primary'} onPress={choose} icon={CloudUpload} disabled={disabled}>{label}</Button>;
 }

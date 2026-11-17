@@ -1,3 +1,5 @@
+import { exerciseNameScore, exerciseSearchTerms } from '../../shared/exercise-search.mjs';
+
 type Option = { value: string; label: string; detail?: string };
 
 export type ExercisePickerProps = {
@@ -8,25 +10,10 @@ export type ExercisePickerProps = {
   disabled?: boolean;
 };
 
-function normalize(text: string) {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
 export function matchingExercises(options: Option[], query: string) {
-  const search = normalize(query);
-  if (!search) return options;
-
-  const terms = search.split(' ');
-  const prefixes: Option[] = [];
-  const matches: Option[] = [];
-  for (const option of options) {
-    const name = normalize(option.label);
-    if (name.startsWith(search)) {
-      prefixes.push(option);
-    } else {
-      const words = name.split(' ');
-      if (terms.every((term) => words.some((word) => word.startsWith(term)))) matches.push(option);
-    }
-  }
-  return [...prefixes, ...matches];
+  if (!exerciseSearchTerms(query).length) return options;
+  return options.map((option) => ({ option, score: exerciseNameScore(option.value, option.label, query) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map(({ option }) => option);
 }

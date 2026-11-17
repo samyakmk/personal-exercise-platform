@@ -1,3 +1,10 @@
+export type TrainerInstruction = {
+  id: string;
+  exerciseId: string;
+  kind: 'cue' | 'prefer' | 'avoid';
+  text: string;
+};
+
 export type TrainingPreferences = {
   intake: 'completed' | 'skipped';
   trainerNotes: string;
@@ -5,6 +12,7 @@ export type TrainingPreferences = {
   priorities: string[];
   preferred: string[];
   excluded: string[];
+  instructions?: TrainerInstruction[];
 };
 export type ProfileDetails = { displayName?: string; trainingGoal?: string; trainingPreferences?: TrainingPreferences };
 export type ProfileEdit = Required<Pick<ProfileDetails, 'displayName' | 'trainingGoal'>> & Pick<ProfileDetails, 'trainingPreferences'>;
@@ -23,6 +31,8 @@ export type CheckInInput = Pick<TrainingCheckIn, 'id' | 'text' | 'adjustment'> &
 export type ProfileSummary = { username: string; workspaceKey: string };
 export type Profile = ProfileSummary & { details: ProfileDetails };
 export type ProfileState = { active: Profile | null; profiles: ProfileSummary[]; canImportLegacy: boolean };
+export type ProfileArchiveSummary = Record<'profile' | 'revisions' | 'equipment' | 'bookmarks' | 'workouts' |
+  'trainingNotes' | 'checkIns' | 'clips' | 'videos', { add: number; same: number; conflict: number }>;
 export type TrainingNoteInput = {
   text: string;
   kind: 'context' | 'prefer' | 'avoid' | 'shorter';
@@ -65,6 +75,7 @@ export type ExerciseSet = { reps?: number; load?: ExerciseLoad };
 
 export type Movement = {
   exerciseId: string;
+  replacesExerciseId?: string;
   sets: number;
   reps?: number;
   load?: ExerciseLoad;
@@ -83,10 +94,28 @@ export type Workout = {
   source?: WorkoutSource;
   example?: true;
   revision?: number;
+  seriesId?: string;
+  seriesIndex?: number;
+  skippedExerciseIds?: string[];
   exercises: Movement[];
 };
 
 export type TrainingSetDraft = { setNumber: number; reps: string; load: string; unit: ExerciseLoad['unit'] };
+
+export type TrainingSessionMovementContext = {
+  sessionId: string;
+  exerciseId: string;
+  setNumber: number;
+  workoutId?: string;
+};
+
+export type FormCue = {
+  exerciseId: string;
+  text: string;
+  clipId: string;
+  startSeconds: number;
+  timestamp: number;
+};
 
 export type SessionCoachState = {
   stage: 'setup' | 'set' | 'rest';
@@ -114,11 +143,21 @@ export type TrainingSession = {
   effort?: number | null;
   exerciseNotes?: Record<string, string>;
   restDeadline?: number | null;
+  restSeconds?: number;
   coach?: SessionCoachState;
+  formCue?: FormCue;
+  skippedExerciseIds?: string[];
   activeExercise?: string;
   setDrafts?: Record<string, TrainingSetDraft>;
   hold?: { exerciseId: string; setNumber: number; deadline: number };
 };
+
+export type PendingTrainingLog = { session: TrainingSession; separate: boolean };
+
+export type HistoryLookup = { kind: 'week'; week: 'this' | 'last' }
+  | { kind: 'weight'; weight: 'latest' | 'heaviest'; exerciseId: string };
+
+export type HistoryResult = { reply: string; sources: Pick<Workout, 'id' | 'name' | 'date' | 'time'>[]; week?: string };
 
 export type FormFeedback = {
   verdict: 'observations' | 'no_clear_issue' | 'insufficient_visibility' | 'different_exercise';
@@ -133,12 +172,15 @@ export type FormFeedback = {
   windowSeconds: number;
   reviewedAt: string;
   detectedExerciseId?: string;
+  coverage?: { source: 'measured' | 'visual' | 'combined'; assessed: string[]; limits: string[]; next?: string };
+  modelConfiguration?: { critique: string; detection: string; reference: string };
 };
 
 export type Recommendation = { exerciseId: string; reason: string };
 export type Refinement = 'easier' | 'harder' | 'shorter' | 'longer';
 export type ExerciseRefinement = { adjustment: Refinement; previous: string[] };
 export type WorkoutSuggestion = Pick<Workout, 'name' | 'exercises'> & { source: 'ai' | 'catalog' };
+export type WorkoutSuggestionContext = Pick<Workout, 'date' | 'time'> & { minutes: number; equipment?: string[] };
 
 export type ReviewStatus =
   | { state: 'idle'; sequence: number }
@@ -154,6 +196,7 @@ export type Clip = {
   mime: string;
   size: number;
   uploadedAt: string;
+  trainingContext?: TrainingSessionMovementContext;
 } & ClipReview;
 
 export type Snapshot = {
@@ -171,6 +214,7 @@ export type WorkspaceChange = Snapshot | Pick<Snapshot, 'equipment'> | Pick<Snap
 export type Workspace = Snapshot & TrainingNotesChange & {
   workspaceKey?: string;
   catalog: Exercise[];
+  catalogVersion?: string;
   archivedExercises?: Exercise[];
   muscles: string[];
   equipmentOptions: string[];

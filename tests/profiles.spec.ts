@@ -7,6 +7,8 @@ test('local signup, profile details, switching across tabs, and deleting an acco
   page.on('pageerror', (error) => runtimeErrors.push(error.message));
   await page.goto('/sessions');
   await expect(page.getByRole('heading', { name: 'Choose a profile' })).toBeVisible();
+  await expect(page).toHaveTitle('Choose a profile · Trainer Plus');
+  await expect(page.getByRole('banner', { name: 'Trainer Plus' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
   const addProfile = page.getByRole('button', { name: 'Add profile' });
   await addProfile.focus();
@@ -23,6 +25,9 @@ test('local signup, profile details, switching across tabs, and deleting an acco
   await expect(page.getByRole('alert')).toContainText('Start with a letter or number');
   await page.getByRole('textbox', { name: 'Username' }).fill('first-user');
   await page.getByRole('textbox', { name: 'Username' }).press('Enter');
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('button', { name: 'Start suggested session' })).toBeInViewport();
+  await page.getByRole('link', { name: 'Sessions', exact: true }).click();
   await expect(page.getByText('No sessions logged yet')).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 
@@ -39,6 +44,7 @@ test('local signup, profile details, switching across tabs, and deleting an acco
   await expect(page.getByRole('button', { name: /resume.*draft/i })).toBeVisible();
 
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(page.getByRole('link', { name: 'Trainer Plus. Home' })).toBeVisible();
   await page.getByRole('link', { name: 'Profile', exact: true }).click();
   await page.getByRole('textbox', { name: 'Display name' }).fill('First Athlete');
   await page.getByRole('textbox', { name: 'Training goal' }).fill('Train three days per week.');
@@ -57,6 +63,8 @@ test('local signup, profile details, switching across tabs, and deleting an acco
   await page.getByRole('textbox', { name: 'Username' }).fill('second-user');
   await page.getByRole('button', { name: 'Create profile', exact: true }).click();
   await expect(secondTab.getByRole('heading', { name: 'No sessions logged yet' })).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  await page.getByRole('link', { name: 'Profile', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Training goal' })).toHaveValue('');
   await expect(secondTab.getByRole('button', { name: /resume.*draft/i })).toHaveCount(0);
 

@@ -23,6 +23,6 @@ export default defineConfig({
   webServer: {
     command: 'node server/index.mjs',
     url: 'http://127.0.0.1:4187',
-    env: { PORT: '4187', LIFTMORROW_DB: ':memory:', CHATGPT_API_KEY: '' },
+    env: { PORT: '4187', TRAINER_PLUS_DB: ':memory:', CHATGPT_API_KEY: '' },
   },
 });

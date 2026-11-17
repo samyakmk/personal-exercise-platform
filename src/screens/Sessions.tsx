@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { ArrowRight, CalendarDays, ClipboardList, Dumbbell, Pencil, Play, Plus, RotateCcw, Search, X } from 'lucide-react-native';
 import { Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { newTrainingSession, useActiveSession } from '../activeSession';
@@ -7,16 +7,17 @@ import { createId } from '../api';
 import { exercisePhotos } from '../assets';
 import { sessionSourceLabel } from '../components/SessionFeedback';
 import { SessionHeatMapLink } from '../components/MuscleHeatMap';
+import { TrainerRecap } from '../components/TrainerRecap';
 import { Sheet } from '../components/Sheet';
 import { TrainingSession } from '../components/TrainingSession';
 import { WorkoutEditor } from '../components/WorkoutEditor';
 import type { WorkoutDraft } from '../components/WorkoutEditor';
-import { Button, Copy, Display, Empty, IconButton, Input, Notice, PageTitle, Panel, SectionTitle } from '../components/ui';
-import { compareWorkoutTime, dateKey, formatDay, formatTime, workoutTime } from '../dates';
+import { Button, Copy, Display, Empty, IconButton, Input, Label, Notice, PageTitle, Panel, SectionTitle } from '../components/ui';
+import { addDays, compareWorkoutTime, dateKey, formatDay, formatTime, isWorkoutDate, weekStart, workoutTime } from '../dates';
 import { useTrainingNavigation } from '../navigation';
 import { readWorkoutDraft, removeWorkoutDraft, writeWorkoutDraft } from '../platform/workoutDraft';
-import { color } from '../theme';
-import { completedWorkouts, performedSetSummary } from '../trainingProgress';
+import { color, radius } from '../theme';
+import { completedWorkouts, performedSetSummary, recordedSetCount } from '../trainingProgress';
 import type { Exercise, Movement, Workout } from '../types';
 import { useLocalClock } from '../useLocalClock';
 import { useSaveWorkout } from '../useSaveWorkout';
@@ -29,13 +30,15 @@ const pageSize = 12;
 export function Sessions() {
   const { api, data, exerciseRecords: catalog, mutate, reload, announce } = useWorkspace();
   const { session, keepSession } = useActiveSession();
-  const { intent, clear } = useTrainingNavigation();
+  const { intent, clear, open } = useTrainingNavigation();
   const router = useRouter();
-  const { session: requested } = useLocalSearchParams<{ session?: string }>();
+  const { session: requested, day, week } = useLocalSearchParams<{ session?: string; day?: string; week?: string }>();
   const saveWorkout = useSaveWorkout();
   const now = useLocalClock();
   const current = workoutTime(now);
-  const wide = useWindowDimensions().width >= 1000;
+  const { width } = useWindowDimensions();
+  const wide = width >= 1000;
+  const compact = width < 570;
   const [query, setQuery] = useState('');
   const [limit, setLimit] = useState(pageSize);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -97,18 +100,23 @@ export function Sessions() {
 
   if (!data) return null;
 
-  const logs = data.workouts.filter(({ status, example }) => status === 'completed' && !example).reverse();
   const recent = completedWorkouts(data.workouts, current);
+  const allLogs = data.workouts.filter(({ status, example }) => status === 'completed' && !example).reverse();
+  const selectedDay = day && isWorkoutDate(day) ? day : undefined;
+  const selectedWeek = week && isWorkoutDate(week) ? weekStart(week) : undefined;
+  const weekEnd = selectedWeek && addDays(selectedWeek, 7);
   const plans = data.workouts.filter(({ status }) => status === 'planned');
   const nextPlan = plans.find((plan) => compareWorkoutTime(plan, current) >= 0);
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const logs = selectedDay || selectedWeek ? recent : allLogs;
   const filtered = logs.filter((log) => {
+    if (selectedDay && log.date !== selectedDay || selectedWeek && (log.date < selectedWeek || log.date >= weekEnd!)) return false;
     if (!terms.length) return true;
     const text = [log.name, log.notes, ...log.exercises.flatMap(({ exerciseId, notes }) => [catalog.get(exerciseId)?.name ?? exerciseId, notes]), sessionSourceLabel(log.source)]
       .join(' ').toLowerCase();
     return terms.every((term) => text.includes(term));
   });
-  const selected = (requested ? logs.find(({ id }) => id === requested) : undefined) ?? filtered[0];
+  const selected = allLogs.find(({ id }) => id === requested) ?? (wide ? filtered[0] : undefined);
   const visibleLogs = filtered.slice(0, limit);
   const recentMovements = new Map<string, Movement>();
   for (const workout of trainingOpen ? recent : recent.slice(0, 5)) {
@@ -141,23 +149,30 @@ export function Sessions() {
       keepDraft: !draft || draft.id === workout.id });
   }
 
+  const details = selected && <SessionDetails key={selected.id} workout={selected} catalog={catalog}
+    onRepeat={() => repeat(selected)}
+    onSchedule={() => open({ type: 'schedule-template', workoutId: selected.id })}
+    onAdd={() => openExercises(selected)}
+    onEdit={() => setEditor({ initial: selected, draft: draft?.id === selected.id ? draft : undefined })} />;
+  const selectedInList = visibleLogs.some(({ id }) => id === selected?.id);
+
   return <View style={styles.page}>
-    <PageTitle title="Sessions" summary="Keep track of your sessions, exercises, and sets."
+    <PageTitle title="Sessions"
       action={<Button icon={Plus} kind="primary" onPress={() => setEditor({ keepDraft: !draft })}>New session</Button>} />
 
-    {(session || nextPlan) && <View style={styles.feature}>
+    {(session || nextPlan) && <View nativeID="trainer-plus-sessions-feature" style={[styles.feature, compact && styles.featureCompact]}>
       <View style={styles.featureBody}>
-        <Copy tone={color.onInk} size={12} weight="semibold">{session ? 'In progress' : 'From your schedule'}</Copy>
-        <Display size={39} tone={color.surface}>{session?.plan.name ?? nextPlan?.name}</Display>
+        <Label tone={color.accent}>{session ? 'In progress' : 'From your schedule'}</Label>
+        <Display size={compact ? 32 : 39} tone={color.surface}>{session?.plan.name ?? nextPlan?.name}</Display>
         <Copy tone={color.onInk} size={13}>
-          {session ? `${Object.values(session.sets).reduce((count, sets) => count + sets.length, 0)} sets recorded · saved in this tab`
+          {session ? `${Object.values(session.sets).reduce((count, sets) => count + sets.length, 0)} sets recorded`
             : nextPlan && `${formatDay(nextPlan.date)} · ${formatTime(nextPlan.time)} · ${nextPlan.exercises.length} ${nextPlan.exercises.length === 1 ? 'exercise' : 'exercises'}`}
         </Copy>
       </View>
       {session ? <View style={styles.actions}>
-        <Button compact icon={Play} onPress={() => setOpenSessionId(session.logId)}>Resume session</Button>
+        <Button compact kind="primary" icon={Play} onPress={() => setOpenSessionId(session.logId)}>Resume session</Button>
         <Button compact onPress={() => setConfirm('discard')}>Discard active session</Button>
-      </View> : nextPlan && <Button icon={Play} onPress={() => start({ plan: nextPlan, adHoc: false })}>Train scheduled workout</Button>}
+      </View> : nextPlan && <Button kind="primary" icon={Play} onPress={() => start({ plan: nextPlan, adHoc: false })}>Train scheduled workout</Button>}
     </View>}
 
     {draft && !editor && <Notice action={<View style={styles.actions}>
@@ -165,9 +180,14 @@ export function Sessions() {
       <Button compact kind="quiet" onPress={clearDraft}>Discard draft</Button>
     </View>}>{draftWorkout ? `You have unsaved exercise edits for “${draftWorkout.name}” in this tab.` : 'You have an unsaved session draft in this tab.'}</Notice>}
 
-    <View style={styles.logHeading}>
-      <SectionTitle title="Session log" summary={`${logs.length} ${logs.length === 1 ? 'session' : 'sessions'} saved`} />
-      {(logs.length > 0 || query !== '') && <View style={styles.search}>
+    {(logs.length > 0 || query !== '' || selectedDay || selectedWeek) && <View style={styles.logHeading}>
+      <SectionTitle title={selectedDay ? formatDay(selectedDay) : selectedWeek ? `Week of ${formatDay(selectedWeek)}` : 'Session log'}
+        summary={`${filtered.length} ${filtered.length === 1 ? 'session' : 'sessions'} saved`} />
+      {(selectedDay || selectedWeek) && <Button compact kind="quiet" onPress={() => {
+        router.setParams({ day: undefined, week: undefined, session: undefined });
+        setLimit(pageSize);
+      }}>Show all sessions</Button>}
+      {(logs.length > 0 || query !== '') && <View style={[styles.search, compact && styles.searchCompact]}>
         <Input label="Search sessions" hideLabel icon={Search} placeholder="Search by session or exercise"
           value={query} maxLength={100} onChangeText={(value) => {
             setQuery(value);
@@ -176,41 +196,46 @@ export function Sessions() {
           }} />
         {!!query && <IconButton label="Clear session search" icon={X} size={43} onPress={() => setQuery('')} />}
       </View>}
-    </View>
+    </View>}
 
-    {requested && !logs.some(({ id }) => id === requested) && <Notice
+    {requested && !allLogs.some(({ id }) => id === requested) && <Notice
       action={<Button compact kind="quiet" onPress={() => router.setParams({ session: undefined })}>Dismiss</Button>}>
       This session is unavailable in this workspace.
     </Notice>}
 
     {filtered.length === 0 && !selected ? <Empty icon={terms.length ? Search : ClipboardList}
       title={terms.length ? 'No matching sessions' : 'No sessions logged yet'}
-      message={terms.length ? 'Try another session or exercise name.' : 'Create a session to start your log.'} />
+      message={terms.length ? 'Try another session or exercise name.'
+        : selectedDay || selectedWeek ? 'No sessions were logged for this period.' : undefined} />
       : <View style={[styles.journal, wide && styles.journalWide]}>
+        {!wide && !selectedInList && details}
         <View style={[styles.listColumn, wide && { flex: 0.85 }]}>
           <Panel>
             {visibleLogs.map((log, index) => {
               const active = selected?.id === log.id;
-              return <Pressable key={log.id} accessibilityRole="button" aria-pressed={active}
-                onPress={() => router.setParams({ session: log.id })}
-                style={({ hovered }) => [styles.row, index > 0 && styles.divider,
-                  active && styles.selectedRow, hovered && !active && { backgroundColor: color.canvas }]}>
-                <CalendarDays aria-hidden color={color.plum} size={17} />
-                <View style={styles.rowBody}>
-                  <Copy weight="semibold" size={14}>{log.name}</Copy>
-                  <Copy tone={color.muted} size={12}>{formatDay(log.date)} · {log.exercises.length} {log.exercises.length === 1 ? 'exercise' : 'exercises'}</Copy>
-                </View>
-                <ArrowRight aria-hidden size={15} color={color.plum} />
-              </Pressable>;
+              return <Fragment key={log.id}>
+                <Pressable accessibilityRole="button" aria-pressed={wide ? active : undefined} aria-expanded={wide ? undefined : active}
+                  onPress={() => router.setParams({ session: !wide && active ? undefined : log.id })}
+                  style={({ hovered }) => [styles.row, index > 0 && styles.divider,
+                    active && styles.selectedRow, hovered && !active && { backgroundColor: color.canvas }]}>
+                  <CalendarDays aria-hidden color={color.forest} size={17} />
+                  <View style={styles.rowBody}>
+                    <Copy weight="semibold" size={14}>{log.name}</Copy>
+                    <Copy tone={color.muted} size={12}>{formatDay(log.date)} · {log.exercises.length} {log.exercises.length === 1 ? 'exercise' : 'exercises'}</Copy>
+                      {compareWorkoutTime(log, current) > 0 && <Copy size={12} tone={color.muted}>Future-dated log</Copy>}
+                  </View>
+                  {(!active || wide) && <ArrowRight aria-hidden size={15} color={color.forest} />}
+                </Pressable>
+                {!wide && active && <View style={styles.inlineDetails}>{details}</View>}
+              </Fragment>;
             })}
           </Panel>
           {visibleLogs.length < filtered.length && <Button compact onPress={() => setLimit((value) => value + pageSize)}>Show older sessions</Button>}
         </View>
-        {selected && <SessionDetails key={selected.id} workout={selected} catalog={catalog}
-          onRepeat={() => repeat(selected)}
-          onAdd={() => openExercises(selected)}
-          onEdit={() => setEditor({ initial: selected, draft: draft?.id === selected.id ? draft : undefined })} />}
+        {wide && details}
       </View>}
+
+    {!selectedDay && !selectedWeek && <TrainerRecap workouts={data.workouts} catalog={catalog} />}
 
     {confirm && session && <Sheet title={confirm === 'discard' ? 'Discard this session?' : 'Start a different session?'}
       detail={`The unsaved sets and inputs for “${session.plan.name}” will be removed.`} onClose={() => setConfirm(null)}>
@@ -225,12 +250,11 @@ export function Sessions() {
     </Sheet>}
 
     {session && trainingOpen && <TrainingSession key={session.logId} session={session} catalog={data.catalog}
-      recentMovements={recentMovements} planCurrent={planCurrent} onChange={keepSession} onClose={() => setOpenSessionId(null)}
-      onSave={async (workout, existing) => {
-        await saveWorkout(workout, existing);
+      planCurrent={planCurrent} onChange={keepSession} onClose={() => setOpenSessionId(null)}
+      onSave={(workout, sync) => {
         setOpenSessionId(null);
-        keepSession(null);
-        showSaved(workout);
+        if (sync === 'queued') announce('Workout saved on this device. It will sync when you reconnect.');
+        else showSaved(workout);
       }} />}
 
     {editor && <WorkoutEditor key={editor.initial?.id ?? 'new'} {...editor} mode="session"
@@ -270,22 +294,23 @@ export function Sessions() {
   </View>;
 }
 
-function SessionDetails({ workout, catalog, onAdd, onEdit, onRepeat }: {
-  workout: Workout; catalog: ReadonlyMap<string, Exercise>; onAdd: () => void; onEdit: () => void; onRepeat: () => void;
+function SessionDetails({ workout, catalog, onAdd, onEdit, onRepeat, onSchedule }: {
+  workout: Workout; catalog: ReadonlyMap<string, Exercise>; onAdd: () => void; onEdit: () => void; onRepeat: () => void; onSchedule: () => void;
 }) {
-  const sets = workout.exercises.reduce((total, movement) => total + movement.sets, 0);
+  const sets = workout.exercises.reduce((total, movement) => total + recordedSetCount(movement), 0);
   return <Panel style={styles.detail}>
     <View style={styles.detailHeading}>
       <View style={styles.rowBody}>
-        <Copy tone={color.plum} size={12} weight="semibold">{formatDay(workout.date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} · {formatTime(workout.time)}</Copy>
+        <Copy tone={color.forest} size={12} weight="semibold">{formatDay(workout.date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} · {formatTime(workout.time)}</Copy>
         <Display accessibilityRole="header" aria-level={3} size={37}>{workout.name}</Display>
-        {sessionSourceLabel(workout.source) ? <Copy size={12} weight="semibold" tone={color.plum}>{sessionSourceLabel(workout.source)}</Copy> : null}
+        {sessionSourceLabel(workout.source) ? <Copy size={12} weight="semibold" tone={color.forest}>{sessionSourceLabel(workout.source)}</Copy> : null}
         {workout.effort ? <Copy size={13} weight="semibold">Perceived effort · {workout.effort}/10</Copy> : null}
-        <Copy tone={color.muted} size={13}>{workout.exercises.length} {workout.exercises.length === 1 ? 'exercise' : 'exercises'} · {sets} {sets === 1 ? 'set' : 'sets'}</Copy>
+        <Copy tone={color.muted} size={13}>{sets > 0 ? `${sets} recorded ${sets === 1 ? 'set' : 'sets'}` : 'Session note · no sets recorded'}</Copy>
       </View>
       <View style={styles.actions}>
         <SessionHeatMapLink workoutId={workout.id} />
         {workout.exercises.length > 0 && <Button icon={RotateCcw} kind="quiet" compact onPress={onRepeat}>Train again</Button>}
+        {sets > 0 && <Button icon={CalendarDays} kind="quiet" compact onPress={onSchedule}>Schedule again</Button>}
         <Button icon={Pencil} compact onPress={onEdit}>Edit session</Button>
       </View>
     </View>
@@ -300,7 +325,7 @@ function SessionDetails({ workout, catalog, onAdd, onEdit, onRepeat }: {
       return <View key={movement.exerciseId} style={styles.exercise}>
         <View style={styles.exerciseHeading}>
           {photo ? <Image source={photo} aria-hidden style={styles.thumbnail} />
-            : <Dumbbell aria-hidden size={19} color={color.plum} />}
+            : <Dumbbell aria-hidden size={19} color={color.forest} />}
           <Copy weight="bold" size={15}>{exercise?.name ?? movement.exerciseId}</Copy>
         </View>
         {rows.length ? <View role="list" accessibilityLabel={`Sets for ${exercise?.name ?? movement.exerciseId}`}>
@@ -325,15 +350,18 @@ function SessionDetails({ workout, catalog, onAdd, onEdit, onRepeat }: {
 const styles = StyleSheet.create({
   page: { gap: 18 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
-  feature: { padding: 22, borderRadius: 13, backgroundColor: color.ink, flexDirection: 'row',
+  feature: { padding: 22, borderRadius: radius.panel, backgroundColor: color.ink, flexDirection: 'row',
     flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
+  featureCompact: { padding: 16, gap: 12 },
   featureBody: { gap: 5, flexShrink: 1, minWidth: 0 },
-  logHeading: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 6 },
+  logHeading: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   search: { flexDirection: 'row', gap: 7, width: 310, maxWidth: '100%' },
+  searchCompact: { width: '100%' },
   journal: { gap: 14 },
   journalWide: { flexDirection: 'row', alignItems: 'flex-start' },
   listColumn: { minWidth: 0, gap: 9 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 66, paddingVertical: 11, paddingHorizontal: 14, borderRadius: 8 },
+  inlineDetails: { padding: 8 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 66, paddingVertical: 11, paddingHorizontal: 14, borderRadius: radius.control },
   divider: { borderTopWidth: 1, borderColor: color.line },
   selectedRow: { backgroundColor: color.tint },
   rowBody: { flex: 1, minWidth: 100, gap: 3 },
@@ -344,5 +372,5 @@ const styles = StyleSheet.create({
   thumbnail: { width: 42, height: 33, borderRadius: 5, backgroundColor: color.soft },
   setRow: { minHeight: 32, gap: 8, paddingHorizontal: 8, flexDirection: 'row', flexWrap: 'wrap',
     justifyContent: 'space-between', alignItems: 'center' },
-  notes: { backgroundColor: color.canvas, borderRadius: 8, padding: 10, gap: 4 },
+  notes: { backgroundColor: color.canvas, borderRadius: radius.control, padding: 10, gap: 4 },
 });

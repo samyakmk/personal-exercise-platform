@@ -1,3 +1,4 @@
+import { trainerPlusEnv } from '../server/config.mjs';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -53,7 +54,7 @@ export function selectPreparations(manifest, selectors = []) {
 
 export async function encodeFormClip(source, destination, recipe = {}) {
   const { start, duration, filter } = recipe;
-  await run(process.env.LIFTMORROW_FFMPEG || 'ffmpeg', [
+  await run(trainerPlusEnv('FFMPEG') || 'ffmpeg', [
     '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
     '-protocol_whitelist', 'file',
     ...(start === undefined ? [] : ['-ss', String(start)]),

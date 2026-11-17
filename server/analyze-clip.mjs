@@ -72,7 +72,7 @@ async function prepareSampledReview(samples, { exercise, signal, estimate = esti
     }
     catch (error) {
       if (signal?.aborted) throw error;
-      console.warn('Liftmorrow pose estimates unavailable for this clip.');
+      console.warn('Trainer Plus pose estimates unavailable for this clip.');
     }
   }
   signal?.throwIfAborted();
@@ -104,14 +104,51 @@ async function prepareDetectedReview(respond, source, options) {
 
 export async function analyzeClip(respond, source, options) {
   const prepared = options.exercise ? await prepareClipReview(source, options) : await prepareDetectedReview(respond, source, options);
-  const result = await reviewExercise(respond, prepared);
+  let visuallyReviewed = false;
+  const result = await reviewExercise((input) => {
+    visuallyReviewed = true;
+    return respond(input);
+  }, prepared);
   const adjustment = result.observations.find(({ kind }) => kind === 'adjustment');
   const image = adjustment && prepared.frames.find(({ timestamp }) => timestamp === adjustment.timestamp)?.image;
   const hasStill = Buffer.isBuffer(image) && image.length <= 192 * 1024 && image[0] === 0xff && image[1] === 0xd8;
   const reference = hasStill ? await matchReferenceStill(respond, { ...prepared, adjustment, image }) : null;
   return {
     ...result,
+    coverage: describeReviewCoverage(prepared, result, visuallyReviewed),
+    ...(respond.formConfiguration && { modelConfiguration: respond.formConfiguration }),
     ...(!options.exercise && { detectedExerciseId: prepared.exercise.id }),
     ...(hasStill && { observationFrame: reference ? { reference } : {}, reviewStill: image.toString('base64') }),
+  };
+}
+
+const trackingScope = {
+  'push-up': 'Hip alignment and descent in visible repetitions',
+  'bodyweight-squat': 'Depth in visible repetitions',
+  'goblet-squat': 'Depth in visible repetitions',
+  'dumbbell-shoulder-press': 'Descent of the visible working arm',
+  'forearm-plank': 'Hip position during the sampled hold',
+  'dumbbell-curl': 'Repeated torso rocking',
+  'pull-up': 'Bottom reversal and repeated leg swing in visible positions',
+  'glute-bridge': 'Repeated high hip position',
+  'bird-dog': 'Trunk rotation between visible reaches',
+  'dumbbell-row': 'Torso rotation during visible pulls',
+};
+
+function describeReviewCoverage(prepared, result, visuallyReviewed) {
+  const { exercise, coverage, lungeMotion, coreMotion } = prepared;
+  const tracked = coverage === 'measured' && trackingScope[exercise.id];
+  const assessments = [];
+  if (result.verdict === 'different_exercise') assessments.push('Visible movement and exercise identity');
+  else if (result.verdict !== 'insufficient_visibility') {
+    if (tracked) assessments.push(tracked);
+    if (lungeMotion === 'reverse_lunge') assessments.push('Step direction through the visible lunge');
+    if (visuallyReviewed && result.observations.length && !assessments.length) assessments.push('The visible positions cited with the cue');
+  }
+  return {
+    source: !visuallyReviewed ? 'measured' : tracked || lungeMotion || coreMotion ? 'combined' : 'visual',
+    assessed: assessments,
+    limits: ['This review covers the visible positions in one sampled section.'],
+    ...(result.verdict === 'insufficient_visibility' && { next: result.summary }),
   };
 }

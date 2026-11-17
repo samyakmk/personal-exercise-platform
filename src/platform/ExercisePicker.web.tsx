@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react-native';
-import { color, font } from '../theme';
+import { color, font, radius } from '../theme';
 import { matchingExercises } from './exercisePickerOptions';
 import type { ExercisePickerProps } from './exercisePickerOptions';
 
@@ -114,7 +114,7 @@ export function ExercisePicker({ label, options, value, onChange, disabled }: Ex
         }}
         onKeyDown={handleKey}
         style={{ width: '100%', boxSizing: 'border-box', height: 43, border: `1px solid ${color.control}`,
-          borderRadius: 8, padding: '0 40px 0 11px', background: color.surface, color: color.text,
+          borderRadius: radius.control, padding: '0 40px 0 11px', background: color.surface, color: color.text,
           font: `16px ${font.regular}` }} />
       <button type="button" tabIndex={-1} aria-label={expanded ? 'Hide exercises' : 'Show exercises'}
         aria-expanded={expanded} aria-controls={expanded ? id + '-list' : undefined} disabled={disabled}
@@ -125,15 +125,15 @@ export function ExercisePicker({ label, options, value, onChange, disabled }: Ex
           else setOpen(true);
         }}
         style={{ position: 'absolute', inset: '1px 1px 1px auto', width: 39, background: 'none',
-          border: 0, borderRadius: 7, display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
-        <ChevronDown aria-hidden size={17} color={color.plum} />
+          border: 0, borderRadius: radius.control, display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+        <ChevronDown aria-hidden size={17} color={color.forest} />
       </button>
     </div>
     {expanded && createPortal(<div ref={popup} style={{ position: 'fixed', zIndex: 10, boxSizing: 'border-box',
       left: position.left, width: position.width, ...(position.above ? { bottom: position.edge } : { top: position.edge }),
       maxHeight: position.height, overflowY: 'auto', overscrollBehavior: 'contain',
-      background: color.surface, border: `1px solid ${color.control}`, borderRadius: 8,
-      boxShadow: '0 5px 18px #251b2e26' }}>
+      background: color.surface, border: `1px solid ${color.control}`, borderRadius: radius.control,
+      boxShadow: '0 5px 18px #102e1d26' }}>
       <div id={id + '-list'} role="listbox" aria-label={label} onMouseDown={(event) => event.preventDefault()}>
         {matches.map((option, index) => <div key={option.value} id={id + '-option-' + index}
           role="option" aria-selected={active < 0 ? option.value === value : index === active}

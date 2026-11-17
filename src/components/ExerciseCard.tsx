@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { ArrowUpRight, Bookmark, Video } from 'lucide-react-native';
 import { exercisePhotos } from '../assets';
-import { color } from '../theme';
+import { color, radius } from '../theme';
 import type { Exercise } from '../types';
-import { Copy, VisuallyHidden } from './ui';
+import { Copy, Display, Label, VisuallyHidden } from './ui';
 
 export function ExerciseCard({ exercise, saved, onPress }: { exercise: Exercise; saved?: boolean; onPress: () => void }) {
   const equipment = exercise.equipment.join(' + ') || 'Bodyweight';
@@ -13,7 +13,7 @@ export function ExerciseCard({ exercise, saved, onPress }: { exercise: Exercise;
   const photo = exercisePhotos[exercise.id] ?? (!previewFailed && thumbnail ? { uri: thumbnail } : undefined);
   return <Pressable accessibilityRole="button" onPress={onPress}
     style={({ hovered, pressed }) => [
-      styles.card, (hovered || pressed) && { borderColor: color.plum, backgroundColor: color.soft },
+      styles.card, (hovered || pressed) && { borderColor: color.forest, backgroundColor: color.soft },
     ]}>
     {photo && <View style={styles.picture}>
       <Image aria-hidden source={photo} resizeMode="cover"
@@ -23,16 +23,16 @@ export function ExerciseCard({ exercise, saved, onPress }: { exercise: Exercise;
     </View>}
     <View style={styles.body}>
       <View style={styles.title}>
-        <Copy size={15} weight="bold" style={{ flex: 1, letterSpacing: -0.35 }}>{exercise.name}</Copy>
-        {!photo && saved && <Bookmark aria-hidden size={14} color={color.plum} fill={color.plum} />}
-        <ArrowUpRight aria-hidden size={17} color={color.plum} />
+        <Display size={23} style={{ flex: 1, letterSpacing: -0.45 }}>{exercise.name}</Display>
+        {!photo && saved && <Bookmark aria-hidden size={14} color={color.forest} fill={color.forest} />}
+        <ArrowUpRight aria-hidden size={17} color={color.forest} />
       </View>
       <Copy size={12} tone={color.muted}>{exercise.muscles[0]} · {equipment}</Copy>
       <View style={styles.tags}>
-        <Copy size={12} tone={color.muted}>{exercise.category} · {exercise.level}</Copy>
+        <Label size={10} tone={color.muted}>{exercise.category} · {exercise.level}</Label>
         {exercise.demonstration && <View style={styles.video}>
-          <Video aria-hidden size={13} color={color.plum} />
-          <Copy size={12} tone={color.plum}>Video</Copy>
+          <Video aria-hidden size={13} color={color.forest} />
+          <Copy size={12} tone={color.forest}>Video</Copy>
         </View>}
       </View>
       {saved && <VisuallyHidden>Saved exercise</VisuallyHidden>}
@@ -41,12 +41,12 @@ export function ExerciseCard({ exercise, saved, onPress }: { exercise: Exercise;
 }
 
 const styles = StyleSheet.create({
-  card: { flex: 1, borderColor: color.line, borderWidth: 1, borderRadius: 11, overflow: 'hidden', backgroundColor: color.surface },
+  card: { flex: 1, borderColor: color.line, borderWidth: 1, borderRadius: radius.panel, overflow: 'hidden', backgroundColor: color.surface },
   picture: { aspectRatio: 1.98, overflow: 'hidden', backgroundColor: color.ink },
-  saved: { position: 'absolute', top: 9, right: 9, width: 29, height: 29, borderRadius: 6,
+  saved: { position: 'absolute', top: 9, right: 9, width: 29, height: 29, borderRadius: radius.control,
     backgroundColor: color.surface, alignItems: 'center', justifyContent: 'center' },
-  body: { padding: 12, gap: 4 },
-  tags: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 5 },
+  body: { padding: 14, gap: 6 },
+  tags: { borderTopWidth: 1, borderColor: color.line, marginTop: 3, paddingTop: 7, alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 5 },
   video: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   title: { flexDirection: 'row', justifyContent: 'space-between', gap: 5, alignItems: 'flex-start' },
 });

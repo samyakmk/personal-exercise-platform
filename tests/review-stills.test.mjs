@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import jpeg from 'jpeg-js';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { createTestProfile } from './test-profile.mjs';
 
 const still = (red) => jpeg.encode({ width: 2, height: 2, data: Buffer.from(Array(4).fill([red, 60, 100, 255]).flat()) }).data;
@@ -18,7 +18,7 @@ test('review stills use the cited sample and remain private with saved sections'
     { timestamp: startSeconds + 0.5, image: startSeconds === 0 ? chosen : later },
   ];
   const requests = [];
-  const server = createLiftmorrowServer({
+  const server = createTrainerPlusServer({
     database: ':memory:', sampleFrames,
     respond: async (request) => {
       requests.push(request);

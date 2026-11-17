@@ -2,6 +2,7 @@ import additionalExercises from './free-exercise-db.json' with { type: 'json' };
 import demonstrations from './exercise-demonstrations.json' with { type: 'json' };
 
 import { technique } from './technique.mjs';
+import { exerciseNameScore, exerciseSearchTerms, matchesExerciseTerms } from '../shared/exercise-search.mjs';
 
 const curated = [
   {
@@ -215,34 +216,31 @@ export const levels = ['Beginner', 'Intermediate', 'Advanced'];
 export const categories = [...new Set(catalog.map(({ category }) => category))].sort();
 export const exercisesById = new Map(exerciseRecords.map((exercise) => [exercise.id, exercise]));
 
-function words(text) {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
-}
-
-const searchable = new Map(catalog.map((item) => [item.id, words([
+const searchable = new Map(catalog.map((item) => [item.id, exerciseSearchTerms([
   item.name, item.description, item.category, ...item.muscles, ...item.equipment,
   ...(item.primaryMuscles ?? []), ...(item.secondaryMuscles ?? []), ...(item.equipment.length ? [] : ['Bodyweight', 'No equipment']),
 ].join(' '))]));
 
 export function recommend({ targets, detail, available, query, recent, level, category }) {
-  const terms = words(query);
+  const terms = exerciseSearchTerms(query);
   return catalog
     .filter((item) => (
       (!targets.length || item.muscles.some((muscle) => targets.includes(muscle))) &&
       (!detail || item.primaryMuscles.includes(detail) || item.secondaryMuscles.includes(detail)) &&
       (available === null || item.equipment.every((item) => available.includes(item))) &&
       (!level || item.level === level) &&
-      (!category || item.category === category) &&
-      terms.every((term) => searchable.get(item.id).some((word) => word.startsWith(term) || term === word + 's'))
+      (!category || item.category === category)
     ))
     .map((exercise, index) => ({
       exercise,
       index,
+      nameScore: exerciseNameScore(exercise.id, exercise.name, query),
       score: (targets.includes(exercise.muscles[0]) ? 4 : 0)
         + exercise.muscles.filter((muscle) => targets.includes(muscle)).length
         + (detail && exercise.primaryMuscles.includes(detail) ? 4 : 0)
         + (recent.has(exercise.id) ? 0.25 : 0),
     }))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .filter(({ exercise, nameScore }) => nameScore > 0 || matchesExerciseTerms(searchable.get(exercise.id), terms))
+    .sort((a, b) => b.nameScore - a.nameScore || b.score - a.score || a.index - b.index)
     .map(({ exercise }) => exercise);
 }

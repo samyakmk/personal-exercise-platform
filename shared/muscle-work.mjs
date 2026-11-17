@@ -1,3 +1,5 @@
+import { recordedSetCount } from './training-records.mjs';
+
 export function loggedMuscleWork(workouts, catalog) {
   const totals = new Map();
   for (const workout of workouts) {
@@ -8,7 +10,7 @@ export function loggedMuscleWork(workouts, catalog) {
       ? 1 + (effort - 5.5) * 0.04 : 1;
     for (const movement of workout.exercises) {
       const exercise = catalog.get(movement.exerciseId);
-      const count = movement.setDetails?.length ?? movement.sets;
+      const count = recordedSetCount(movement);
       if (!exercise || count <= 0) continue;
       const primary = new Set(exercise.primaryMuscles);
       const secondary = new Set(exercise.secondaryMuscles);

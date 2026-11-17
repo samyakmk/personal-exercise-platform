@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { SelectedVideo } from '../types';
 
 export type CameraRecorderProps = {
@@ -5,8 +6,9 @@ export type CameraRecorderProps = {
   disabled?: boolean;
   filmingTip?: string;
   selectionLabel?: string;
+  alternateAction?: ReactNode;
 };
 
-export function CameraRecorder(_props: CameraRecorderProps) {
-  return null;
+export function CameraRecorder({ alternateAction = null }: CameraRecorderProps) {
+  return alternateAction;
 }

@@ -1,11 +1,5 @@
 export const photoCredits = [
   {
-    subject: 'Dashboard',
-    author: 'Rajdeepjammu119',
-    source: 'https://commons.wikimedia.org/wiki/File:Free_weights_area.jpg',
-    rights: 'CC0 1.0 · Wikimedia Commons',
-  },
-  {
     subject: 'Goblet Squat',
     author: 'Capt. Matthew Holfinger, U.S. Marine Corps',
     source: 'https://www.dvidshub.net/video/548733/kettlebell-goblet-squat',

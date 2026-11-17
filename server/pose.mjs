@@ -1,3 +1,4 @@
+import { trainerPlusEnv } from './config.mjs';
 import { resolve } from 'node:path';
 
 const resolution = 256;
@@ -7,7 +8,7 @@ let nextAttempt = 0;
 
 async function loadModel() {
   const [ort, jpeg] = await Promise.all([import('onnxruntime-node'), import('jpeg-js')]);
-  const session = await ort.InferenceSession.create(process.env.LIFTMORROW_POSE_MODEL || defaultModel, {
+  const session = await ort.InferenceSession.create(trainerPlusEnv('POSE_MODEL') || defaultModel, {
     executionProviders: ['cpu'],
     intraOpNumThreads: 2,
     logSeverityLevel: 3,

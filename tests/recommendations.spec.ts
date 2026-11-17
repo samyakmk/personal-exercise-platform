@@ -23,9 +23,13 @@ test('exercise picks can be refined repeatedly and the prior picks survive an er
   });
 
   await page.goto('/explore?muscles=Chest');
-  await page.getByRole('button', { name: 'Get AI recommendations' }).press('Enter');
+  await expect(page.getByRole('heading', { name: 'Exercise recommendations', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Get recommendations', exact: true }).click();
   await expect(page.getByText('A bodyweight press.')).toBeVisible();
   const controls = page.getByRole('group', { name: 'Refine recommendation' });
+  for (const name of ['Make it easier', 'Make it harder', 'Fewer picks', 'More picks']) {
+    await expect(controls.getByRole('button', { name })).toBeVisible();
+  }
   await controls.getByRole('button', { name: 'Make it easier' }).press('Enter');
   await expect(page.getByText('The recommendation service is temporarily unavailable.')).toBeVisible();
   await expect(page.getByText('A bodyweight press.')).toBeVisible();
@@ -37,10 +41,26 @@ test('exercise picks can be refined repeatedly and the prior picks survive an er
     { adjustment: 'easier', previous: ['push-up'] }, { adjustment: 'easier', previous: ['push-up'] },
     { adjustment: 'longer', previous: ['incline-push-up'] },
   ]);
+
+  await page.route('https://www.youtube-nocookie.com/**', (route) => route.fulfill({ body: '' }));
+  const picks = page.getByRole('list', { name: 'Recommended exercises' });
+  await picks.getByRole('button', { name: /Incline Push-Up/ }).click();
+  const exercise = page.getByRole('dialog', { name: 'Incline Push-Up' });
+  await expect(exercise.getByRole('button', { name: 'Add to workout' })).toBeInViewport();
+  await exercise.getByRole('button', { name: 'Add to workout' }).click();
+  await page.getByRole('button', { name: 'Start a new workout' }).click();
+  const editor = page.getByRole('dialog', { name: 'Schedule a workout' });
+  await expect(editor.getByRole('textbox', { name: 'Reps · Incline Push-Up' })).toHaveValue('10');
+  await editor.getByRole('button', { name: 'Save workout', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Incline Push-Up workout' })).toBeVisible();
 });
 
 test('a workout can be refined, accepted, and scheduled without selecting any exercises', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 850 });
+  await page.route('**/api/workspace', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), aiAvailable: true } });
+  });
   await page.goto('/workouts');
   await page.getByRole('button', { name: 'Schedule workout', exact: true }).first().click();
   const editor = page.getByRole('dialog', { name: 'Schedule a workout' });
@@ -60,6 +80,8 @@ test('a workout can be refined, accepted, and scheduled without selecting any ex
   await expect(preview.getByText('2 × 7 reps').first()).toBeVisible();
   await editor.getByRole('button', { name: 'Use this workout' }).click();
   await expect(editor.getByRole('textbox', { name: 'Workout name' })).toHaveValue('Balanced strength');
+  await expect(editor.getByRole('textbox', { name: 'Reps · Bodyweight Squat' })).toHaveCount(0);
+  await editor.getByRole('button', { name: 'Edit exercises' }).click();
   await expect(editor.getByRole('textbox', { name: 'Reps · Bodyweight Squat' })).toHaveValue('7');
 
   const saved = page.waitForResponse((response) => response.url().includes('/api/workouts?') && response.request().method() === 'POST');

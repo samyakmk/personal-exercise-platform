@@ -1,3 +1,4 @@
+import { trainerPlusEnv } from './config.mjs';
 import { execFile } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
@@ -13,16 +14,16 @@ export const reviewWindowSeconds = 20;
 export const maxReviewFrames = 8;
 
 export async function extractFrames(source, {
-  binary = process.env.LIFTMORROW_FFMPEG || 'ffmpeg', mime, signal, sampleRate = 2, startSeconds = 0,
+  binary = trainerPlusEnv('FFMPEG') || 'ffmpeg', mime, signal, sampleRate = 2, startSeconds = 0,
 } = {}) {
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-frames-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-frames-'));
   try {
     const input = join(directory, 'clip');
     await pipeline(Readable.from(source, { objectMode: false }), createWriteStream(input, { mode: 0o600 }), { signal });
     const filters = [
       // Capture the actual first decoded presentation time before resetting the sample grid.
-      'metadata=mode=add:key=liftmorrow:value=1',
-      'metadata=mode=print:key=liftmorrow:file=source-times.txt',
+      'metadata=mode=add:key=trainer-plus:value=1',
+      'metadata=mode=print:key=trainer-plus:file=source-times.txt',
       'setpts=PTS-STARTPTS',
       `trim=duration=${reviewWindowSeconds}`,
       `fps=${sampleRate}:start_time=0`,

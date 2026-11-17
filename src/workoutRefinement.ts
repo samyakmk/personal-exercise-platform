@@ -5,6 +5,17 @@ export function workoutSize(exercises: Movement[]) {
   return `${exercises.length} ${exercises.length === 1 ? 'exercise' : 'exercises'} · ${sets} ${sets === 1 ? 'set' : 'sets'}`;
 }
 
+export function lighterPlannedWorkout(exercises: Movement[], catalog: ReadonlyMap<string, Exercise>): Movement[] {
+  return exercises.map((movement) => {
+    const sets = Math.max(1, movement.sets - 1);
+    const step = catalog.get(movement.exerciseId)?.unit === 'seconds' ? 5 : 1;
+    const lower = (reps: number | undefined) => Math.max(1, (reps ?? (step === 5 ? 15 : 6)) - step);
+    const setDetails = movement.setDetails?.slice(0, sets).map(({ reps }) => ({ reps: lower(reps) }));
+    return { exerciseId: movement.exerciseId, sets, reps: setDetails?.[0]?.reps ?? lower(movement.reps),
+      notes: movement.notes, ...(setDetails && { setDetails }) };
+  });
+}
+
 export function refineWorkout(exercises: Movement[], choice: Refinement, catalog: ReadonlyMap<string, Exercise>) {
   if (choice === 'shorter' && exercises.every(({ sets }) => sets === 1) && exercises.length > 1) {
     return { exercises: exercises.slice(0, -1), message: 'Removed the last exercise to shorten the workout.' };

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 
 const day = '2026-11-16';
 const today = '?today=' + day + '&now=12:00';
@@ -14,7 +14,7 @@ const result = (overrides) => ({
 });
 
 async function start(t, respond) {
-  const server = createLiftmorrowServer({ database: ':memory:', respond, posePool: null });
+  const server = createTrainerPlusServer({ database: ':memory:', respond, posePool: null });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((done) => server.close(done)));
@@ -27,7 +27,7 @@ async function start(t, respond) {
     const cookie = created.headers.getSetCookie()[0].split(';')[0];
     const key = (await created.json()).active.workspaceKey;
     const call = (path, method = 'GET', body, expected = key, extra = {}) => fetch(root + path, {
-      method, headers: { Cookie: cookie, ...(expected && { 'X-Liftmorrow-Profile': expected }), ...extra,
+      method, headers: { Cookie: cookie, ...(expected && { 'X-Trainer-Plus-Profile': expected }), ...extra,
         ...(body && { 'Content-Type': 'application/json' }) },
       ...(body && { body: JSON.stringify(body) }),
     });

@@ -4,7 +4,9 @@ import { dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createLocalProfiles } from './local-profiles.mjs';
 import { createCheckIns } from './check-ins.mjs';
+import { createProfileArchive } from './profile-archive.mjs';
 import { trainingBackupFormat } from '../shared/training-backup.mjs';
+import { maxSeriesOccurrences, seriesWorkoutId } from './workout-series.mjs';
 
 const chunkSize = 256 * 1024;
 const reviewHistoryLimit = 10;
@@ -14,7 +16,7 @@ const reviewColumns = `json_remove(clip_review.review, '$.reviewStill') AS revie
   attempt.lease_owner AS attemptOwner, attempt.lease_until AS attemptUntil`;
 const clipReviewQuery = `FROM clip LEFT JOIN clip_review ON clip.workspace_id = clip_review.workspace_id AND clip.id = clip_review.clip_id
   LEFT JOIN clip_review_attempt AS attempt ON clip.workspace_id = attempt.workspace_id AND clip.id = attempt.clip_id`;
-const clipColumns = `clip.id, exerciseId, filename, mime, size, uploadedAt, ${reviewColumns}`;
+const clipColumns = `clip.id, exerciseId, filename, mime, size, uploadedAt, training_context, ${reviewColumns}`;
 const revisionValue = 'lower(hex(randomblob(16)))';
 
 function workspaceRevisionTriggers() {
@@ -49,8 +51,9 @@ function reviewFields({ review, attemptVersion, attemptSequence, attemptError, a
 }
 
 function clipRecord(row) {
-  const { id, exerciseId, filename, mime, size, uploadedAt } = row;
-  return { id, exerciseId, filename, mime, size, uploadedAt, ...reviewFields(row) };
+  const { id, exerciseId, filename, mime, size, uploadedAt, training_context } = row;
+  return { id, exerciseId, filename, mime, size, uploadedAt,
+    ...(training_context && { trainingContext: JSON.parse(training_context) }), ...reviewFields(row) };
 }
 
 function relativeDay(day, offset) {
@@ -179,7 +182,11 @@ export function createStore(path) {
     ['workout', 'notes', "TEXT NOT NULL DEFAULT ''"],
     ['workout', 'effort', 'INTEGER CHECK (effort IS NULL OR effort BETWEEN 1 AND 10)'],
     ['workout', 'source', "TEXT CHECK (source IS NULL OR source IN ('manual', 'trainer', 'recommended'))"],
+    ['workout', 'series_id', 'TEXT'],
+    ['workout', 'series_index', 'INTEGER'],
+    ['workout', 'skipped_exercises', 'TEXT'],
     ['clip', 'digest', 'TEXT'],
+    ['clip', 'training_context', 'TEXT'],
     ['clip_review_attempt', 'start_seconds', 'INTEGER NOT NULL DEFAULT 0'],
     ['clip_review_attempt', 'error_status', 'INTEGER'],
     ['clip_review_attempt', 'lease_owner', 'TEXT'],
@@ -191,9 +198,22 @@ export function createStore(path) {
       db.exec(`ALTER TABLE workspace ADD COLUMN snapshot_revision TEXT;
         UPDATE workspace SET snapshot_revision = ${revisionValue};`);
     }
+    let addedSeries = false;
     for (const [table, column, type] of addedColumns) {
       if (!db.prepare(`PRAGMA table_info(${table})`).all().some(({ name }) => name === column)) {
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+        if (column === 'series_id') addedSeries = true;
+      }
+    }
+    if (addedSeries) {
+      const series = db.prepare('SELECT workspace_id, id FROM workout_series_receipt').all();
+      const attach = db.prepare('UPDATE workout SET series_id = ?, series_index = ? WHERE workspace_id = ? AND id = ?');
+      const bump = db.prepare(`UPDATE workspace SET snapshot_revision = ${revisionValue} WHERE id = ?`);
+      for (const { workspace_id: workspace, id } of series) {
+        for (let index = 0; index < maxSeriesOccurrences; index += 1) {
+          attach.run(id, index, workspace, seriesWorkoutId(id, index));
+        }
+        bump.run(workspace);
       }
     }
     if (!db.prepare('PRAGMA table_info(clip)').all().some(({ name }) => name === 'representation')) {
@@ -202,6 +222,7 @@ export function createStore(path) {
     }
     db.exec(`
       CREATE INDEX IF NOT EXISTS workout_schedule ON workout (workspace_id, date, time, id);
+      CREATE UNIQUE INDEX IF NOT EXISTS workout_series_occurrence ON workout (workspace_id, series_id, series_index) WHERE series_id IS NOT NULL;
       CREATE INDEX IF NOT EXISTS personal_completed_workout ON workout (workspace_id, date DESC, time DESC, id DESC)
         WHERE status = 'completed' AND is_example = 0;
       CREATE INDEX IF NOT EXISTS clip_upload_order ON clip (workspace_id, uploadedAt DESC, id DESC);
@@ -239,10 +260,10 @@ export function createStore(path) {
     bookmarks: db.prepare('SELECT exercise_id AS id FROM exercise_bookmark WHERE workspace_id = ? ORDER BY exercise_id'),
     addBookmark: db.prepare('INSERT OR IGNORE INTO exercise_bookmark (workspace_id, exercise_id) VALUES (?, ?)'),
     removeBookmark: db.prepare('DELETE FROM exercise_bookmark WHERE workspace_id = ? AND exercise_id = ?'),
-    workouts: db.prepare('SELECT id, name, date, time, status, notes, exercises, is_example, revision, effort, source FROM workout WHERE workspace_id = ? ORDER BY date, time, id'),
-    backupWorkouts: db.prepare(`SELECT id, name, date, time, status, notes, exercises, effort, source FROM workout
+    workouts: db.prepare('SELECT id, name, date, time, status, notes, exercises, is_example, revision, effort, source, series_id, series_index, skipped_exercises FROM workout WHERE workspace_id = ? ORDER BY date, time, id'),
+    backupWorkouts: db.prepare(`SELECT id, name, date, time, status, notes, exercises, effort, source, series_id, series_index, skipped_exercises FROM workout
       WHERE workspace_id = ? AND is_example = 0 AND date >= ? AND date < ? ORDER BY date, time, id LIMIT ?`),
-    workoutsById: db.prepare(`SELECT workout.id, name, date, time, status, notes, exercises, is_example, revision, effort, source
+    workoutsById: db.prepare(`SELECT workout.id, name, date, time, status, notes, exercises, is_example, revision, effort, source, series_id, series_index, skipped_exercises
       FROM json_each(?) AS ids CROSS JOIN workout ON workout.workspace_id = ? AND workout.id = ids.value
       ORDER BY date, time, workout.id`),
     workoutRevision: db.prepare('SELECT revision FROM workout WHERE workspace_id = ? AND id = ?'),
@@ -252,10 +273,12 @@ export function createStore(path) {
       ORDER BY date DESC, time DESC, id DESC LIMIT 5
     `),
     insertWorkout: db.prepare(`
-      INSERT INTO workout (workspace_id, id, name, date, time, status, exercises, is_example, notes, effort, source)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (workspace_id, id) DO NOTHING
+      INSERT INTO workout (workspace_id, id, name, date, time, status, exercises, is_example, notes, effort, source, series_id, series_index, skipped_exercises)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (workspace_id, id) DO NOTHING
     `),
-    existingWorkout: db.prepare('SELECT name, date, time, status, notes, exercises, effort, source FROM workout WHERE workspace_id = ? AND id = ?'),
+    existingWorkout: db.prepare('SELECT name, date, time, status, notes, exercises, effort, source, series_id, series_index, skipped_exercises FROM workout WHERE workspace_id = ? AND id = ?'),
+    seriesTail: db.prepare(`SELECT id, revision, date FROM workout
+      WHERE workspace_id = ? AND series_id = ? AND series_index >= ? AND status = 'planned' ORDER BY series_index`),
     workoutSeries: db.prepare('SELECT digest FROM workout_series_receipt WHERE workspace_id = ? AND id = ?'),
     addWorkoutSeries: db.prepare('INSERT INTO workout_series_receipt (workspace_id, id, digest) VALUES (?, ?, ?)'),
     workoutEdit: db.prepare('SELECT digest FROM workout_edit_receipt WHERE workspace_id = ? AND id = ?'),
@@ -263,7 +286,8 @@ export function createStore(path) {
     updateWorkout: db.prepare(`
       UPDATE workout SET name = ?, date = ?, time = ?, status = ?, exercises = ?, notes = COALESCE(?, notes),
       effort = CASE WHEN ? IS NOT NULL THEN ? WHEN ? = 'planned' THEN NULL ELSE effort END,
-      source = COALESCE(?, source), is_example = 0, revision = revision + 1
+      source = COALESCE(?, source), skipped_exercises = CASE WHEN ? = 'planned' THEN NULL ELSE COALESCE(?, skipped_exercises) END,
+      is_example = 0, revision = revision + 1
       WHERE workspace_id = ? AND id = ? AND (revision = ? OR ? IS NULL)
     `),
     removeWorkout: db.prepare('DELETE FROM workout WHERE workspace_id = ? AND id = ? AND (revision = ? OR ? IS NULL)'),
@@ -279,7 +303,7 @@ export function createStore(path) {
       WHERE clip.workspace_id = ? ORDER BY uploadedAt DESC, clip.id DESC
     `),
     clipRecord: db.prepare(`SELECT ${clipColumns} ${clipReviewQuery} WHERE clip.workspace_id = ? AND clip.id = ?`),
-    clip: db.prepare('SELECT mime, size, exerciseId, filename, digest, representation, length(bytes) = 0 AS chunked FROM clip WHERE workspace_id = ? AND id = ?'),
+    clip: db.prepare('SELECT mime, size, exerciseId, filename, digest, representation, training_context, length(bytes) = 0 AS chunked FROM clip WHERE workspace_id = ? AND id = ?'),
     deletedClip: db.prepare('SELECT 1 FROM clip_deletion WHERE workspace_id = ? AND id = ?'),
     markDeletedClip: db.prepare('INSERT OR IGNORE INTO clip_deletion (workspace_id, id) VALUES (?, ?)'),
     relabelClip: db.prepare(`UPDATE clip SET exerciseId = ? WHERE workspace_id = ? AND id = ? AND exerciseId = ?
@@ -288,8 +312,8 @@ export function createStore(path) {
     clipRepresentation: db.prepare(`SELECT 1 FROM clip INDEXED BY clip_representation_lookup
       WHERE workspace_id = ? AND id = ? AND representation IS ?`),
     addClip: db.prepare(`
-      INSERT INTO clip (workspace_id, id, exerciseId, filename, mime, size, uploadedAt, bytes, digest, representation)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${revisionValue}) ON CONFLICT (workspace_id, id) DO NOTHING
+      INSERT INTO clip (workspace_id, id, exerciseId, filename, mime, size, uploadedAt, bytes, digest, training_context, representation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${revisionValue}) ON CONFLICT (workspace_id, id) DO NOTHING
     `),
     addClipChunk: db.prepare('INSERT INTO clip_payload (workspace_id, clip_id, position, bytes) VALUES (?, ?, ?, ?)'),
     clipChunk: db.prepare(`SELECT payload.bytes FROM clip_payload AS payload
@@ -374,7 +398,7 @@ export function createStore(path) {
         [-5, '08:00', 'Core & Stability', 'completed', [movement('forearm-plank', 30), movement('reverse-lunge')]],
       ];
       for (const [offset, time, name, status, exercises] of examples) {
-        statements.insertWorkout.run(id, randomUUID(), name, relativeDay(today, offset), time, status, JSON.stringify(exercises), 1, '', null, null);
+        statements.insertWorkout.run(id, randomUUID(), name, relativeDay(today, offset), time, status, JSON.stringify(exercises), 1, '', null, null, null, null, null);
       }
       db.exec('COMMIT');
     } catch (error) {
@@ -407,19 +431,27 @@ export function createStore(path) {
     }
   }
 
-  function addClip(workspace, { id, exerciseId, filename, mime, bytes, digest, rejectDeleted }) {
+  function writeClipChunks(workspace, id, bytes) {
+    for (let start = 0; start < bytes.length; start += chunkSize) {
+      statements.addClipChunk.run(workspace, id, start / chunkSize, bytes.subarray(start, start + chunkSize));
+    }
+  }
+
+  function insertClip(workspace, { id, exerciseId, filename, mime, uploadedAt, bytes, digest, trainingContext }) {
+    const result = statements.addClip.run(workspace, id, exerciseId, filename, mime, bytes.length, uploadedAt, Buffer.alloc(0),
+      digest, trainingContext ? JSON.stringify(trainingContext) : null);
+    if (result.changes) writeClipChunks(workspace, id, bytes);
+    return result;
+  }
+
+  function addClip(workspace, { rejectDeleted, ...clip }) {
     db.exec('BEGIN IMMEDIATE');
     try {
-      if (rejectDeleted && statements.deletedClip.get(workspace, id)) {
+      if (rejectDeleted && statements.deletedClip.get(workspace, clip.id)) {
         db.exec('COMMIT');
         return { changes: 0, deleted: true };
       }
-      const result = statements.addClip.run(workspace, id, exerciseId, filename, mime, bytes.length, new Date().toISOString(), Buffer.alloc(0), digest);
-      if (result.changes) {
-        for (let start = 0; start < bytes.length; start += chunkSize) {
-          statements.addClipChunk.run(workspace, id, start / chunkSize, bytes.subarray(start, start + chunkSize));
-        }
-      }
+      const result = insertClip(workspace, { ...clip, uploadedAt: new Date().toISOString() });
       db.exec('COMMIT');
       return result;
     } catch (error) {
@@ -428,8 +460,10 @@ export function createStore(path) {
     }
   }
 
-  function workoutRecord({ is_example, exercises, notes, effort, source, ...row }) {
-    return { ...row, exercises: JSON.parse(exercises), ...(notes && { notes }), ...(effort != null && { effort }), ...(source && { source }), ...(is_example ? { example: true } : {}) };
+  function workoutRecord({ is_example, exercises, notes, effort, source, series_id, series_index, skipped_exercises, ...row }) {
+    return { ...row, exercises: JSON.parse(exercises), ...(notes && { notes }), ...(effort != null && { effort }), ...(source && { source }),
+      ...(series_id && { seriesId: series_id, seriesIndex: series_index }),
+      ...(skipped_exercises && { skippedExerciseIds: JSON.parse(skipped_exercises) }), ...(is_example ? { example: true } : {}) };
   }
 
   function workouts(id) {
@@ -439,26 +473,32 @@ export function createStore(path) {
   const bookmarks = (id) => statements.bookmarks.all(id).map((row) => row.id);
   const trainingNotes = (id) => statements.trainingNotes.all(id);
 
-  function insertWorkout(workspace, { id, name, date, time, status, exercises, notes = '', effort = null, source = null }) {
+  function insertWorkout(workspace, { id, name, date, time, status, exercises, notes = '', effort = null, source = null,
+    seriesId = null, seriesIndex = null, skippedExerciseIds }) {
     if (statements.workoutSeries.get(workspace, id)) return false;
     const serialized = JSON.stringify(exercises);
-    const insert = statements.insertWorkout.run(workspace, id, name, date, time, status, serialized, 0, notes, effort, source);
+    const skipped = skippedExerciseIds ? JSON.stringify(skippedExerciseIds) : null;
+    const insert = statements.insertWorkout.run(workspace, id, name, date, time, status, serialized, 0, notes, effort, source, seriesId, seriesIndex, skipped);
     if (insert.changes) return true;
     const current = statements.existingWorkout.get(workspace, id);
     return current?.name === name && current.date === date && current.time === time
-      && current.status === status && current.exercises === serialized && current.notes === notes && current.effort === effort && current.source === source;
+      && current.status === status && current.exercises === serialized && current.notes === notes && current.effort === effort && current.source === source
+      && current.series_id === seriesId && current.series_index === seriesIndex && current.skipped_exercises === skipped;
   }
 
-  function updateWorkout(workspace, id, { name, date, time, status, exercises, notes, effort, source }, revision, operationId) {
+  function updateWorkout(workspace, id, { name, date, time, status, exercises, notes, effort, source, skippedExerciseIds }, revision, operationId) {
     const values = [name, date, time, status, JSON.stringify(exercises), notes ?? null];
     const update = () => {
-      const result = statements.updateWorkout.run(...values, effort === undefined ? null : 1, effort ?? null, status, source ?? null, workspace, id, revision, revision);
+      const skipped = skippedExerciseIds ? JSON.stringify(skippedExerciseIds) : null;
+      const result = statements.updateWorkout.run(...values, effort === undefined ? null : 1, effort ?? null, status, source ?? null,
+        status, skipped, workspace, id, revision, revision);
       if (result.changes) return 'saved';
       return statements.workoutRevision.get(workspace, id) ? 'conflict' : 'missing';
     };
     if (!operationId) return update();
 
-    const digest = createHash('sha256').update(JSON.stringify([id, revision, values, ...(effort !== undefined || source !== undefined ? [{ effort, source }] : [])])).digest('hex');
+    const feedback = effort !== undefined || source !== undefined || skippedExerciseIds !== undefined ? [{ effort, source, skippedExerciseIds }] : [];
+    const digest = createHash('sha256').update(JSON.stringify([id, revision, values, ...feedback])).digest('hex');
     db.exec('BEGIN IMMEDIATE');
     try {
       const receipt = statements.workoutEdit.get(workspace, operationId);
@@ -477,9 +517,24 @@ export function createStore(path) {
     }
   }
 
+  const archive = createProfileArchive(db, {
+    bookmarks, trainingNotes, workouts, insertWorkout, insertClip, writeClipChunks, clipChunks,
+    reservedWorkout: (workspace, id) => statements.workoutSeries.get(workspace, id) || statements.existingWorkout.get(workspace, id),
+    clip: (workspace, id) => statements.clip.get(workspace, id),
+    clipDigest(workspace, id) {
+      const clip = statements.clip.get(workspace, id);
+      const hash = createHash('sha256');
+      for (const chunk of clipChunks(workspace, id, clip, 0, clip.size)) hash.update(chunk);
+      return hash.digest('hex');
+    },
+    saveReview: (...args) => statements.saveReview.run(...args),
+    reviewPending: (workspace, id) => statements.reviewState.get(workspace, id)?.attemptUntil > Date.now(),
+  });
+
   return {
     profiles,
     checkIns,
+    archive,
     addExampleWorkouts,
     removeExampleWorkouts: (id) => statements.removeExampleWorkouts.run(id),
     readWorkspace(id, read) {
@@ -519,10 +574,10 @@ export function createStore(path) {
         const parts = [JSON.stringify(settings).slice(0, -1) + ',"workouts":['];
         let length = Buffer.byteLength(parts[0]) + 2;
         let count = 0;
-        for (const { id, name, date, time, status, notes, exercises, effort, source } of statements.backupWorkouts.iterate(workspace, from, before, maxWorkouts + 1)) {
+        for (const row of statements.backupWorkouts.iterate(workspace, from, before, maxWorkouts + 1)) {
           if (++count > maxWorkouts) break;
-          const record = { id, name, date, time, status, notes: notes || undefined, exercises: JSON.parse(exercises),
-            ...(effort != null && { effort }), ...(source && { source }) };
+          const { id, name, date, time, status, notes, exercises, effort, source, seriesId, seriesIndex, skippedExerciseIds } = workoutRecord(row);
+          const record = { id, name, date, time, status, notes, exercises, effort, source, seriesId, seriesIndex, skippedExerciseIds };
           const part = (count === 1 ? '' : ',') + JSON.stringify(record);
           length += Buffer.byteLength(part);
           if (length > maxBytes) break;
@@ -574,10 +629,49 @@ export function createStore(path) {
           db.exec('COMMIT');
           return receipt.digest === digest;
         }
-        const saved = series.every((workout) => !statements.existingWorkout.get(workspace, workout.id) && insertWorkout(workspace, workout));
+        const saved = series.every((workout, seriesIndex) => !statements.existingWorkout.get(workspace, workout.id)
+          && insertWorkout(workspace, { ...workout, seriesId: first.id, seriesIndex }));
         if (saved) statements.addWorkoutSeries.run(workspace, first.id, digest);
         db.exec(saved ? 'COMMIT' : 'ROLLBACK');
         return saved;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
+    updateWorkoutSeries(workspace, id, changes, expected, operationId) {
+      const ids = expected.map((entry) => entry.id);
+      const digest = createHash('sha256').update(JSON.stringify(['series', id, changes, expected])).digest('hex');
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const receipt = statements.workoutEdit.get(workspace, operationId);
+        if (receipt) {
+          db.exec('COMMIT');
+          return receipt.digest === digest ? { ids } : { error: 'conflict' };
+        }
+        const anchor = statements.existingWorkout.get(workspace, id);
+        if (anchor?.status !== 'planned' || !anchor.series_id) {
+          db.exec('ROLLBACK');
+          return { error: 'missing' };
+        }
+        const tail = statements.seriesTail.all(workspace, anchor.series_id, anchor.series_index);
+        if (tail.length !== expected.length || tail.some((item, index) => item.id !== expected[index].id || item.revision !== expected[index].revision)) {
+          db.exec('ROLLBACK');
+          return { error: 'conflict' };
+        }
+        const offset = Math.round((Date.parse(changes.date + 'T12:00Z') - Date.parse(anchor.date + 'T12:00Z')) / 86_400_000);
+        const dates = tail.map(({ date }) => relativeDay(date, offset));
+        if (dates.some((date) => date < '1900-01-01' || date > '2199-12-31')) {
+          db.exec('ROLLBACK');
+          return { error: 'date' };
+        }
+        for (const [index, { id: occurrence, revision }] of tail.entries()) {
+          const result = updateWorkout(workspace, occurrence, { ...changes, date: dates[index] }, revision);
+          if (result !== 'saved') throw new Error('Series occurrence changed during its update.');
+        }
+        statements.addWorkoutEdit.run(workspace, operationId, digest);
+        db.exec('COMMIT');
+        return { ids };
       } catch (error) {
         db.exec('ROLLBACK');
         throw error;

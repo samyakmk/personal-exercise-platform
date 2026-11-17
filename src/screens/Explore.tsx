@@ -1,11 +1,11 @@
 import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight, ChevronDown, Dumbbell, Search, SearchX, SlidersHorizontal, Sparkles, X } from 'lucide-react-native';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { ChevronRight, Dumbbell, Search, SearchX, X } from 'lucide-react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { ExerciseCard } from '../components/ExerciseCard';
 import { ExerciseSheet } from '../components/ExerciseSheet';
 import { RecommendationPanel, RefinementControls } from '../components/RecommendationControls';
-import { Sheet } from '../components/Sheet';
+import { EquipmentSheet } from '../components/EquipmentSheet';
 import { Button, Chip, Copy, Empty, IconButton, Input, Loading, Notice, PageTitle, Panel, ViewTab } from '../components/ui';
 import { muscleNames } from '../muscleWork';
 import { SelectField } from '../platform/fields';
@@ -17,7 +17,7 @@ import { useWorkspace } from '../workspace';
 const pageSize = 30;
 
 export function Explore() {
-  const { api, data, mutate, recommendationContext, announce } = useWorkspace();
+  const { api, data, recommendationContext } = useWorkspace();
   const router = useRouter();
   const { exercise: requested, muscles, detail: detailParam, equipment, level: difficulty, saved: savedFilter, category: categoryParam } = useLocalSearchParams<{
     exercise?: string; muscles?: string; detail?: string; equipment?: string; level?: string; saved?: string; category?: string;
@@ -58,7 +58,6 @@ export function Explore() {
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [open, setOpen] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
   const workspaceReady = Boolean(data);
   const selected = data?.catalog.find(({ id }) => id === requested);
   const width = useWindowDimensions().width;
@@ -115,41 +114,13 @@ export function Explore() {
 
   const showAllExercises = () => router.setParams({ saved: undefined });
 
-  const filterCount = Number(mode !== 'all') + Number(Boolean(level)) + Number(Boolean(category));
-  const filtered = Boolean(search.trim() || targets.length || detail || filterCount);
+  const filtered = Boolean(search.trim() || targets.length || detail || mode !== 'all' || level || category);
 
   return <View style={styles.page}>
-    <PageTitle title="Exercise library" summary="Find a movement that fits your training and equipment." />
+    <PageTitle title="Exercise library" />
     {requested && !selected && <Notice action={<Button compact kind="quiet" onPress={closeExercise}>Dismiss</Button>}>
       This exercise is no longer in the library.
     </Notice>}
-
-    {data.aiAvailable && !savedOnly && <RecommendationPanel title="Find exercises with AI"
-      detail="Get a shortlist based on your filters, equipment, and recent training. Adjust the picks until they fit.">
-      {!hasPicks && !coaching.pending && <Button icon={Sparkles} kind="primary" disabled={waiting || !results?.length}
-        onPress={coaching.error ? coaching.retry : () => coaching.run(undefined)}>
-        {coaching.retryAt ? 'Retry shortly' : coaching.error ? 'Try again' : 'Get AI recommendations'}
-      </Button>}
-      {coaching.pending && <Loading label={hasPicks ? 'Refining your picks…' : 'Finding your picks…'} />}
-      {coaching.error && <Notice error>{coaching.error}</Notice>}
-      {picks?.length === 0 && <Notice>No exercises match your current filters.</Notice>}
-      {!!picks?.length && <>
-        <Copy accessibilityRole="header" aria-level={3} size={15} weight="bold">Recommended for you</Copy>
-        {picks.map(({ exerciseId, reason }) => {
-          const exercise = data.catalog.find((item) => item.id === exerciseId);
-          return exercise && <View key={exerciseId} style={styles.pick}>
-            <View style={styles.pickTitle}>
-              <Button compact kind="quiet" end={ArrowUpRight} onPress={() => openExercise(exercise)}>{exercise.name}</Button>
-              <Copy size={12} tone={color.plum}>{exercise.level}</Copy>
-            </View>
-            <Copy size={13} tone={color.muted}>{reason}</Copy>
-          </View>;
-        })}
-        <RefinementControls onRefine={refine} disabled={waiting} exerciseList />
-        {changed !== undefined && <Notice>{changed ? 'Recommendations updated.' : unchangedMessage ?? ''}</Notice>}
-        {coaching.error && <Button compact disabled={waiting} onPress={coaching.retry}>{waiting ? 'Retry shortly' : 'Retry refinement'}</Button>}
-      </>}
-    </RecommendationPanel>}
 
     <View style={styles.controls}>
       <View style={styles.toolbar}>
@@ -158,28 +129,27 @@ export function Explore() {
             value={search} onChangeText={setSearch} maxLength={100} />
           {!!search && <IconButton label="Clear search" icon={X} onPress={() => setSearch('')} size={43} />}
         </View>
-        <View style={styles.tools}>
-          <Button compact icon={SlidersHorizontal} end={ChevronDown} aria-expanded={showFilters}
-            onPress={() => setShowFilters((value) => !value)}>{filterCount ? `Filters (${filterCount})` : 'Filters'}</Button>
-          <Button compact kind="quiet" icon={Dumbbell} onPress={() => setOpen(true)}>My equipment</Button>
-        </View>
+        <Button compact kind="quiet" icon={Dumbbell} onPress={() => setOpen(true)}>My equipment</Button>
       </View>
 
-      <View accessibilityLabel="Target muscles" role="group" style={styles.chips}>
-        <Chip label="All muscles" selected={!targets.length && !detail}
-          onPress={() => router.setParams({ muscles: undefined, detail: undefined })} />
-        {data.muscles.map((muscle) => (
-          <Chip key={muscle} label={muscle} selected={targets.includes(muscle)} onPress={() => toggleTarget(muscle)} />
-        ))}
-      </View>
       {detail && <View style={styles.chips}>
         <Button compact end={X} accessibilityLabel={`Clear ${detail} filter`}
           onPress={() => router.setParams({ detail: undefined })}>{detail}</Button>
       </View>}
 
-      {showFilters && <Panel style={styles.advanced}>
+      <Panel style={styles.filters}>
+        <View accessibilityLabel="Target muscles" role="group" style={{ gap: 7 }}>
+          <Copy weight="semibold" size={13}>Target muscles</Copy>
+          <View style={styles.chips}>
+            <Chip label="All muscles" selected={!targets.length && !detail}
+              onPress={() => router.setParams({ muscles: undefined, detail: undefined })} />
+            {data.muscles.map((muscle) => (
+              <Chip key={muscle} label={muscle} selected={targets.includes(muscle)} onPress={() => toggleTarget(muscle)} />
+            ))}
+          </View>
+        </View>
         <View style={styles.filterRow}>
-          <View style={{ gap: 7, flexShrink: 1 }}>
+          <View role="group" accessibilityLabel="Equipment" style={styles.equipmentFilters}>
             <Copy size={12} weight="semibold">Equipment</Copy>
             <View style={styles.chips}>
               {filterOptions.map(({ value, label }) => (
@@ -187,16 +157,18 @@ export function Explore() {
               ))}
             </View>
           </View>
-          <View style={{ minWidth: 145 }}>
-            <SelectField label="Difficulty" value={level ?? ''} onChange={(value) => router.setParams({ level: value || undefined })}
-              options={[{ label: 'Any level', value: '' }, { label: 'Beginner', value: 'Beginner' }, { label: 'Intermediate', value: 'Intermediate' }, { label: 'Advanced', value: 'Advanced' }]} />
+          <View style={styles.selectFilters}>
+            <View style={styles.selectFilter}>
+              <SelectField label="Difficulty" value={level ?? ''} onChange={(value) => router.setParams({ level: value || undefined })}
+                options={[{ label: 'Any level', value: '' }, { label: 'Beginner', value: 'Beginner' }, { label: 'Intermediate', value: 'Intermediate' }, { label: 'Advanced', value: 'Advanced' }]} />
+            </View>
+            {!!data.exerciseCategories?.length && <View style={styles.selectFilter}>
+              <SelectField label="Exercise type" value={category ?? ''} onChange={(value) => router.setParams({ category: value || undefined })}
+                options={[{ label: 'Any type', value: '' }, ...data.exerciseCategories.map((value) => ({ label: value, value }))]} />
+            </View>}
           </View>
-          {!!data.exerciseCategories?.length && <View style={{ minWidth: 145 }}>
-            <SelectField label="Exercise type" value={category ?? ''} onChange={(value) => router.setParams({ category: value || undefined })}
-              options={[{ label: 'Any type', value: '' }, ...data.exerciseCategories.map((value) => ({ label: value, value }))]} />
-          </View>}
         </View>
-      </Panel>}
+      </Panel>
 
       <View style={styles.resultsBar}>
         <View role="group" accessibilityLabel="Library view" style={styles.tabs}>
@@ -205,6 +177,40 @@ export function Explore() {
         </View>
       </View>
     </View>
+
+    {data.aiAvailable && !savedOnly && results?.length !== 0 && <RecommendationPanel
+      title="Exercise recommendations"
+      detail={hasPicks ? undefined : 'Based on your filters and recent training.'}
+      action={!hasPicks && !coaching.pending ? <Button kind="primary" disabled={waiting || !results?.length}
+        onPress={coaching.error ? coaching.retry : () => coaching.run(undefined)}>
+        {coaching.retryAt ? 'Retry shortly' : coaching.error ? 'Try again' : 'Get recommendations'}
+      </Button> : undefined}>
+      {coaching.pending && <Loading label={hasPicks ? 'Refining your picks…' : 'Finding your picks…'} />}
+      {coaching.error && <Notice error>{coaching.error}</Notice>}
+      {picks?.length === 0 && <Notice>No exercises match your current filters.</Notice>}
+      {!!picks?.length && <>
+        <View role="list" accessibilityLabel="Recommended exercises">
+          {picks.map(({ exerciseId, reason }) => {
+            const exercise = data.catalog.find((item) => item.id === exerciseId);
+            return exercise && <View role="listitem" key={exerciseId}>
+              <Pressable accessibilityRole="button" onPress={() => openExercise(exercise)}
+                style={({ hovered }) => [styles.pick, hovered && styles.pickHover]}>
+                <View style={styles.pickBody}>
+                  <Copy size={15} weight="semibold">{exercise.name}</Copy>
+                  <Copy size={13} tone={color.muted}>{reason}</Copy>
+                </View>
+                <ChevronRight aria-hidden size={20} color={color.forest} />
+              </Pressable>
+            </View>;
+          })}
+        </View>
+        <RefinementControls onRefine={refine} disabled={waiting} exerciseList />
+        {changed !== undefined && <Copy role="status" accessibilityLiveRegion="polite" size={13} tone={color.forest}>
+          {changed ? 'Recommendations updated.' : unchangedMessage ?? ''}
+        </Copy>}
+        {coaching.error && <Button compact disabled={waiting} onPress={coaching.retry}>{waiting ? 'Retry shortly' : 'Retry refinement'}</Button>}
+      </>}
+    </RecommendationPanel>}
 
     {error ? <Notice error action={<Button compact onPress={() => setRetry((value) => value + 1)}>Retry</Button>}>{error}</Notice>
       : results === null ? <Loading label="Finding exercises…" />
@@ -230,59 +236,33 @@ export function Explore() {
       </View>}
 
     <Link href="/photo-credits" style={{ alignSelf: 'flex-start' }}>
-      <Copy size={12} tone={color.plum} style={{ textDecorationLine: 'underline' }}>Photo credits</Copy>
+      <Copy size={12} tone={color.forest} style={{ textDecorationLine: 'underline' }}>Photo credits</Copy>
     </Link>
     {selected && <ExerciseSheet key={selected.id} exercise={selected} onClose={closeExercise} />}
-    {open && <EquipmentSheet options={data.equipmentOptions} initial={data.equipment} onClose={() => setOpen(false)}
-      save={async (value) => {
-        await mutate(() => api.setEquipment(value));
-        router.setParams({ equipment: undefined });
-        announce('Equipment preferences updated.');
-        setOpen(false);
-      }} />}
+    {open && <EquipmentSheet onClose={(saved) => {
+      if (saved) router.setParams({ equipment: undefined });
+      setOpen(false);
+    }} />}
   </View>;
-}
-
-function EquipmentSheet({ options, initial, save, onClose }: {
-  options: string[]; initial: string[] | null; save: (value: string[] | null) => Promise<void>; onClose: () => void;
-}) {
-  const [value, setValue] = useState<string[] | null>(initial);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  async function submit() {
-    setBusy(true);
-    setError('');
-    try { await save(value); }
-    catch (failure) { setError((failure as Error).message); }
-    finally { setBusy(false); }
-  }
-
-  return <Sheet title="My equipment" detail="Save the equipment you can use so exercise recommendations fit your setup." onClose={() => { if (!busy) onClose(); }}>
-    <View style={styles.chips}>
-      <Chip label="Any equipment" selected={value === null} onPress={() => setValue(null)} />
-      <Chip label="Bodyweight only" selected={value?.length === 0} onPress={() => setValue([])} />
-      {options.map((item) => <Chip key={item} label={item} selected={Boolean(value?.includes(item))}
-        onPress={() => setValue((current) => current?.includes(item) ? current.filter((option) => option !== item) : [...(current ?? []), item])} />)}
-    </View>
-    {error !== '' && <Notice error>{error}</Notice>}
-    <Button kind="primary" disabled={busy} onPress={submit}>{busy ? 'Saving…' : 'Save equipment'}</Button>
-  </Sheet>;
 }
 
 const styles = StyleSheet.create({
   page: { gap: 15 },
   controls: { gap: 12 },
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 9 },
-  search: { flex: 1, minWidth: 200, maxWidth: 475, flexDirection: 'row', gap: 6 },
-  tools: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
-  advanced: { padding: 14 },
-  filterRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 },
+  search: { flex: 1, minWidth: 169, maxWidth: 475, flexDirection: 'row', gap: 6 },
+  filters: { padding: 12, gap: 10 },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 12 },
+  equipmentFilters: { gap: 7, flexGrow: 1, flexShrink: 1 },
+  selectFilters: { flexDirection: 'row', flexWrap: 'wrap', flexBasis: 260, flexGrow: 1, flexShrink: 1, maxWidth: 452, gap: 12 },
+  selectFilter: { flex: 1, minWidth: 120 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   resultsBar: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center',
     borderBottomWidth: 1, borderBottomColor: color.line },
   tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   resultMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 31 },
-  pickTitle: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
-  pick: { borderTopWidth: 1, borderColor: color.line, paddingTop: 3, gap: 2 },
+  pick: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, minHeight: 60,
+    borderTopWidth: 1, borderColor: color.line, backgroundColor: color.surface },
+  pickBody: { flex: 1, minWidth: 0, gap: 3 },
+  pickHover: { backgroundColor: color.canvas },
 });

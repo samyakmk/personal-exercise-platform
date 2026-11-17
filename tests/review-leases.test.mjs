@@ -8,14 +8,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { reviewVersion } from '../server/coaching.mjs';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { activeWorkspaceId, createTestProfile } from './test-profile.mjs';
 
 const sampleFrames = async () => [{ timestamp: 0, image: Buffer.from('fixture') }];
 const feedback = (summary) => ({ verdict: 'insufficient_visibility', summary, limitations: 'One still frame.', observations: [] });
 
 async function sharedDatabase(t) {
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-review-lease-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-review-lease-'));
   const database = join(directory, 'workspace.sqlite');
   const servers = [];
   t.after(async () => {
@@ -33,7 +33,7 @@ async function sharedDatabase(t) {
   return {
     database,
     async start(options) {
-      const server = createLiftmorrowServer({ database, sampleFrames, ...options });
+      const server = createTrainerPlusServer({ database, sampleFrames, ...options });
       servers.push(server);
       server.listen(0, '127.0.0.1');
       await once(server, 'listening');
@@ -248,11 +248,12 @@ test('an attempt row created before lease support stays available to retry', { t
   const peer = await start({ respond: async () => feedback('Retry result.') });
   const cookie = await workspace(peer);
   const clip = await upload(peer, cookie);
-  db.prepare('INSERT INTO clip_review_attempt (workspace_id, clip_id, version, sequence) VALUES (?, ?, ?, 4)')
-    .run(activeWorkspaceId(db, cookie), clip.id, reviewVersion);
+  db.prepare('INSERT INTO clip_review_attempt (workspace_id, clip_id, version, sequence, error) VALUES (?, ?, ?, 4, ?)')
+    .run(activeWorkspaceId(db, cookie), clip.id, reviewVersion, 'OpenAI took too long to respond. Try again.');
   db.close();
   const failed = await status(peer, cookie, clip, 'failed');
   assert.equal(failed.reviewStatus.sequence, 4);
+  assert.equal(failed.reviewStatus.error, 'Analysis could not finish. Try again.');
   assert.equal((await begin(peer, cookie, clip)).status, 202);
   assert.equal((await status(peer, cookie, clip, 'complete')).reviewStatus.sequence, 5);
 });

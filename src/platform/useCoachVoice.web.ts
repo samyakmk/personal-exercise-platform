@@ -1,24 +1,41 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 function localVoice() {
   return window.speechSynthesis?.getVoices().find((voice) => voice.localService && /^en(?:-|$)/i.test(voice.lang));
 }
 
-export function useCoachVoice(prompt: string) {
+export function useCoachVoice(prompt: string, setSpeaking: (value: boolean) => void) {
   const [available, setAvailable] = useState(false);
   const [enabled, setEnabled] = useState(false);
-  const spoken = useRef('');
+  const active = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioOn = useRef(false);
 
-  function say(text: string) {
+  const say = useCallback((text: string) => {
     const voice = localVoice();
-    if (!voice || !text) return;
+    if (!audioOn.current || !voice || !text) return;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.voice = voice;
     utterance.lang = voice.lang;
-    window.speechSynthesis.cancel();
+    const previous = active.current;
+    active.current = utterance;
+    const done = () => {
+      if (active.current !== utterance) return;
+      active.current = null;
+      setSpeaking(false);
+    };
+    utterance.onend = done;
+    utterance.onerror = done;
+    setSpeaking(true);
+    if (previous) window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
-    spoken.current = text;
-  }
+  }, [setSpeaking]);
+
+  const silence = useCallback(() => {
+    if (!active.current) return;
+    active.current = null;
+    window.speechSynthesis.cancel();
+    setSpeaking(false);
+  }, [setSpeaking]);
 
   useEffect(() => {
     if (typeof SpeechSynthesisUtterance !== 'function' || !window.speechSynthesis) return;
@@ -28,23 +45,19 @@ export function useCoachVoice(prompt: string) {
     synth.addEventListener('voiceschanged', check);
     return () => {
       synth.removeEventListener('voiceschanged', check);
-      if (spoken.current) synth.cancel();
+      silence();
     };
-  }, []);
+  }, [silence]);
 
   useEffect(() => {
-    if (enabled && spoken.current !== prompt) say(prompt);
-  }, [enabled, prompt]);
+    if (enabled) say(prompt);
+  }, [enabled, prompt, say]);
 
   function toggle() {
-    if (enabled) {
-      window.speechSynthesis.cancel();
-      spoken.current = '';
-    } else {
-      say(prompt);
-    }
-    setEnabled(!enabled);
+    audioOn.current = !audioOn.current;
+    if (!audioOn.current) silence();
+    setEnabled(audioOn.current);
   }
 
-  return { available, enabled, toggle };
+  return { available, enabled, toggle, say };
 }

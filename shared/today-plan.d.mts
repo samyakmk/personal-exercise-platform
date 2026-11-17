@@ -2,12 +2,14 @@ import type { CheckInChoice, Exercise, Movement, TrainingNote, TrainingPreferenc
 
 export type TodayPlan = {
   kind: 'train' | 'rest';
+  readiness: 'usual' | 'lighter' | 'rest';
   name: string;
   summary: string;
   reasons: string[];
   exercises: Movement[];
 };
 export const broadPriorities: readonly string[];
+export const starterExerciseIds: readonly string[];
 export function isPlannableExercise(exercise: Exercise): boolean;
 export function buildTodayPlan(input: {
   current: Pick<Workout, 'date' | 'time'>;

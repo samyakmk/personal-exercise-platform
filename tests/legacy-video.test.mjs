@@ -8,14 +8,14 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { activeWorkspaceId, createTestProfile } from './test-profile.mjs';
 
 test('legacy reads honor byte ranges, buffer limits, and deletion while backpressured', { timeout: 8000 }, async () => {
-  const root = await mkdtemp(join(tmpdir(), 'liftmorrow-legacy-video-'));
+  const root = await mkdtemp(join(tmpdir(), 'trainer-plus-legacy-video-'));
   const database = join(root, 'test.sqlite');
   const size = 8 * 1024 * 1024;
-  const server = createLiftmorrowServer({ database, respond: null, legacyReadBudgetBytes: size });
+  const server = createTrainerPlusServer({ database, respond: null, legacyReadBudgetBytes: size });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const origin = `http://127.0.0.1:${server.address().port}/api/`;

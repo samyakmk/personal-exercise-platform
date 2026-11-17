@@ -1,18 +1,26 @@
 import { addDays, compareWorkoutTime, weekStart, workoutTime } from './dates';
 import type { Exercise, ExerciseSet, Movement, TrainingSession, Workout } from './types';
+import { recordedSetCount } from '../shared/training-records.mjs';
+
+export { recordedSetCount };
 
 export type ExerciseLog = { workout: Workout; movement: Movement };
 
 export function trainingLog(session: TrainingSession, separate: boolean): Workout {
   const when = session.logTime ?? workoutTime(new Date(session.startedAt));
+  const skipped = session.skippedExerciseIds ?? session.coach?.skipped;
   return {
     ...when, id: separate ? session.logId : session.plan.id,
     revision: separate ? undefined : session.plan.revision,
     name: session.plan.name, status: 'completed', notes: session.notes.trim(), effort: session.effort, source: session.plan.source,
-    exercises: session.plan.exercises.flatMap(({ exerciseId, notes: plannedNotes }) => {
+    ...(skipped?.length && { skippedExerciseIds: skipped }),
+    exercises: session.plan.exercises.flatMap(({ exerciseId, notes: plannedNotes, replacesExerciseId }) => {
       const notes = (session.exerciseNotes?.[exerciseId] ?? plannedNotes)?.trim();
       const setDetails = session.sets[exerciseId] ?? [];
-      return setDetails.length || session.logTime || notes ? [{ exerciseId, ...setDetails[0], sets: setDetails.length, setDetails, ...(notes && { notes }) }] : [];
+      return setDetails.length || session.logTime || notes ? [{
+        exerciseId, ...(replacesExerciseId && { replacesExerciseId }), ...setDetails[0], sets: setDetails.length,
+        setDetails, ...(notes && { notes }),
+      }] : [];
     }),
   };
 }
@@ -23,9 +31,11 @@ export function isSavedTrainingLog(session: TrainingSession, workout: Workout) {
   const log = trainingLog(session, false);
   return workout.name === log.name && workout.date === log.date && workout.time === log.time && (workout.notes ?? '') === log.notes
     && (workout.effort ?? null) === (log.effort ?? null) && workout.source === log.source
+    && JSON.stringify(workout.skippedExerciseIds ?? []) === JSON.stringify(log.skippedExerciseIds ?? [])
     && workout.exercises.length === log.exercises.length && workout.exercises.every((movement, index) => {
       const match = log.exercises[index];
-      return movement.exerciseId === match.exerciseId && movement.notes === match.notes && movement.setDetails?.length === match.setDetails?.length
+      return movement.exerciseId === match.exerciseId && movement.replacesExerciseId === match.replacesExerciseId
+        && movement.notes === match.notes && movement.setDetails?.length === match.setDetails?.length
         && movement.setDetails?.every(({ reps, load }, set) => {
           const expected = match.setDetails?.[set];
           return reps === expected?.reps && load?.unit === expected?.load?.unit && load?.value === expected?.load?.value;
@@ -103,13 +113,35 @@ function loadIn(load: NonNullable<Movement['load']>, unit: 'kg' | 'lb') {
 }
 
 export type ExerciseTrend = { workout: Workout; value: number };
+export type ExerciseTrendMetric = 'load' | 'amount' | 'sets';
 
-export function exerciseTrend(logs: ExerciseLog[], exercise: Pick<Exercise, 'unit' | 'loadType'>) {
-  const recent = logs.slice(0, 8).reverse();
-  const loads = recent.map(({ movement }) => movementLoad(movement));
-  const weighed = loads.filter((load) => load !== undefined);
-  const unit = weighed.at(-1)?.unit;
-  if (unit && weighed.length >= 2) {
+export function comparableExerciseChange(logs: ExerciseLog[], exercise: Pick<Exercise, 'unit' | 'loadType'>) {
+  const latest = logs[0];
+  if (!latest) return undefined;
+  const sets = (movement: Movement) => movement.setDetails ?? Array.from({ length: movement.sets }, () => movement);
+  const performed = sets(latest.movement);
+  if (!performed.length || performed.some(({ reps, load }) => reps === undefined || (exercise.loadType && !load))) return undefined;
+  const earlier = logs.slice(1).find(({ movement }) => {
+    const previous = sets(movement);
+    return previous.length === performed.length && previous.every(({ reps, load }, index) => {
+      const latestLoad = performed[index].load;
+      return reps !== undefined && (load && latestLoad
+        ? Math.abs(loadIn(load, 'kg') - loadIn(latestLoad, 'kg')) < 0.05
+        : !load && !latestLoad);
+    });
+  });
+  if (!earlier) return undefined;
+  const sum = (entries: ExerciseSet[]) => entries.reduce((total, { reps }) => total + (reps ?? 0), 0);
+  const change = sum(performed) - sum(sets(earlier.movement));
+  return { date: earlier.workout.date, change, unit: exercise.unit === 'seconds' ? 'sec' : Math.abs(change) === 1 ? 'rep' : 'reps',
+    weighted: performed.some(({ load }) => Boolean(load)) };
+}
+
+export function exerciseTrend(logs: ExerciseLog[], exercise: Pick<Exercise, 'unit' | 'loadType'>, metric: ExerciseTrendMetric) {
+  const recent = logs.filter(({ movement }) => recordedSetCount(movement) > 0).slice(0, 8).reverse();
+  if (metric === 'load') {
+    const loads = recent.map(({ movement }) => movementLoad(movement));
+    const unit = loads.findLast((load) => load !== undefined)?.unit ?? 'lb';
     const weight = exercise.loadType === 'per-dumbbell' ? 'dumbbell' : 'weight';
     return {
       measurement: `Heaviest ${weight} (${unit})`, unit,
@@ -119,14 +151,14 @@ export function exerciseTrend(logs: ExerciseLog[], exercise: Pick<Exercise, 'uni
       }),
     };
   }
+  if (metric === 'sets') return { measurement: 'Recorded sets', unit: 'sets',
+    points: recent.map(({ workout, movement }) => ({ workout, value: recordedSetCount(movement) })) };
   const timed = exercise.unit === 'seconds';
   return {
-    measurement: timed ? 'Total hold time' : 'Total reps', unit: timed ? 'sec' : 'reps',
+    measurement: timed ? 'Longest hold' : 'Most reps in a set', unit: timed ? 'sec' : 'reps',
     points: recent.flatMap(({ workout, movement }) => {
-      const counts = (movement.setDetails ?? [movement]).map(({ reps }) => reps);
-      if (!counts.length || counts.some((reps) => reps === undefined)) return [];
-      const total = counts.reduce<number>((sum, reps) => sum + (reps ?? 0), 0);
-      return [{ workout, value: movement.setDetails ? total : total * movement.sets }];
+      const counts = (movement.setDetails ?? [movement]).flatMap(({ reps }) => reps === undefined ? [] : [reps]);
+      return counts.length ? [{ workout, value: Math.max(...counts) }] : [];
     }),
   };
 }

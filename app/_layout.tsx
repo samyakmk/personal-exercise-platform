@@ -1,4 +1,5 @@
 import { Navigator } from 'expo-router';
+import { useEffect } from 'react';
 import { useFonts } from 'expo-font';
 import { StyleSheet, View } from 'react-native';
 import { ActiveSessionProvider } from '../src/activeSession';
@@ -6,6 +7,7 @@ import { ChatProvider } from '../src/chat';
 import { Shell } from '../src/components/Shell';
 import { Loading } from '../src/components/ui';
 import { TrainingNavigation } from '../src/navigation';
+import { registerOfflineShell } from '../src/platform/offline';
 import { ProfilesProvider, useProfiles } from '../src/profiles';
 import { ProfileGate } from '../src/screens/Profile';
 import { color } from '../src/theme';
@@ -13,6 +15,7 @@ import { WorkspaceProvider } from '../src/workspace';
 import { VideoUploadProvider } from '../src/videoUpload';
 
 export default function RootLayout() {
+  useEffect(registerOfflineShell, []);
   return <Navigator><ProfilesProvider><WorkspaceLayout /></ProfilesProvider></Navigator>;
 }
 
@@ -26,7 +29,7 @@ function WorkspaceLayout() {
     InterBold: require('../assets/fonts/Inter-Bold.ttf'),
     InterExtraBold: require('../assets/fonts/Inter-ExtraBold.ttf'),
   });
-  if (!loaded && !error) return <View style={styles.loading}><Loading label="Loading Liftmorrow…" /></View>;
+  if (!loaded && !error) return <View style={styles.loading}><Loading label="Loading Trainer Plus…" /></View>;
 
   if (!state?.active) return <ProfileGate />;
   const key = state.active.workspaceKey;

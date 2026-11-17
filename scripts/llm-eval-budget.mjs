@@ -81,7 +81,7 @@ export function openEvalMeter(path, { targetInput = 120_000, maxPreflights = 24,
     const workflow = text?.format?.name;
     const upper = contextLimits.get(model);
     if (!upper || !workflows.has(workflow) || request.store !== false || request.stream || request.tools) {
-      throw new EvalBudgetError('Only the configured bounded Liftmorrow eval requests are allowed.');
+      throw new EvalBudgetError('Only the configured bounded Trainer Plus eval requests are allowed.');
     }
     options.signal?.throwIfAborted();
     const { lastInsertRowid: id } = transaction(() => {

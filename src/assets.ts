@@ -1,7 +1,5 @@
 import type { ImageSourcePropType } from 'react-native';
 
-export const hero = require('../assets/photos/training.jpg');
-
 export const exercisePhotos: Record<string, ImageSourcePropType> = {
   'goblet-squat': require('../assets/photos/goblet-squat.jpg'),
   'dumbbell-bench-press': require('../assets/photos/dumbbell-bench-press.jpg'),

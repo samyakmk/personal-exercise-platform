@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Liftmorrow",
-    "slug": "liftmorrow",
-    "scheme": "liftmorrow",
+    "name": "Trainer Plus",
+    "slug": "trainer-plus",
+    "scheme": "trainer-plus",
     "platforms": ["web", "ios", "android"],
     "plugins": ["expo-router", "expo-document-picker"],
     "userInterfaceStyle": "light",

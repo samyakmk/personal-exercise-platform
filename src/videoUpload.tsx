@@ -2,10 +2,10 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReactNode } from 'react';
 import { createId, RequestError } from './api';
 import { videoMime } from './platform/videoTypes';
-import type { SelectedVideo } from './types';
+import type { SelectedVideo, TrainingSessionMovementContext } from './types';
 import { useWorkspace } from './workspace';
 
-type Draft = { id: string; clip: SelectedVideo };
+type Draft = { id: string; clip: SelectedVideo; trainingContext?: TrainingSessionMovementContext };
 const maxSize = 50 * 1024 * 1024;
 
 const Context = createContext<ReturnType<typeof useUploadState> | null>(null);
@@ -22,23 +22,24 @@ function useUploadState() {
   useEffect(() => () => draft?.clip.dispose(), [draft]);
   useEffect(() => () => request.current?.abort(), []);
 
-  function pick(clip: SelectedVideo, exerciseId?: string) {
-    if (request.current) { clip.dispose(); return; }
+  function pick(clip: SelectedVideo, workoutExerciseId?: string, trainingContext?: TrainingSessionMovementContext) {
+    if (request.current) { clip.dispose(); return false; }
     const mime = videoMime(clip.name, clip.mime);
     if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(mime)) {
       setError('Choose an MP4, WebM, or MOV video.');
       clip.dispose();
-      return;
+      return false;
     }
     if (clip.size <= 0 || clip.size > maxSize) {
       setError(clip.size <= 0 ? 'This video file is empty.' : 'This video exceeds the 50 MB limit.');
       clip.dispose();
-      return;
+      return false;
     }
     setError('');
     setUploadFailed(false);
-    if (exerciseId !== undefined) setExercise(exerciseId);
-    setDraft({ id: createId(), clip: { ...clip, mime } });
+    if (workoutExerciseId !== undefined) setExercise(workoutExerciseId);
+    setDraft({ id: createId(), clip: { ...clip, mime }, trainingContext });
+    return true;
   }
 
   const chooseExercise = useCallback((id: string) => {
@@ -55,7 +56,7 @@ function useUploadState() {
     setUploadFailed(false);
   }
 
-  async function upload() {
+  async function upload(reviewStart?: number) {
     if (!draft || request.current) return;
     const controller = new AbortController();
     request.current = controller;
@@ -65,7 +66,7 @@ function useUploadState() {
     try {
       const saved = await transferClip(draft.id, controller.signal, () => api.uploadClip(draft.id, exercise, draft.clip, controller.signal, (fraction) => {
         setProgress(Math.floor(fraction * 100));
-      }));
+      }, draft.trainingContext));
       setDraft(null);
       if (!saved) {
         setError('This video was removed before the upload was confirmed.');
@@ -74,9 +75,9 @@ function useUploadState() {
       }
       setExercise('');
       announce('Video saved to your workspace.');
-      if (!exercise && data?.aiAvailable) {
-        void startReview(draft.id, 0).catch(() => {
-          announce('Video saved. Open it to start analysis.');
+      if (data?.aiAvailable && reviewStart !== undefined) {
+        void startReview(draft.id, reviewStart).catch((failure: Error) => {
+          announce('Video saved. ' + failure.message);
         });
       }
       return draft.id;

@@ -14,8 +14,7 @@ test('desktop and narrow browser widths support keyboard exercise discovery and 
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/');
-    await activate(page.getByRole('button', { name: 'Explore exercises' }));
-    await activate(page.getByRole('button', { name: 'Filters' }));
+    await activate(page.getByRole('link', { name: 'Exercises', exact: true }));
     await activate(page.getByRole('button', { name: 'Bodyweight only' }));
     await activate(page.getByRole('button', { name: 'Back', exact: true }));
     const search = page.getByRole('textbox', { name: 'Search exercises' });

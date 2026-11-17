@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageSquare, Trash2 } from 'lucide-react-native';
 import { StyleSheet, View } from 'react-native';
 import { createId, RequestError } from '../api';
+import { readOfflineCheckIn, writeOfflineCheckIn } from '../platform/offline';
 import { signalWorkspaceUpdate, watchWorkspaceUpdates } from '../platform/workspaceUpdates';
 import { color } from '../theme';
 import type { CheckInChoice, CheckInInput, CheckInState } from '../types';
@@ -20,6 +21,7 @@ const adjustmentLabel = (value: CheckInChoice) =>
 export function useCheckIns(day: string) {
   const { api, data, reload } = useWorkspace();
   const ready = Boolean(data);
+  const workspaceKey = data?.workspaceKey;
   const [state, setState] = useState<CheckInState>();
   const [error, setError] = useState('');
   const pending = useRef<AbortController | null>(null);
@@ -28,19 +30,26 @@ export function useCheckIns(day: string) {
   activeDay.current = day;
 
   const refresh = useCallback(() => {
-    if (!ready) return;
+    if (!ready || !workspaceKey) return;
     pending.current?.abort();
     const controller = new AbortController();
     pending.current = controller;
     setError('');
     void api.checkIns(day, controller.signal).then((next) => {
-      if (!controller.signal.aborted) setState(next);
+      if (!controller.signal.aborted) {
+        setState(next);
+        writeOfflineCheckIn(workspaceKey, next);
+      }
     }, (failure: Error) => {
       if (controller.signal.aborted) return;
       if (failure instanceof RequestError && [404, 409].includes(failure.status)) reload();
+      if (!(failure instanceof RequestError)) {
+        const cached = readOfflineCheckIn(workspaceKey, day);
+        setState((previous) => previous?.day === day ? previous : cached);
+      }
       setError(failure.message);
     });
-  }, [api, day, ready, reload]);
+  }, [api, day, ready, reload, workspaceKey]);
   useEffect(() => {
     refresh();
     const unwatch = watchWorkspaceUpdates(refresh, 'companion');
@@ -54,6 +63,7 @@ export function useCheckIns(day: string) {
       if (request === writes.current && next.day === activeDay.current) {
         pending.current?.abort();
         setState(next);
+        if (workspaceKey) writeOfflineCheckIn(workspaceKey, next);
         setError('');
       }
       signalWorkspaceUpdate('companion');
@@ -114,7 +124,7 @@ export function TrainingCheckIn({ journal, currentTime, onClose }: {
         maxLength={1200} multiline editable={!busy} placeholder="For example, my trainer wants me to work on tempo."
         style={{ minHeight: 84, paddingVertical: 9 }} />
       <Copy size={12} tone={color.muted}>Choose an adjustment if you want to change today’s suggestion. Notes and replies stay in this profile.</Copy>
-      {adjustment && adjustment !== 'usual' && <Copy size={13} weight="semibold" tone={color.plum}>Active today: {adjustmentLabel(adjustment)}</Copy>}
+      {adjustment && adjustment !== 'usual' && <Copy size={13} weight="semibold" tone={color.forest}>Active today: {adjustmentLabel(adjustment)}</Copy>}
       <View role="group" accessibilityLabel="Adjust today’s suggestion" style={styles.actions}>
         {choices.filter(({ value }) => value !== 'usual' || adjustment && adjustment !== 'usual').map(({ value, label }) => (
           <Chip key={value} label={label} selected={choice === value} onPress={() => { if (!busy) setChoice(choice === value ? undefined : value); }} />
@@ -136,13 +146,13 @@ export function TrainingCheckIn({ journal, currentTime, onClose }: {
           <View style={styles.entry}>
             <View style={{ flex: 1, gap: 5 }}>
               <Copy size={11} weight="semibold" tone={color.muted}>You · {new Date(item.savedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</Copy>
-              {item.adjustment && <Copy size={12} weight="semibold" tone={color.plum}>{adjustmentLabel(item.adjustment)}</Copy>}
+              {item.adjustment && <Copy size={12} weight="semibold" tone={color.forest}>{adjustmentLabel(item.adjustment)}</Copy>}
               {item.text ? <Copy size={14}>{item.text}</Copy> : null}
             </View>
             <IconButton icon={Trash2} label="Delete check-in" size={32} disabled={busy} onPress={() => setDeleting(item.id)} />
           </View>
           {item.reply && <View style={styles.reply}>
-            <Copy size={11} tone={color.plum} weight="bold">Liftmorrow</Copy>
+            <Copy size={11} tone={color.forest} weight="bold">Trainer Plus</Copy>
             <Copy size={13}>{item.reply}</Copy>
           </View>}
           {deleting === item.id && <View style={styles.actions}>

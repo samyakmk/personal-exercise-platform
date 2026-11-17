@@ -5,14 +5,17 @@ import { color } from '../theme';
 import type { Refinement } from '../types';
 import { Button, Copy, Panel } from './ui';
 
-export function RecommendationPanel({ title, detail, children }: { title: string; detail: string; children: ReactNode }) {
+export function RecommendationPanel({ title, detail, action, children }: {
+  title: string; detail?: string; action?: ReactNode; children?: ReactNode;
+}) {
   return <Panel style={styles.panel}>
     <View style={styles.header}>
-      <View style={styles.icon}><Sparkles size={19} color={color.plum} aria-hidden /></View>
+      <View style={styles.icon}><Sparkles size={19} color={color.forest} aria-hidden /></View>
       <View style={styles.intro}>
         <Copy accessibilityRole="header" aria-level={2} weight="bold" size={18}>{title}</Copy>
-        <Copy size={13} tone={color.muted}>{detail}</Copy>
+        {detail && <Copy size={13} tone={color.muted}>{detail}</Copy>}
       </View>
+      {action}
     </View>
     {children}
   </Panel>;
@@ -22,7 +25,7 @@ export function RefinementControls({ onRefine, disabled, exerciseList = false }:
   onRefine: (choice: Refinement) => void; disabled?: boolean; exerciseList?: boolean;
 }) {
   return <View style={styles.options}>
-    <Copy size={12} weight="semibold">Want to adjust it?</Copy>
+    {!exerciseList && <Copy weight="semibold" size={13}>Adjust workout</Copy>}
     <View role="group" accessibilityLabel="Refine recommendation" style={styles.actions}>
       <Button compact icon={ArrowDown} disabled={disabled} onPress={() => onRefine('easier')}>Make it easier</Button>
       <Button compact icon={ArrowUp} disabled={disabled} onPress={() => onRefine('harder')}>Make it harder</Button>
@@ -34,9 +37,9 @@ export function RefinementControls({ onRefine, disabled, exerciseList = false }:
 
 const styles = StyleSheet.create({
   panel: { backgroundColor: color.tint, borderColor: color.control, gap: 12, padding: 15 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  header: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
   icon: { backgroundColor: color.surface, borderRadius: 9, padding: 9 },
-  intro: { flex: 1, gap: 2 },
+  intro: { flex: 1, minWidth: 180, gap: 2 },
   options: { gap: 6 },
   actions: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
 });

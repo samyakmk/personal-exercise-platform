@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { AiError, createOpenAi, openAiFormModel, openAiModel, reviewExercise } from '../server/ai.mjs';
-import { hasLocalAssessment, prepareClipReview } from '../server/analyze-clip.mjs';
+import { analyzeClip, hasLocalAssessment, prepareClipReview } from '../server/analyze-clip.mjs';
 import { exercisesById } from '../server/catalog.mjs';
 import { reviewVersion } from '../server/coaching.mjs';
 import { encodeFormClip } from './prepare-form-clips.mjs';
@@ -88,6 +88,9 @@ function validateManifest(manifest) {
       throw new Error(`Specify a group for ${id} using only letters, numbers, hyphens, and underscores.`);
     }
     if (!exercisesById.has(exercise)) throw new Error(`Use a catalog exercise ID for ${id}.`);
+    if (item.startSeconds !== undefined && (!Number.isSafeInteger(item.startSeconds) || item.startSeconds < 0 || item.startSeconds > 86_400)) {
+      throw new Error(`Choose a whole-number start from 0 to 86400 for ${id}.`);
+    }
     if (mode !== undefined && !['measured', 'visual'].includes(mode)) {
       throw new Error(`Use measured or visual mode for ${id}.`);
     }
@@ -256,8 +259,8 @@ export function evaluationExitCode(results, strict) {
 }
 
 function rubric(item) {
-  const { group, exercise = 'push-up', movement, subject, label, view = 'side', check = null, verdict = null, exploratory = false } = item;
-  return [group, exercise, movement, subject, label, view, check, verdict, exploratory, caseMode(item)];
+  const { group, exercise = 'push-up', movement, subject, label, view = 'side', check = null, verdict = null, exploratory = false, startSeconds = 0 } = item;
+  return [group, exercise, movement, subject, label, view, check, verdict, exploratory, caseMode(item), startSeconds];
 }
 
 function outcomeSummary(item) {
@@ -270,6 +273,9 @@ function outcomeSummary(item) {
 export function compareReports(baseline, current) {
   if (baseline.mode !== current.mode || (baseline.repeat ?? 1) !== current.repeat) {
     throw new Error('Compare runs with the same mode and trial count.');
+  }
+  if ((baseline.productionPipeline ?? '') !== (current.productionPipeline ?? '')) {
+    throw new Error('Compare reports that use the same production pipeline.');
   }
   const previous = new Map(baseline.results.map((item) => [item.id, item]));
   if (previous.size !== baseline.results.length || previous.size !== current.results.length
@@ -352,7 +358,8 @@ export async function evaluateCase(item, options, respond, repeat = 1, retryTran
     const expected = options.expectedFingerprints?.get(item.id);
     if (expected && clipSha256 !== expected) throw new Error(`The video bytes changed for ${item.id} after preflight.`);
     const exercise = exercisesById.get(item.exercise ?? 'push-up');
-    const input = await prepareClipReview(bytes, { exercise, mime: 'video/mp4' });
+    const clipOptions = { mime: 'video/mp4', startSeconds: item.startSeconds ?? 0 };
+    const input = await prepareClipReview(bytes, { exercise, ...clipOptions });
     if (mode === 'measured' && input.coverage === 'unavailable'
       && (respond ? !isVerdictOnly(item) : canScoreLocal(item))) {
       throw new Error('MoveNet measurements unavailable. Run npm run setup:pose and retry.');
@@ -377,9 +384,23 @@ export async function evaluateCase(item, options, respond, repeat = 1, retryTran
             return invoke(request);
           }
         } : invoke;
-        const scored = scoreCase(item, input, reviewer ? await reviewExercise(reviewer, input) : null);
+        let review = null;
+        if (options.productionPipeline && reviewer) {
+          const { reviewStill: _still, ...result } = await analyzeClip(Object.assign(reviewer, { formConfiguration: respond.formConfiguration }), bytes, {
+            ...clipOptions, ...(options.productionPipeline === 'selected' && { exercise }),
+          });
+          review = result;
+        } else if (reviewer) review = await reviewExercise(reviewer, input);
+        const scored = scoreCase(item, input, review);
+        if (options.productionPipeline === 'detected' && review?.detectedExerciseId !== exercise.id && !item.exploratory) {
+          scored.outcome = 'unexpected_exercise';
+        }
         trials.push(retry ? { ...scored, retry } : scored);
       } catch (error) {
+        if (options.productionPipeline === 'detected' && error instanceof AiError && error.diagnostic === 'exercise_detection_unclear') {
+          trials.push({ outcome: item.exploratory ? 'exploratory' : 'detection_abstained', additional: [], review: null });
+          continue;
+        }
         const failure = errorResult(error);
         trials.push(retry ? { ...failure, retry } : failure);
         if (repeat > 1) logger.error(`${item.id} trial ${index + 1}  error  ${failure.error}`);
@@ -417,6 +438,7 @@ async function main() {
       preflight: { type: 'boolean' },
       'disjoint-from': { type: 'string' },
       'budget-ledger': { type: 'string' },
+      'production-pipeline': { type: 'string' },
       strict: { type: 'boolean' },
     },
     allowPositionals: true,
@@ -433,9 +455,14 @@ async function main() {
   if (values.preflight && (values.live || values.compare)) throw new Error('Use --preflight as a separate step before a live run or comparison.');
   if (retryTransient && !values.live) throw new Error('Use --retry-transient with --live.');
   if (values['budget-ledger'] !== undefined && !values.live) throw new Error('Use --budget-ledger with --live.');
+  const productionPipeline = values['production-pipeline'];
+  if (productionPipeline !== undefined && (!values.live || !['selected', 'detected'].includes(productionPipeline)
+    || values['budget-ledger'] !== undefined)) {
+    throw new Error('Use --production-pipeline selected or detected with --live. The guarded study model uses a separate configuration.');
+  }
   const modelForRun = values['budget-ledger'] === undefined ? openAiFormModel : openAiModel;
   const model = values.live ? modelForRun() : undefined;
-  const respond = values.live ? createOpenAi({ model }) : null;
+  const respond = values.live ? createOpenAi(productionPipeline ? {} : { model }) : null;
   if (values.live && !respond) throw new Error('Live evaluation requires an OpenAI key configured on this machine.');
   const selected = respond || values.preflight ? cases : cases.filter((item) => caseMode(item) === 'measured');
   const skipped = respond || values.preflight ? [] : cases.filter((item) => caseMode(item) === 'visual').map(({ id }) => id);
@@ -447,9 +474,10 @@ async function main() {
   }
 
   const { source, license } = manifest;
-  const options = { clips: resolve(values.clips), dataset: values.dataset, source, license };
+  const options = { clips: resolve(values.clips), dataset: values.dataset, source, license, productionPipeline };
   const mode = values.preflight ? 'preflight' : respond ? 'live' : 'local';
   const metadata = { source, license, mode, repeat, gradingVersion, reviewVersion,
+    ...(productionPipeline && { productionPipeline, modelConfiguration: respond.formConfiguration }),
     ...(model && { model: /^[\w.:-]{1,128}$/.test(model) && !/(^|:)sk[-_]/i.test(model) ? model : 'custom' }),
     ...(respond && { retryPolicy: retryTransient ? retryPolicy : 'none' }) };
   let baseline;

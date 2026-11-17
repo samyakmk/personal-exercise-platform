@@ -9,13 +9,13 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AiError } from '../server/ai.mjs';
 import { reviewVersion } from '../server/coaching.mjs';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { activeWorkspaceId, createTestProfile } from './test-profile.mjs';
 
 const feedback = (summary) => ({ verdict: 'insufficient_visibility', summary, limitations: 'Single frame.', observations: [] });
 
 async function setup(t, respond, database = ':memory:') {
-  const server = createLiftmorrowServer({ database, respond, sampleFrames: async (_, { startSeconds }) => [
+  const server = createTrainerPlusServer({ database, respond, sampleFrames: async (_, { startSeconds }) => [
     { timestamp: startSeconds, image: Buffer.from('synthetic') },
   ] });
   t.after(async () => {
@@ -111,7 +111,7 @@ test('review history replaces the same section and preserves successful sections
 });
 
 test('review history includes a pre-migration review, stores only ten sections, and is deleted with the clip', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-legacy-review-history-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-legacy-review-history-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const database = join(directory, 'workspace.sqlite');
   const old = new DatabaseSync(database);

@@ -1,56 +1,70 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, usePathname, useRouter } from 'expo-router';
-import { CalendarDays, ChartNoAxesColumnIncreasing, CircleUserRound, ClipboardList, Dumbbell, House, LockKeyhole, MessageCircle, Plus, ScanLine } from 'lucide-react-native';
+import { CalendarDays, ChartNoAxesColumnIncreasing, CircleUserRound, ClipboardList, Dumbbell, Ellipsis, House, LockKeyhole, MessageCircle, ScanLine } from 'lucide-react-native';
 import { Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { useTrainingNavigation } from '../navigation';
 import { useProfiles } from '../profiles';
+import { useActiveSession } from '../activeSession';
 import { SkipLink } from '../platform/SkipLink';
-import { color } from '../theme';
+import { color, radius } from '../theme';
 import { useVideoUpload } from '../videoUpload';
 import { useWorkspace } from '../workspace';
+import { Sheet } from './Sheet';
 import { Button, Copy, Loading, Notice } from './ui';
+import { Wordmark } from './Wordmark';
 
-const pages = [
+const primaryPages = [
   { path: '/', label: 'Overview', icon: House },
   { path: '/sessions', label: 'Sessions', icon: ClipboardList },
   { path: '/workouts', label: 'Workouts', icon: CalendarDays },
   { path: '/explore', label: 'Exercises', icon: Dumbbell },
-  { path: '/progress', label: 'Progress', icon: ChartNoAxesColumnIncreasing },
-  { path: '/form-review', label: 'Form Review', icon: ScanLine },
+] as const;
+
+const morePages = [
   { path: '/chat', label: 'Chat', icon: MessageCircle },
+  { path: '/form-review', label: 'Form Review', icon: ScanLine },
+  { path: '/progress', label: 'Progress', icon: ChartNoAxesColumnIncreasing },
   { path: '/profile', label: 'Profile', icon: CircleUserRound },
 ] as const;
 
+const pages = [...primaryPages, ...morePages];
+
 export function Shell({ children }: { children: ReactNode }) {
   const { width } = useWindowDimensions();
-  const compact = width < 820;
-  const small = width < 560;
+  const small = width < 690;
+  const compact = width < 980;
   const inset = width >= 1440 ? 44 : width >= 900 ? 32 : small ? 14 : 24;
   const pathname = usePathname();
   const fullHeight = pathname === '/chat';
   const router = useRouter();
   const pageName = pathname === '/photo-credits' ? 'Photo credits' : pages.find((page) => page.path === pathname)?.label ?? 'Overview';
-  const training = useTrainingNavigation();
   const profile = useProfiles().state?.active;
+  const profileName = profile?.details.displayName?.trim() || profile?.username;
   const scroll = useRef<ScrollView>(null);
   const { data, error, reload, notice } = useWorkspace();
   const upload = useVideoUpload();
+  const { pendingCount, syncError, storageError, syncPending } = useActiveSession();
   const shown = useRef(false);
 
   useEffect(() => {
     scroll.current?.scrollTo({ y: 0, animated: false });
     if (Platform.OS !== 'web') return;
-    document.title = pageName + ' · Liftmorrow';
+    document.title = pageName + ' · Trainer Plus';
     if (shown.current && !document.querySelector('dialog[open]')) {
-      document.getElementById('liftmorrow-main')?.focus({ preventScroll: true });
+      document.getElementById('trainer-plus-main')?.focus({ preventScroll: true });
     }
     shown.current = true;
   }, [pathname, pageName]);
 
-  const main = <View role="main" nativeID="liftmorrow-main" tabIndex={-1}
-    style={[styles.main, { paddingHorizontal: inset, paddingTop: small ? 24 : 34 }, fullHeight && styles.chatMain]}>
+  const main = <View role="main" nativeID="trainer-plus-main" tabIndex={-1}
+    style={[styles.main, { paddingHorizontal: inset, paddingTop: small ? 21 : 36 }, fullHeight && styles.chatMain]}>
     {notice !== '' && <View style={styles.status}><Notice>{notice}</Notice></View>}
+    {storageError && <View style={styles.status}><Notice error>Device storage is unavailable. Keep this tab open until the session is synced.</Notice></View>}
+    {pendingCount > 0 && <View style={styles.status}>
+      <Notice error={Boolean(syncError)} action={syncError ? <Button compact onPress={syncPending}>Retry sync</Button> : undefined}>
+        {`${pendingCount === 1 ? '1 session is' : `${pendingCount} sessions are`} saved on this device and waiting to sync.${syncError ? ` ${syncError}` : ''}`}
+      </Notice>
+    </View>}
     {data && error && <View style={styles.status}>
       <Notice error action={<Button compact onPress={reload}>Refresh workspace</Button>}>
         Showing your last loaded workspace. The latest changes could not be fetched.
@@ -67,41 +81,25 @@ export function Shell({ children }: { children: ReactNode }) {
   </View>;
 
   return (
-    <View style={styles.shell}>
+    <View style={[styles.shell, small && styles.shellSmall]}>
       <SkipLink />
-      <View role="navigation" accessibilityLabel="Primary" style={[styles.side, compact && styles.sideCompact, small && styles.sideSmall]}>
+      {!small && <View role="navigation" accessibilityLabel="Primary" style={[styles.side, compact && styles.sideCompact]}>
         <Brand compact={compact} />
         <View style={styles.navList}>
-          {pages.map(({ path, label, icon: Icon }) => {
-            const active = path === pathname;
-            const tone = active ? color.plum : color.muted;
-            return <Link key={path} href={path} asChild>
-              <Pressable accessibilityRole="link" accessibilityLabel={label}
-                accessibilityState={Platform.OS === 'web' ? undefined : { selected: active }}
-                aria-current={Platform.OS === 'web' && active ? 'page' : undefined}
-                dataSet={compact && Platform.OS === 'web' ? { railLabel: label } : undefined}
-                style={StyleSheet.flatten([styles.navItem, compact && styles.navCompact, active && styles.navActive])}>
-                {active && <View aria-hidden style={styles.navMarker} />}
-                <Icon aria-hidden size={19} color={tone} strokeWidth={active ? 2.1 : 1.75} />
-                {!compact && <Copy size={13} weight={active ? 'semibold' : 'medium'} tone={tone}>{label}</Copy>}
-              </Pressable>
-            </Link>;
-          })}
+          {pages.map((page) => <NavigationLink key={page.path} page={page} active={page.path === pathname} />)}
         </View>
-        {!compact && <View style={styles.sideBottom}>
-          <LockKeyhole aria-hidden size={14} color={color.muted} />
-          <Copy size={12} tone={color.muted} numberOfLines={1} style={{ flex: 1 }}>{profile ? '@' + profile.username : 'Private workspace'}</Copy>
+        {profileName && <View style={styles.sideBottom}>
+          <Link href="/profile" asChild>
+            <Pressable accessibilityRole="link" accessibilityLabel={profileName} style={styles.profileLink}>
+              <LockKeyhole aria-hidden size={14} color={color.onInk} />
+              <Copy size={12} tone={color.onInk} numberOfLines={1} style={styles.profileName}>{profileName}</Copy>
+            </Pressable>
+          </Link>
         </View>}
-      </View>
+      </View>}
 
+      {small && <MobileNavigation pathname={pathname} />}
       <View style={styles.content}>
-        <View role="banner" style={styles.top}>
-          <View style={[styles.topContent, { paddingHorizontal: inset }]}>
-            <Copy size={13} weight="semibold" tone={color.muted}>{pageName}</Copy>
-            {pathname !== '/workouts' && pathname !== '/sessions' && !fullHeight && <Button icon={Plus} kind="dark" compact style={{ alignSelf: 'center' }}
-              onPress={() => training.open({ type: 'schedule' })}>New workout</Button>}
-          </View>
-        </View>
         {fullHeight ? main : <ScrollView ref={scroll} style={styles.scroll} contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">{main}</ScrollView>}
       </View>
@@ -109,41 +107,77 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
+function NavigationLink({ page, active, mobile, light, onPress }: {
+  page: (typeof pages)[number]; active: boolean; mobile?: boolean; light?: boolean; onPress?: () => void;
+}) {
+  const { path, label, icon: Icon } = page;
+  const tone = light ? active ? color.forest : color.text : active ? color.accent : color.onInk;
+  return <Link href={path} asChild>
+    <Pressable accessibilityRole="link" accessibilityLabel={label} onPress={onPress}
+      accessibilityState={Platform.OS === 'web' ? undefined : { selected: active }}
+      aria-current={Platform.OS === 'web' && active ? 'page' : undefined}
+      dataSet={light && Platform.OS === 'web' ? { secondaryNavigation: 'true' } : undefined}
+      style={StyleSheet.flatten([styles.navItem, mobile && styles.tab,
+        active && (light ? styles.moreSelected : styles.navActive)])}>
+      {active && !mobile && !light && <View aria-hidden style={styles.navMarker} />}
+      <Icon aria-hidden size={mobile ? 20 : 18} color={tone} strokeWidth={active ? 2.1 : 1.75} />
+      <Copy size={mobile ? 10 : 13} weight={active ? 'semibold' : 'medium'} tone={tone}>{label}</Copy>
+    </Pressable>
+  </Link>;
+}
+
+function MobileNavigation({ pathname }: { pathname: string }) {
+  const [open, setOpen] = useState(false);
+  const active = morePages.some((page) => page.path === pathname);
+  const tone = active ? color.accent : color.onInk;
+  return <>
+    <View role="navigation" accessibilityLabel="Primary" style={styles.tabs}>
+      {primaryPages.map((page) => <NavigationLink key={page.path} page={page} active={page.path === pathname} mobile />)}
+      <Pressable accessibilityRole="button" aria-expanded={open}
+        onPress={() => setOpen(true)} style={({ hovered }) => [styles.navItem, styles.tab, (active || hovered) && styles.navActive]}>
+        <Ellipsis aria-hidden size={20} color={tone} />
+        <Copy size={10} weight={active ? 'semibold' : 'medium'} tone={tone}>More</Copy>
+      </Pressable>
+    </View>
+    {open && <Sheet title="More" onClose={() => setOpen(false)}>
+      <View style={styles.moreList}>
+        {morePages.map((page) => <NavigationLink key={page.path} page={page} active={page.path === pathname}
+          light onPress={() => setOpen(false)} />)}
+      </View>
+    </Sheet>}
+  </>;
+}
+
 function Brand({ compact }: { compact: boolean }) {
   return <Link href="/" asChild>
-    <Pressable accessibilityRole="link" accessibilityLabel="Liftmorrow. Home" style={StyleSheet.flatten([styles.brand, compact && { justifyContent: 'center' }])}>
-      <View aria-hidden style={styles.brandMark}>
-        <View style={[styles.markStroke, { height: 13 }]} />
-        <View style={[styles.markStroke, { height: 20 }]} />
-        <View style={[styles.markStroke, { height: 27 }]} />
-      </View>
-      {!compact && <Copy weight="extra" size={23} style={{ letterSpacing: -1.4 }}>liftmorrow<Copy weight="extra" tone={color.plum} size={23}>.</Copy></Copy>}
+    <Pressable accessibilityRole="link" accessibilityLabel="Trainer Plus. Home" style={styles.brand}>
+      <Wordmark compact={compact} />
     </Pressable>
   </Link>;
 }
 
 const styles = StyleSheet.create({
   shell: { flex: 1, minHeight: 0, backgroundColor: color.canvas, flexDirection: 'row' },
-  side: { width: 204, borderRightWidth: 1, borderColor: color.line, backgroundColor: color.rail, paddingHorizontal: 14, paddingTop: 20, gap: 34, zIndex: 2 },
-  sideCompact: { width: 68, paddingHorizontal: 8 },
-  sideSmall: { width: 52, paddingHorizontal: 5, paddingTop: 13, gap: 24 },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 3 },
-  brandMark: { width: 35, height: 35, borderRadius: 10, backgroundColor: color.ink, gap: 3, flexDirection: 'row',
-    alignItems: 'center', justifyContent: 'center' },
-  markStroke: { width: 3, borderRadius: 3, backgroundColor: color.accent, transform: [{ rotate: '20deg' }] },
-  navList: { gap: 5 },
-  navItem: { minHeight: 43, paddingHorizontal: 11, borderRadius: 7, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  navCompact: { paddingHorizontal: 0, justifyContent: 'center' },
-  navActive: { backgroundColor: color.tint },
-  navMarker: { position: 'absolute', left: 0, top: 12, bottom: 12, width: 2, borderRadius: 2, backgroundColor: color.plum },
-  sideBottom: { marginTop: 'auto', marginBottom: 20, borderTopWidth: 1, borderColor: color.line, paddingTop: 14,
-    paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  shellSmall: { flexDirection: 'column-reverse' },
+  side: { width: 208, backgroundColor: color.ink, borderRightWidth: 1, borderColor: color.inkLine,
+    paddingHorizontal: 13, paddingTop: 17, gap: 27, zIndex: 2 },
+  sideCompact: { width: 158, paddingHorizontal: 9 },
+  brand: { minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, borderRadius: radius.control },
+  navList: { gap: 4, borderTopWidth: 1, borderColor: color.inkLine, paddingTop: 12 },
+  navItem: { minHeight: 44, paddingHorizontal: 11, borderRadius: radius.control, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  navActive: { backgroundColor: color.inkHover },
+  navMarker: { position: 'absolute', left: 0, top: 10, bottom: 10, width: 2, backgroundColor: color.accent },
+  sideBottom: { marginTop: 'auto', marginBottom: 13, borderTopWidth: 1, borderColor: color.inkLine, paddingTop: 6 },
+  profileLink: { minHeight: 36, borderRadius: radius.control, paddingHorizontal: 6, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  profileName: { flex: 1, minWidth: 0 },
   content: { flex: 1, minWidth: 0, minHeight: 0 },
-  top: { height: 61, justifyContent: 'center', backgroundColor: color.canvas, borderBottomWidth: 1, borderColor: color.line },
-  topContent: { width: '100%', maxWidth: 1380, alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  tabs: { flexDirection: 'row', backgroundColor: color.ink, borderTopWidth: 1, borderColor: color.inkLine, gap: 2, padding: 4 },
+  tab: { minHeight: 50, flex: 1, flexDirection: 'column', justifyContent: 'center', paddingHorizontal: 0, gap: 2 },
+  moreList: { gap: 4 },
+  moreSelected: { backgroundColor: color.tint },
   scroll: { flex: 1 },
   scrollContent: { flexGrow: 1 },
   main: { width: '100%', maxWidth: 1380, alignSelf: 'center', paddingBottom: 44, minHeight: '100%' },
-  chatMain: { flex: 1, minHeight: 0, paddingBottom: 0, paddingTop: 0 },
+  chatMain: { flex: 1, minHeight: 0, paddingBottom: 0 },
   status: { marginBottom: 12 },
 });

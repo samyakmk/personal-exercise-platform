@@ -6,7 +6,7 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { estimatePoses } from '../server/pose.mjs';
 import { createPosePool } from '../server/pose-pool.mjs';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { createTestProfile } from './test-profile.mjs';
 
 const testWorker = new URL('./fixtures/pose-worker-stub.mjs', import.meta.url);
@@ -58,7 +58,7 @@ test('closing the server aborts frame extraction before stopping its pose worker
   const entered = Promise.withResolvers();
   const stopped = Promise.withResolvers();
   const order = [];
-  const server = createLiftmorrowServer({
+  const server = createTrainerPlusServer({
     database: ':memory:',
     respond: () => assert.fail('Provider should not run after cancelling frame extraction.'),
     sampleFrames: async (_, { signal }) => {
@@ -98,7 +98,7 @@ test('closing the server aborts frame extraction before stopping its pose worker
   assert.deepEqual(order, ['frames aborted', 'worker stopped']);
 });
 
-const installedModel = process.env.LIFTMORROW_POSE_MODEL || new URL('../.data/movenet-thunder.onnx', import.meta.url);
+const installedModel = process.env.TRAINER_PLUS_POSE_MODEL || new URL('../.data/movenet-thunder.onnx', import.meta.url);
 test('worker produces exactly the same MoveNet points and preserves the source JPEG', {
   skip: !existsSync(installedModel) && 'Run npm run setup:pose to install the local model.',
 }, async (t) => {

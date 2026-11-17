@@ -1,8 +1,9 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { Link, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Dumbbell, History, Pencil, Play, Plus, Repeat2, Search, SearchX, X } from 'lucide-react-native';
 import { Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { newTrainingSession, useActiveSession } from '../activeSession';
+import { createId } from '../api';
 import { addDays, asDate, compareWorkoutTime, dateKey, earliestWorkoutDate, formatDay, formatTime, isWorkoutDate, latestWorkoutDate, weekStart, workoutDay, workoutTime } from '../dates';
 import { SessionHeatMapLink } from '../components/MuscleHeatMap';
 import { Sheet } from '../components/Sheet';
@@ -15,14 +16,23 @@ import { useTrainingNavigation } from '../navigation';
 import { DownloadLink } from '../platform/DownloadLink';
 import { DateTimeField } from '../platform/fields';
 import { readWorkoutDraft, removeWorkoutDraft, writeWorkoutDraft } from '../platform/workoutDraft';
-import { color } from '../theme';
+import { color, radius } from '../theme';
 import { completedWorkouts, movementSummary } from '../trainingProgress';
 import type { Exercise, Movement, Workout, WorkoutStatus } from '../types';
 import { useLocalClock } from '../useLocalClock';
 import { useWorkspace } from '../workspace';
 import { useSaveWorkout } from '../useSaveWorkout';
 
-type Editor = { initial?: Workout; preset?: Exercise; status: WorkoutStatus; date: string; copy?: boolean; draft?: WorkoutDraft; keepDraft?: boolean };
+type Editor = { initial?: Workout; preset?: Exercise; status: WorkoutStatus; date: string; copy?: boolean; draft?: WorkoutDraft; keepDraft?: boolean;
+  seriesExpected?: { id: string; revision: number }[] };
+
+function futureOccurrences(initial: Workout, workouts: Workout[]) {
+  if (!initial.seriesId || initial.seriesIndex === undefined) return undefined;
+  return workouts.filter((item) => item.seriesId === initial.seriesId && item.status === 'planned'
+    && (item.seriesIndex ?? -1) >= initial.seriesIndex! && item.revision !== undefined)
+    .sort((a, b) => a.seriesIndex! - b.seriesIndex!)
+    .map(({ id, revision }) => ({ id, revision: revision! }));
+}
 
 export function Workouts() {
   const { api, data, exerciseRecords: exercises, mutate, announce, reload } = useWorkspace();
@@ -38,6 +48,9 @@ export function Workouts() {
   const [historySearch, setHistorySearch] = useState('');
   const [limit, setLimit] = useState(12);
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [skipCandidate, setSkipCandidate] = useState<Workout | null>(null);
+  const [skipStatus, setSkipStatus] = useState({ busy: false, error: '' });
+  const seriesOperation = useRef<{ key: string; id: string }>(null);
   const [addExercise, setAddExercise] = useState<Exercise | null>(null);
   const [addLimit, setAddLimit] = useState(10);
   const [removingExamples, setRemovingExamples] = useState(false);
@@ -102,27 +115,27 @@ export function Workouts() {
   useEffect(() => {
     if (!data || !intent || intent.type === 'review' || intent.type === 'new-session'
       || intent.type === 'resume-session' || intent.type === 'recommended-session') return;
-    if (intent.type === 'schedule') {
-      setAddExercise(null);
-      setEditor({ status: 'planned', date: dateKey(), keepDraft: !draft });
-    } else if (intent.type === 'log') {
+    if (intent.type === 'log') {
       setAddExercise(null);
       const preset = data.catalog.find((item) => item.id === intent.exerciseId);
       setEditor({ preset, status: 'completed', date: dateKey(), keepDraft: !draft });
     } else if (intent.type === 'train') {
       const plan = data.workouts.find(({ id, status }) => id === intent.workoutId && status === 'planned');
-      if (plan) startSession(plan);
+      if (plan) startSession(intent.exercises ? { ...plan, exercises: intent.exercises } : plan);
     } else if (intent.type === 'resume') {
       setEditor(null);
       setAddExercise(null);
       setSessionOpen(true);
+    } else if (intent.type === 'schedule-template') {
+      const initial = data.workouts.find(({ id }) => id === intent.workoutId);
+      if (initial) setEditor({ initial, status: 'planned', date: dateKey(), copy: true });
     } else if (intent.type === 'edit' || intent.type === 'log-plan') {
       setAddExercise(null);
       const initial = data.workouts.find((item) => item.id === intent.workoutId);
       if (initial) {
         setEditor(intent.type === 'log-plan' && initial.status === 'planned'
           ? { initial, status: 'completed', date: dateKey() }
-          : { initial, status: initial.status, date: initial.date });
+          : { initial, status: initial.status, date: initial.date, seriesExpected: futureOccurrences(initial, data.workouts) });
       }
     } else {
       setEditor(null);
@@ -160,7 +173,7 @@ export function Workouts() {
     icon: tab === 'planned' ? CalendarDays : History,
     title: tab === 'planned' ? 'No scheduled workouts' : 'No workout logs',
     message: dayFilter ? `Nothing saved for ${formatDay(dayFilter)}.`
-      : weekOnly ? 'Nothing saved for this week.' : 'Add a workout to get started.',
+      : weekOnly ? 'Nothing saved for this week.' : undefined,
   };
   const days = Array.from({ length: 7 }, (_, index) => addDays(shownWeek, index));
   const suggested = [...new Set(completed.slice(0, 5)
@@ -205,8 +218,21 @@ export function Workouts() {
     }
   }
 
+  async function skipOccurrence() {
+    if (!skipCandidate || skipStatus.busy) return;
+    setSkipStatus({ busy: true, error: '' });
+    try {
+      await mutate(() => api.deleteWorkout(skipCandidate.id, skipCandidate.revision));
+      setSkipCandidate(null);
+      setSkipStatus({ busy: false, error: '' });
+      announce('Workout occurrence skipped.');
+    } catch (error) {
+      setSkipStatus({ busy: false, error: (error as Error).message });
+    }
+  }
+
   return <View style={styles.page}>
-    <PageTitle title="Workouts" summary="Plan your next session or revisit what you trained."
+    <PageTitle title="Workouts"
       action={tab === 'planned'
         ? <Button icon={Plus} kind="primary" onPress={() => openNew('planned')}>Schedule workout</Button>
         : <Button icon={Check} kind="primary" onPress={() => openNew('completed')}>Log workout</Button>} />
@@ -230,17 +256,17 @@ export function Workouts() {
     </View>}>An unsaved workout draft is available in this tab.</Notice>}
 
     <View style={styles.toolbar}>
-      <View accessibilityLabel="Workout view" role="group" style={styles.actions}>
-        <ViewTab label={`Schedule (${planned.length})`} selected={tab === 'planned'}
+      {tab === 'completed' ? <View accessibilityLabel="Workout view" role="group" style={styles.actions}>
+        <ViewTab label={`Schedule (${planned.length})`} selected={false}
           onPress={() => { router.setParams({ view: undefined, logged: undefined }); setLimit(12); setExpandedWorkout(null); }} />
-        <ViewTab label={`History (${loggedOnly ? completed.length : history.length})`} selected={tab === 'completed'}
+        <ViewTab label={`History (${loggedOnly ? completed.length : history.length})`} selected
           onPress={() => { router.setParams({ view: 'history' }); setLimit(12); setExpandedWorkout(null); }} />
-      </View>
-      <Button compact kind="quiet" icon={Archive} onPress={() => setBackupOpen(true)}>Export and backup</Button>
+      </View> : <Link href={{ pathname: '/sessions', params: dayFilter ? { day: dayFilter } : weekOnly ? { week: shownWeek } : {} }}
+        asChild><Button kind="quiet" compact icon={History} accessibilityRole="link">Session history</Button></Link>}
     </View>
 
     <Panel style={[styles.week, narrow && { paddingHorizontal: 10 }]}>
-      <SectionTitle title={weekTitle(shownWeek)} action={<View style={styles.actions}>
+      <SectionTitle title={weekTitle(shownWeek)} action={<View style={[styles.actions, styles.weekActions]}>
         <Button compact kind="quiet" onPress={() => setJumpDate(dayFilter ?? (shownWeek === thisWeek ? today : shownWeek))}>Go to date</Button>
         {shownWeek !== thisWeek && <Button compact kind="quiet" onPress={() => browseWeek(thisWeek)}>This week</Button>}
         <IconButton icon={ChevronLeft} label="Previous week" disabled={shownWeek <= firstWeek}
@@ -286,19 +312,38 @@ export function Workouts() {
         const WorkoutIcon = isPlanned ? Dumbbell : Check;
         return <View key={workout.id} style={index > 0 && styles.agendaBorder}>
           <View style={styles.workout}>
-            <View aria-hidden style={styles.workoutIcon}><WorkoutIcon color={color.plum} size={19} /></View>
+            <View aria-hidden style={styles.workoutIcon}><WorkoutIcon color={color.forest} size={19} /></View>
             <View style={styles.workoutName}>
               <Copy accessibilityRole="header" aria-level={3} size={16} weight="semibold">{workout.name}</Copy>
               <Copy size={12} tone={color.muted}>{workoutDay(workout.date, today)} · {formatTime(workout.time)} · {count} {count === 1 ? 'exercise' : 'exercises'}</Copy>
+              {(workout.example || isPastPlan || workout.seriesId) && <View style={styles.workoutTags}>
+                {workout.example && <Tag>Sample workout</Tag>}
+                {isPastPlan && <Tag>Past scheduled time</Tag>}
+                {workout.seriesId && <Tag>{`Weekly series · ${(workout.seriesIndex ?? 0) + 1}`}</Tag>}
+              </View>}
             </View>
             <View style={styles.rowActions}>
-              {workout.example && <Tag>Sample workout</Tag>}
-              {isPastPlan && <Tag>Past scheduled time</Tag>}
               {isPlanned && <Button compact kind="outline" icon={Play} accessibilityLabel={`${canResume ? 'Resume' : 'Start'} session · ${workout.name}`}
                 onPress={() => startSession(workout)}>{canResume ? 'Resume session' : 'Start session'}</Button>}
               <Button compact kind="quiet" end={open ? ChevronUp : ChevronDown} aria-expanded={open}
                 accessibilityLabel={`Details · ${workout.name}`} onPress={() => setExpandedWorkout(open ? null : workout.id)}>Details</Button>
             </View>
+          </View>
+          <View role="group" accessibilityLabel={`Actions · ${workout.name}`} style={[styles.actions, styles.workoutActions]}>
+            <Button compact kind="quiet" icon={Pencil} onPress={() => setEditor({ initial: workout, status: workout.status, date: workout.date,
+              seriesExpected: futureOccurrences(workout, data.workouts) })}
+              accessibilityLabel={`Edit workout · ${workout.name}`}>Edit workout</Button>
+            {isPlanned && <Button compact kind="quiet" icon={Check} accessibilityLabel={`Log as completed · ${workout.name}`}
+              onPress={() => setEditor({ initial: workout, status: 'completed', date: today })}>Log as completed</Button>}
+            {isPlanned && !workout.example
+              && <DownloadLink compact href={api.workoutCalendarUrl(workout.id)} label="Calendar file"
+                accessibilityLabel={`Download calendar file · ${workout.name}`} />}
+            {isPlanned && !workout.example && workout.id !== session?.plan.id && (workout.seriesId || isPastPlan)
+              && <Button compact kind="quiet" accessibilityLabel={`Skip occurrence · ${workout.name}`}
+                onPress={() => { setSkipStatus({ busy: false, error: '' }); setSkipCandidate(workout); }}>Skip occurrence</Button>}
+            {!isPlanned && <Button compact kind="quiet" icon={Repeat2} accessibilityLabel={`Repeat workout · ${workout.name}`}
+              onPress={() => setEditor({ initial: workout, status: 'planned', date: today, copy: true })}>Repeat workout</Button>}
+            {!isPlanned && !workout.example && <SessionHeatMapLink workoutId={workout.id} />}
           </View>
           {open && <View style={styles.workoutDetails}>
             <View>
@@ -313,23 +358,21 @@ export function Workouts() {
               })}
             </View>
             {workout.notes && <Copy size={13} tone={color.muted}>{workout.notes}</Copy>}
-            <View style={styles.actions}>
-              <Button compact icon={Pencil} onPress={() => setEditor({ initial: workout, status: workout.status, date: workout.date })}
-                accessibilityLabel={`Edit workout · ${workout.name}`}>Edit workout</Button>
-              {isPlanned && <Button compact kind="quiet" icon={Check} accessibilityLabel={`Log as completed · ${workout.name}`}
-                onPress={() => setEditor({ initial: workout, status: 'completed', date: today })}>Log as completed</Button>}
-              {isPlanned && !workout.example
-                && <DownloadLink compact href={api.workoutCalendarUrl(workout.id)} label="Calendar file"
-                  accessibilityLabel={`Download calendar file · ${workout.name}`} />}
-              {!isPlanned && <Button compact kind="quiet" icon={Repeat2} accessibilityLabel={`Repeat workout · ${workout.name}`}
-                onPress={() => setEditor({ initial: workout, status: 'planned', date: today, copy: true })}>Repeat workout</Button>}
-              {!isPlanned && !workout.example && <SessionHeatMapLink workoutId={workout.id} />}
-            </View>
           </View>}
         </View>;
       })}
     </Panel>}
     {visibleRows.length < rows.length && <Button onPress={() => setLimit((value) => value + 12)}>Show more workouts</Button>}
+    <Button compact kind="quiet" icon={Archive} onPress={() => setBackupOpen(true)}>Export and backup</Button>
+    {skipCandidate && <Sheet title="Skip this occurrence?" detail={`${skipCandidate.name} · ${formatDay(skipCandidate.date)} at ${formatTime(skipCandidate.time)}`}
+      onClose={() => { if (!skipStatus.busy) setSkipCandidate(null); }}>
+      {skipCandidate.seriesId && <Copy>Later occurrences will stay on your schedule.</Copy>}
+      {skipStatus.error && <Notice error>{skipStatus.error}</Notice>}
+      <View style={styles.actions}>
+        <Button disabled={skipStatus.busy} onPress={() => setSkipCandidate(null)}>Keep occurrence</Button>
+        <Button kind="danger" disabled={skipStatus.busy} onPress={() => void skipOccurrence()}>{skipStatus.busy ? 'Skipping…' : 'Skip this occurrence'}</Button>
+      </View>
+    </Sheet>}
     {jumpDate !== null && <Sheet title="Go to a workout date" onClose={() => setJumpDate(null)}>
       <DateTimeField kind="date" label="Workout date to open" value={jumpDate} min={earliestWorkoutDate} max={latestWorkoutDate} onChange={setJumpDate} />
       <Button kind="primary" disabled={!isWorkoutDate(jumpDate)} onPress={() => {
@@ -353,16 +396,16 @@ export function Workouts() {
       </View>
     </Sheet>}
 
-    {session && sessionOpen && <TrainingSession key={session.logId} session={session} catalog={data.catalog} recentMovements={recentMovements} planCurrent={planCurrent}
+    {session && sessionOpen && <TrainingSession key={session.logId} session={session} catalog={data.catalog} planCurrent={planCurrent}
       onChange={keepSession} onClose={() => setSessionOpen(false)}
-      onSave={async (workout, existing) => {
-        await saveWorkout(workout, existing);
+      onSave={(workout, sync) => {
         setSessionOpen(false);
-        keepSession(null);
-        browseWeek(weekStart(workout.date), false, undefined, 'completed');
-        setHistorySearch('');
-        setLimit(12);
-        announce('Workout logged.');
+        if (sync === 'queued') {
+          announce('Workout saved on this device. It will sync when you reconnect.');
+          return;
+        }
+        router.navigate({ pathname: '/sessions', params: { session: workout.id } });
+        announce('Workout synced.');
       }} />}
 
     {addExercise && <Sheet title={`Add ${addExercise.name} to a workout`} detail="Choose a scheduled workout or start a new one." onClose={() => setAddExercise(null)}>
@@ -383,12 +426,21 @@ export function Workouts() {
       bookmarks={data.bookmarks ?? []}
       onDraftChange={workspaceKey && editor.keepDraft ? keepDraft : undefined}
       onClose={() => { setEditor(null); reload(); }}
-      onSave={async (workout, existing, repeatWeeks) => {
-        await saveWorkout(workout, existing, repeatWeeks);
-        browseWeek(weekStart(workout.date), false, undefined, workout.status);
+      onSave={async (workout, existing, repeatWeeks, editFuture) => {
+        if (editFuture && editor.seriesExpected) {
+          const expected = editor.seriesExpected;
+          const key = JSON.stringify([workspaceKey, workout, expected]);
+          const operation = seriesOperation.current?.key === key ? seriesOperation.current : { key, id: createId() };
+          seriesOperation.current = operation;
+          await mutate(() => api.saveWorkoutSeries(workout, expected, operation.id));
+          if (seriesOperation.current === operation) seriesOperation.current = null;
+        } else await saveWorkout(workout, existing, repeatWeeks);
+        if (workout.status === 'completed' && tab === 'planned' && !editor.initial?.example) {
+          router.navigate({ pathname: '/sessions', params: { session: workout.id } });
+        } else browseWeek(weekStart(workout.date), false, undefined, workout.status);
         if (draft?.id === workout.id) clearDraft();
         setEditor(null);
-        announce(workout.status === 'completed' ? 'Workout logged.' : repeatWeeks > 1
+        announce(editFuture ? 'Series changes saved.' : workout.status === 'completed' ? 'Workout logged.' : repeatWeeks > 1
           ? `${repeatWeeks} workouts saved to your schedule.` : 'Workout saved to your schedule.');
       }}
       onDelete={async (id, revision) => {
@@ -419,12 +471,12 @@ function DayCell({ date, today, active, total, disabled, onPress }: {
       onPress={onPress}
       disabled={disabled}
       style={({ hovered }) => [styles.dateCell, { backgroundColor: active ? color.ink : hovered ? color.soft : color.surface,
-        borderColor: active ? color.ink : isToday ? color.plum : color.line, opacity: disabled ? 0.5 : 1 }]}
+        borderColor: active ? color.ink : isToday ? color.forest : color.line, opacity: disabled ? 0.5 : 1 }]}
     >
       <Copy size={11} tone={active ? color.onInk : color.muted} weight="medium">{weekday}</Copy>
       <Display size={26} tone={active ? color.surface : color.text}>{String(dateNumber)}</Display>
       <VisuallyHidden>{`${formatDay(date)}${isToday ? ', today' : ''}, ${total} ${total === 1 ? 'workout' : 'workouts'}`}</VisuallyHidden>
-      <View aria-hidden style={[styles.dateDot, total > 0 && { backgroundColor: active ? color.accent : color.plum }]} />
+      <View aria-hidden style={[styles.dateDot, total > 0 && { backgroundColor: active ? color.accent : color.forest }]} />
     </Pressable>;
 }
 
@@ -434,17 +486,20 @@ const styles = StyleSheet.create({
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between',
     gap: 5, borderBottomWidth: 1, borderColor: color.line },
   week: { padding: 16, gap: 10 },
-  dateCell: { minWidth: 0, flex: 1, paddingVertical: 5, gap: 2, minHeight: 64, borderWidth: 1, borderRadius: 7,
+  weekActions: { marginLeft: 'auto', justifyContent: 'flex-end' },
+  dateCell: { minWidth: 0, flex: 1, paddingVertical: 5, gap: 2, minHeight: 64, borderWidth: 1, borderRadius: radius.control,
     alignItems: 'center', justifyContent: 'center' },
   dateDot: { width: 5, height: 5, borderRadius: 5, backgroundColor: 'transparent' },
   listHeading: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 3 },
   search: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginLeft: 'auto', width: 310, maxWidth: '100%' },
   agenda: { overflow: 'hidden' },
   agendaBorder: { borderTopWidth: 1, borderColor: color.line },
-  workout: { padding: 14, gap: 11, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', minHeight: 71 },
-  workoutIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: color.tint, borderRadius: 8 },
+  workout: { paddingHorizontal: 14, paddingTop: 12, gap: 11, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', minHeight: 54 },
+  workoutIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: color.tint, borderRadius: radius.control },
   workoutName: { flex: 1, minWidth: 130, gap: 2 },
-  rowActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 5 },
+  workoutTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3 },
+  rowActions: { maxWidth: '100%', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 5 },
+  workoutActions: { alignItems: 'center', paddingHorizontal: 14, paddingTop: 4, paddingBottom: 10 },
   workoutDetails: { gap: 11, paddingVertical: 12, paddingHorizontal: 17, borderTopWidth: 1,
     borderColor: color.line, backgroundColor: color.canvas },
   movement: { paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 8 },

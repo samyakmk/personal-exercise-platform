@@ -6,18 +6,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { activeWorkspaceId } from './test-profile.mjs';
 
-const profileHeader = (key) => ({ 'X-Liftmorrow-Profile': key });
+const profileHeader = (key) => ({ 'X-Trainer-Plus-Profile': key });
 const json = (method, body, headers) => ({
   method, headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
 });
 
 async function setup(t, options) {
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-profiles-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-profiles-'));
   const database = join(directory, 'test.sqlite');
-  const server = createLiftmorrowServer({ database, respond: null, ...options });
+  const server = createTrainerPlusServer({ database, respond: null, ...options });
   t.after(async () => {
     const closed = once(server, 'close');
     server.close();
@@ -53,6 +53,23 @@ const activeKey = async (response, status) => {
   const { active } = await response.json();
   return active.workspaceKey;
 };
+
+test('existing browser profiles carry over to the new cookie and accept either profile header', async (t) => {
+  const { browser } = await setup(t, { secureCookies: true });
+  const original = browser();
+  const alice = await activeKey(await signup(original, 'Alice'), 201);
+  const previousCookie = original.cookie.replace('trainer_plus_browser=', 'liftmorrow_browser=');
+  const upgraded = browser();
+  const response = await upgraded.call('profiles', { headers: { Cookie: previousCookie } });
+  assert.equal(await activeKey(response, 200), alice);
+  assert.deepEqual(response.headers.getSetCookie(), [
+    `${original.cookie}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=31536000`,
+    'liftmorrow_browser=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0',
+  ]);
+  assert.equal((await upgraded.call('workspace', { headers: profileHeader(alice) })).status, 200);
+  assert.equal((await upgraded.call('profiles/logout', { method: 'POST', headers: { 'X-Liftmorrow-Profile': alice } })).status, 200);
+  assert.equal(await activeKey(await login(upgraded, 'Alice'), 200), alice);
+});
 
 test('browser profiles isolate training data, scope stale requests, and cascade account deletion', { timeout: 10_000 }, async (t) => {
   const reviewing = Promise.withResolvers();

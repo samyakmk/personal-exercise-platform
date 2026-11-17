@@ -1,18 +1,19 @@
-import { Link, useRouter } from 'expo-router';
+import { Link } from 'expo-router';
 import { ArrowUpRight, ChevronDown, ChevronUp, PersonStanding } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { G, Path } from 'react-native-svg';
 import { loggedMuscleWork, muscleNames } from '../muscleWork';
 import type { Muscle } from '../muscleWork';
-import { color } from '../theme';
+import { color, radius } from '../theme';
 import type { Exercise, Workout } from '../types';
 import { contours, outline, regions } from './muscleIllustration';
 import type { BodyView } from './muscleIllustration';
 import { Button, Copy } from './ui';
 
 const heatColors = ['#ded8d1', '#f2d4b5', '#e9a97e', '#cd705c', '#983f5d'];
-const neutral = '#f7f0e8';
+const neutral = color.surface;
+const outlineTone = '#87907b';
 const bodyViews: BodyView[] = ['Front', 'Back'];
 
 function heatColor(points: number, scale: number) {
@@ -24,29 +25,27 @@ function pointLabel(points: number) {
   return `${rounded} ${rounded === 1 ? 'point' : 'points'}`;
 }
 
-function muscleLink(muscle: Muscle) {
-  return { pathname: '/explore' as const, params: { detail: muscle, equipment: 'all' } };
-}
-
 export function SessionHeatMapLink({ workoutId }: { workoutId: string }) {
   return <Link href={{ pathname: '/progress', params: { session: workoutId } }} push asChild>
     <Button accessibilityRole="link" compact icon={PersonStanding}>Muscle heat map</Button>
   </Link>;
 }
 
-export function MuscleHeatMap({ workouts, catalog }: {
+export function MuscleHeatMap({ workouts, catalog, comparison, onSelect }: {
   workouts: readonly Workout[];
   catalog: ReadonlyMap<string, Exercise>;
+  comparison?: readonly Workout[];
+  onSelect: (muscle: Muscle) => void;
 }) {
-  const router = useRouter();
   const [showAll, setShowAll] = useState(false);
   const [hovered, setHovered] = useState<Muscle | null>(null);
   const totals = useMemo(() => loggedMuscleWork(workouts, catalog), [workouts, catalog]);
-  const ranked = muscleNames.map((muscle) => ({ muscle, points: totals.get(muscle) ?? 0 }))
+  const earlier = useMemo(() => comparison && loggedMuscleWork(comparison, catalog), [comparison, catalog]);
+  const ranked = muscleNames.map((muscle) => ({ muscle, points: totals.get(muscle) ?? 0, prior: earlier?.get(muscle) ?? 0 }))
     .sort((a, b) => b.points - a.points);
   const worked = ranked.filter(({ points }) => points > 0);
-  const visible = showAll ? ranked : worked.slice(0, 5);
-  const scale = Math.max(12, Math.ceil(ranked[0].points / 4) * 4);
+  const visible = showAll ? ranked : ranked.filter(({ points, prior }) => points > 0 || prior > 0).slice(0, 5);
+  const scale = Math.max(12, Math.ceil(Math.max(...ranked.flatMap(({ points, prior }) => [points, prior])) / 4) * 4);
 
   return <View style={styles.map} role="group" accessibilityLabel="Muscle heat map">
     <View style={styles.layout}>
@@ -55,7 +54,7 @@ export function MuscleHeatMap({ workouts, catalog }: {
           {bodyViews.map((view) => <View key={view} style={styles.figure}>
             <View style={styles.drawing} aria-hidden>
               <MuscleFigure view={view} totals={totals} scale={scale} hovered={hovered}
-                onHover={setHovered} onPress={(muscle) => router.push(muscleLink(muscle))} />
+                onHover={setHovered} onPress={onSelect} />
             </View>
             <Copy size={12} weight="semibold" tone={color.muted}>{view}</Copy>
           </View>)}
@@ -67,7 +66,7 @@ export function MuscleHeatMap({ workouts, catalog }: {
           </View>
           <Copy size={11} tone={color.muted}>{scale} points</Copy>
         </View>
-        <Copy aria-hidden size={12} weight="semibold" tone={color.plum} style={styles.hoverLabel}>
+        <Copy aria-hidden size={12} weight="semibold" tone={color.forest} style={styles.hoverLabel}>
           {hovered ? `${hovered} · ${pointLabel(totals.get(hovered) ?? 0)}` : ' '}
         </Copy>
       </View>
@@ -75,21 +74,20 @@ export function MuscleHeatMap({ workouts, catalog }: {
       <View style={styles.breakdown}>
         <Copy accessibilityRole="header" aria-level={3} size={16} weight="bold">Muscle breakdown</Copy>
         <Copy size={13} tone={color.muted}>{worked.length
-          ? `${worked.length} of ${muscleNames.length} muscle groups worked. Select a muscle to find exercises.`
+          ? `${worked.length} of ${muscleNames.length} muscle groups worked. Select a muscle to see its logged sets.`
           : 'No logged sets in this view. Select any muscle to find exercises.'}</Copy>
         {visible.length > 0 && <View role="list" accessibilityLabel="Muscle work by region">
-          {visible.map(({ muscle, points }) => <View key={muscle} role="listitem">
-            <Link href={muscleLink(muscle)} push asChild>
-              <Pressable accessibilityRole="link" accessibilityLabel={`${muscle}, ${pointLabel(points)} · Find exercises`}
+          {visible.map(({ muscle, points, prior }) => <View key={muscle} role="listitem">
+              <Pressable accessibilityRole="button" accessibilityLabel={`${muscle}, ${pointLabel(points)}${earlier ? `, previously ${pointLabel(prior)}` : ''} · View muscle activity`}
+                onPress={() => onSelect(muscle)}
                 onHoverIn={() => setHovered(muscle)} onHoverOut={() => setHovered(null)}
                 onFocus={() => setHovered(muscle)} onBlur={() => setHovered(null)}
                 style={StyleSheet.flatten([styles.muscleRow, hovered === muscle && { backgroundColor: color.canvas }])}>
                 <View style={[styles.swatch, { backgroundColor: heatColor(points, scale) }]} />
                 <Copy size={13} weight="semibold" style={styles.muscleName}>{muscle}</Copy>
-                <Copy size={12} tone={color.muted}>{pointLabel(points)}</Copy>
-                <ArrowUpRight aria-hidden size={14} color={color.plum} />
+                <Copy size={12} tone={color.muted}>{pointLabel(points)}{earlier ? ` · was ${pointLabel(prior)}` : ''}</Copy>
+                <ArrowUpRight aria-hidden size={14} color={color.forest} />
               </Pressable>
-            </Link>
           </View>)}
         </View>}
         <Button compact kind="quiet" end={showAll ? ChevronUp : ChevronDown} aria-expanded={showAll}
@@ -114,8 +112,8 @@ function MuscleFigure({ view, totals, scale, hovered, onHover, onPress }: {
 
   return <Svg viewBox="4 0 176 339" width="100%" height="100%">
     {[false, true].map((mirrored) => <G key={String(mirrored)} transform={mirrored ? 'translate(184 0) scale(-1 1)' : undefined}>
-      <Path d={outline} fill={neutral} stroke="#a8928f" strokeWidth={0.9} strokeLinejoin="round" />
-      <Path d={details} fill="none" stroke="#c3aea9" strokeWidth={0.65} strokeLinecap="round" />
+      <Path d={outline} fill={neutral} stroke={outlineTone} strokeWidth={0.9} strokeLinejoin="round" />
+      <Path d={details} fill="none" stroke={color.control} strokeWidth={0.65} strokeLinecap="round" />
     </G>)}
     {[false, true].map((mirrored) => <G key={String(mirrored)} transform={mirrored ? 'translate(184 0) scale(-1 1)' : undefined}>
       {regions[view].map(({ muscle, path }) => {
@@ -124,7 +122,7 @@ function MuscleFigure({ view, totals, scale, hovered, onHover, onPress }: {
           onPointerEnter: () => onHover(muscle), onPointerLeave: () => onHover(null),
         } : {};
         return <Path key={muscle} d={path} {...pointer}
-          fill={heatColor(totals.get(muscle) ?? 0, scale)} stroke={hovered === muscle ? color.plum : '#ad9893'}
+          fill={heatColor(totals.get(muscle) ?? 0, scale)} stroke={hovered === muscle ? color.forest : outlineTone}
           strokeWidth={hovered === muscle ? 1.6 : 0.65} strokeLinejoin="round"
           onPress={() => { onHover(null); onPress(muscle); }} />;
       })}
@@ -136,7 +134,7 @@ const styles = StyleSheet.create({
   map: { minWidth: 0 },
   layout: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 20 },
   stage: { flexBasis: 310, flexGrow: 2, flexShrink: 1, minWidth: 0, padding: 12, gap: 10,
-    alignItems: 'center', backgroundColor: color.canvas, borderWidth: 1, borderColor: color.line, borderRadius: 12 },
+    alignItems: 'center', backgroundColor: color.canvas, borderWidth: 1, borderColor: color.line, borderRadius: radius.panel },
   figures: { flexDirection: 'row', justifyContent: 'center', width: '100%', gap: 7 },
   figure: { flex: 1, maxWidth: 170, minWidth: 0, alignItems: 'center', gap: 4 },
   drawing: { width: '100%', aspectRatio: 176 / 339 },
@@ -147,7 +145,7 @@ const styles = StyleSheet.create({
   breakdown: { flexBasis: 226, flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 8 },
   muscleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 42, paddingHorizontal: 5,
     paddingVertical: 6, borderTopWidth: 1, borderColor: color.line },
-  swatch: { width: 10, height: 10, borderRadius: 3, borderWidth: 1, borderColor: '#ad9893' },
+  swatch: { width: 10, height: 10, borderRadius: 3, borderWidth: 1, borderColor: outlineTone },
   muscleName: { flex: 1 },
   scoring: { paddingTop: 8, borderTopWidth: 1, borderColor: color.line },
 });

@@ -1,11 +1,11 @@
 import { useId } from 'react';
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
-import { color, font } from '../theme';
+import { color, font, radius } from '../theme';
 import type { DateTimeProps, SelectProps } from './fieldTypes';
 
 const fieldStyle = {
-  minHeight: 43, width: '100%', minWidth: 0, padding: '0 10px', borderRadius: 8,
+  minHeight: 43, width: '100%', minWidth: 0, padding: '0 10px', borderRadius: radius.control,
   border: `1px solid ${color.control}`, background: color.surface, color: color.text,
   fontFamily: font.regular, fontSize: 14, boxSizing: 'border-box',
 } as const;

@@ -64,7 +64,7 @@ function cameraError(error: unknown) {
   return 'The camera could not be opened. Check your browser and camera settings and try again.';
 }
 
-export function CameraRecorder({ onSelect, disabled, filmingTip, selectionLabel = 'Use recording' }: CameraRecorderProps) {
+export function CameraRecorder({ onSelect, disabled, filmingTip, selectionLabel = 'Use recording', alternateAction }: CameraRecorderProps) {
   const active = useRef<Capture | null>(null);
   const [state, setState] = useState<CameraState>({ phase: 'closed' });
   const [playable, setPlayable] = useState(false);
@@ -262,10 +262,13 @@ export function CameraRecorder({ onSelect, disabled, filmingTip, selectionLabel 
     }
   }}>
     <View style={styles.wrapper}>
-      <Button nativeID={toggleId} icon={Camera} disabled={disabled} aria-expanded={!closed}
-        aria-controls={closed ? undefined : panelId} onPress={closed ? open : close} style={styles.trigger}>
-        {closed ? 'Record with camera' : 'Close camera'}
-      </Button>
+      <View style={styles.actions}>
+        <Button nativeID={toggleId} icon={Camera} disabled={disabled} aria-expanded={!closed}
+          aria-controls={closed ? undefined : panelId} onPress={closed ? open : close} style={styles.trigger}>
+          {closed ? 'Record with camera' : 'Close camera'}
+        </Button>
+        {alternateAction}
+      </View>
       {!closed && <View nativeID={panelId} style={styles.panel}>
         {state.phase === 'opening' && <Notice>Waiting for camera permission…</Notice>}
         {state.phase === 'error' && <>

@@ -1,9 +1,10 @@
+import { trainerPlusEnv } from './config.mjs';
 import { Worker } from 'node:worker_threads';
 
 const workerScript = new URL('./pose-worker.mjs', import.meta.url);
 const maxQueued = 2;
 
-export function createPosePool({ workerUrl = workerScript, modelPath = process.env.LIFTMORROW_POSE_MODEL } = {}) {
+export function createPosePool({ workerUrl = workerScript, modelPath = trainerPlusEnv('POSE_MODEL') } = {}) {
   let worker;
   let active;
   let nextId = 0;
@@ -27,7 +28,7 @@ export function createPosePool({ workerUrl = workerScript, modelPath = process.e
 
   function startWorker() {
     const current = new Worker(workerUrl, {
-      env: modelPath ? { LIFTMORROW_POSE_MODEL: modelPath } : {},
+      env: modelPath ? { TRAINER_PLUS_POSE_MODEL: modelPath } : {},
       execArgv: [],
     });
     worker = current;

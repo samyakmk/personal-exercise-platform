@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { profilesApi } from './api';
-import { writeTrainingSession } from './platform/trainingSession';
+import { profilesApi, RequestError } from './api';
+import { readOfflineProfile, writeOfflineProfile, writeOfflineWorkspace } from './platform/offline';
+import { removeTrainingSessionData } from './platform/trainingSession';
 import { removeWorkoutDraft } from './platform/workoutDraft';
 import { signalWorkspaceUpdate, watchWorkspaceUpdates } from './platform/workspaceUpdates';
 import type { ProfileEdit, ProfileState } from './types';
@@ -34,11 +35,13 @@ export function ProfilesProvider({ children }: { children: ReactNode }) {
     const remaining = new Set(next.profiles.map(({ workspaceKey }) => workspaceKey));
     for (const { workspaceKey } of current.current?.profiles ?? []) {
       if (remaining.has(workspaceKey)) continue;
-      writeTrainingSession(workspaceKey, null);
+      writeOfflineWorkspace(workspaceKey, null);
+      removeTrainingSessionData(workspaceKey);
       removeWorkoutDraft(workspaceKey);
       removeWorkoutDraft(workspaceKey, 'session');
     }
     current.current = next;
+    writeOfflineProfile(next);
     setState(next);
     setLoadError('');
   }, []);
@@ -49,7 +52,19 @@ export function ProfilesProvider({ children }: { children: ReactNode }) {
     void profilesApi.state().then((next) => {
       if (request === sequence.current) accept(next);
     }, (failure: Error) => {
-      if (request === sequence.current) setLoadError(failure.message);
+      if (request !== sequence.current) return;
+      if (failure instanceof RequestError && [401, 403, 404, 409].includes(failure.status)) {
+        current.current = null;
+        setState(null);
+        writeOfflineProfile(null);
+      } else if (!current.current && !(failure instanceof RequestError)) {
+        const cached = readOfflineProfile();
+        if (cached) {
+          current.current = cached;
+          setState(cached);
+        }
+      }
+      setLoadError(failure.message);
     });
   }, [accept]);
 

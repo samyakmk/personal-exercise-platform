@@ -1,4 +1,5 @@
 import { applyTrainingNotes, buildTodayPlan, isPlannableExercise } from '../shared/today-plan.mjs';
+import { estimatedWorkoutMinutes } from '../shared/workout-duration.mjs';
 import { recommendationCandidateLimit, recommendationReason } from './ai.mjs';
 import { catalog, levels } from './catalog.mjs';
 
@@ -31,20 +32,34 @@ export async function refineExercisePicks(rank, selection, previous, adjustment)
   return picks;
 }
 
-export async function suggestWorkout({ rank, current, available, history, preferences, workouts, trainingNotes }) {
+export async function suggestWorkout({ rank, current, scheduled, minutes, available, history, preferences, workouts, trainingNotes }) {
   const gear = available ?? [];
-  const base = buildTodayPlan({ current, catalog, equipment: gear, preferences, workouts, forSchedule: true, trainingNotes });
+  const knownWorkouts = scheduled ? workouts.filter((workout) => workout.status === 'completed'
+    && `${workout.date}T${workout.time}` <= `${current.date}T${current.time}`) : workouts;
+  const base = buildTodayPlan({ current: scheduled ?? current, catalog, equipment: gear, preferences,
+    workouts: knownWorkouts, forSchedule: true, trainingNotes });
   preferences = applyTrainingNotes(preferences, trainingNotes);
   const baseline = new Map(base.exercises.map((movement) => [movement.exerciseId, movement]));
   const preferred = new Set(preferences?.preferred);
   const excluded = new Set(preferences?.excluded);
   const priorities = preferences?.priorities ?? [];
-  const candidates = catalog.filter((exercise) => isPlannableExercise(exercise) && !excluded.has(exercise.id)
+  let candidates = catalog.filter((exercise) => isPlannableExercise(exercise) && !excluded.has(exercise.id)
     && exercise.equipment.every((item) => gear.includes(item))
     && (exercise.level === 'Beginner' || baseline.has(exercise.id) || preferred.has(exercise.id) || preferences?.experience === 'regular'));
   const priority = (exercise) => priorities.some((muscle) => exercise.primaryMuscles.includes(muscle)
     || exercise.muscles.includes(muscle) || muscle === 'Upper body' && exercise.muscles.some((group) => ['Chest', 'Back', 'Arms', 'Shoulders'].includes(group)));
-  const score = (exercise) => (baseline.has(exercise.id) ? 10 : 0) + (preferred.has(exercise.id) ? 4 : 0)
+  const nearbyMuscles = new Set();
+  if (scheduled) {
+    const nearby = workloadsNear(workouts, scheduled.date);
+    const byId = new Map(catalog.map((exercise) => [exercise.id, exercise]));
+    for (const workout of nearby) for (const movement of workout.exercises) {
+      for (const muscle of byId.get(movement.exerciseId)?.primaryMuscles ?? []) nearbyMuscles.add(muscle);
+    }
+  }
+  const overlaps = (exercise) => exercise.primaryMuscles.some((muscle) => nearbyMuscles.has(muscle));
+  const alternate = candidates.filter((exercise) => !overlaps(exercise));
+  if (alternate.length >= 3) candidates = alternate;
+  const score = (exercise) => (baseline.has(exercise.id) ? 10 : 0) + (preferred.has(exercise.id) ? 4 : 0) - (overlaps(exercise) ? 12 : 0)
     + (priority(exercise) ? 2 : 0) + (history.has(exercise.id) ? 1 : 0);
   candidates.sort((a, b) => score(b) - score(a));
   const light = base.exercises.length > 0 && base.exercises.every(({ sets }) => sets === 1);
@@ -53,14 +68,29 @@ export async function suggestWorkout({ rank, current, available, history, prefer
     candidates: candidates.slice(0, recommendationCandidateLimit), targets: priorities, detail: null, available: gear, history, count,
     workout: { priorities, experience: preferences?.experience || 'new', preferred: candidates.slice(0, recommendationCandidateLimit)
       .filter(({ id }) => preferred.has(id)).map(({ id }) => id) },
-  }) : [...baseline.keys(), ...candidates.filter(({ id }) => !baseline.has(id)).map(({ id }) => id)]
-    .slice(0, count).map((exerciseId) => ({ exerciseId }));
+  }) : candidates.slice(0, count).map(({ id }) => ({ exerciseId: id }));
   const byId = new Map(candidates.map((exercise) => [exercise.id, exercise]));
+  const exercises = chosen.map(({ exerciseId }) => baseline.get(exerciseId) ?? {
+    exerciseId, sets: light ? 1 : 2, reps: byId.get(exerciseId).unit === 'seconds' ? light ? 10 : 15 : light ? 5 : 6,
+  });
+  if (minutes) {
+    while (estimatedWorkoutMinutes(exercises, byId) > minutes) {
+      const reducible = exercises.findLast((movement) => movement.sets > 1);
+      if (reducible) {
+        const index = exercises.indexOf(reducible);
+        exercises[index] = { ...reducible, sets: reducible.sets - 1 };
+      } else exercises.pop();
+    }
+  }
   return {
     source: rank && candidates.length > 1 ? 'ai' : 'catalog',
     name: base.kind === 'train' ? base.name : priorities.length ? 'Strength for your priorities' : 'Balanced strength',
-    exercises: chosen.map(({ exerciseId }) => baseline.get(exerciseId) ?? {
-      exerciseId, sets: light ? 1 : 2, reps: byId.get(exerciseId).unit === 'seconds' ? light ? 10 : 15 : light ? 5 : 6,
-    }),
+    exercises,
   };
+}
+
+function workloadsNear(workouts, date) {
+  const day = Date.parse(date + 'T12:00Z');
+  return workouts.filter((item) => item.status === 'planned' && !item.example
+    && Math.abs(Date.parse(item.date + 'T12:00Z') - day) <= 86_400_000);
 }

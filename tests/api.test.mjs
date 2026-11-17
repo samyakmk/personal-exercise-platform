@@ -8,17 +8,17 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { AiError, createOpenAi } from '../server/ai.mjs';
-import { createLiftmorrowServer } from '../server/index.mjs';
+import { createTrainerPlusServer } from '../server/index.mjs';
 import { createTestProfile } from './test-profile.mjs';
 
 async function start(t, options = {}) {
-  const server = createLiftmorrowServer({ database: ':memory:', respond: null, ...options });
+  const server = createTrainerPlusServer({ database: ':memory:', respond: null, ...options });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((done) => server.close(done)));
   const root = `http://127.0.0.1:${server.address().port}/api/`;
   async function session(previousCookie) {
-    const cookie = previousCookie?.startsWith('liftmorrow_browser=') ? previousCookie
+    const cookie = previousCookie?.startsWith('trainer_plus_browser=') ? previousCookie
       : await createTestProfile((path, init) => fetch(root + path, init), previousCookie);
     const response = await fetch(root + 'workspace?today=2026-11-12', { headers: { cookie } });
     return {
@@ -188,7 +188,7 @@ test('examples are opt-in, idempotent, and removable without deleting a saved wo
 });
 
 test('workout edit receipts survive parallel retries, later edits, and deletion', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-edit-receipt-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-edit-receipt-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const database = join(directory, 'workspace.sqlite');
   const first = await start(t, { database });
@@ -351,7 +351,7 @@ test('training backups restore only missing personal workouts and preserve saved
   await uploadFixture(source, randomUUID(), 'push-up');
   const response = await source.call(path);
   assert.equal(response.status, 200);
-  assert.match(response.headers.get('content-disposition'), /liftmorrow-training-backup.json/);
+  assert.match(response.headers.get('content-disposition'), /trainer-plus-training-backup.json/);
   const backup = await response.json();
   assert.deepEqual(Object.keys(backup), ['format', 'version', 'equipment', 'bookmarks', 'workouts']);
   assert.deepEqual(backup.bookmarks, ['push-up']);
@@ -450,7 +450,7 @@ test('calendar and history exports contain only the requested private personal r
   for (const workout of [planned, done]) assert.equal((await owner.call('workouts', payload('POST', workout))).status, 200);
   const calendar = await owner.call('workouts/calendar.ics');
   assert.equal(calendar.headers.get('cache-control'), 'private, no-store');
-  assert.match(calendar.headers.get('content-disposition'), /liftmorrow-calendar\.ics/);
+  assert.match(calendar.headers.get('content-disposition'), /trainer-plus-calendar\.ics/);
   const body = await calendar.text();
   assert.ok(body.split('\r\n').every((line) => Buffer.byteLength(line) <= 75));
   const unfolded = body.replace(/\r\n /g, '');
@@ -497,7 +497,7 @@ test('workout exports preserve byte format and date, time, and ID ordering', asy
   const single = (await (await owner.call('workouts/calendar.ics?workout=' + planned[2].id)).text())
     .replace(/DTSTAMP:[^\r\n]+/g, 'DTSTAMP:fixed');
   const event = calendar.split('BEGIN:VEVENT\r\n')[3].split('END:VEVENT\r\n')[0].replace(/DTSTAMP:[^\r\n]+/g, 'DTSTAMP:fixed');
-  assert.equal(single, 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Liftmorrow//Workouts//EN\r\nBEGIN:VEVENT\r\n'
+  assert.equal(single, 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Trainer Plus//Workouts//EN\r\nBEGIN:VEVENT\r\n'
     + event + 'END:VEVENT\r\nEND:VCALENDAR\r\n');
   const csv = await (await owner.call('workouts/history.csv')).arrayBuffer();
   const header = '\uFEFFDate,Time,Workout,Exercise,Sets,Reps or seconds,Measurement,Weight per dumbbell,Weight unit,Set number,Workout notes';
@@ -586,7 +586,7 @@ test('video upload validates type and size, survives retries, supports ranges, a
 });
 
 test('existing SQLite workspaces retain workouts and older unchunked videos', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'liftmorrow-legacy-'));
+  const root = await mkdtemp(join(tmpdir(), 'trainer-plus-legacy-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const database = join(root, 'old.sqlite');
   const db = new DatabaseSync(database);
@@ -797,7 +797,7 @@ test('AI workout previews use scoped equipment and preferences, and only return 
     return { recommendations: [{ exerciseId: 'push-up' }, { exerciseId: chosen }, { exerciseId: chosen }, { exerciseId: 'pull-up' }] };
   } });
   const browser = await session();
-  const headers = { 'X-Liftmorrow-Profile': browser.data.workspaceKey };
+  const headers = { 'X-Trainer-Plus-Profile': browser.data.workspaceKey };
   const profile = payload('PUT', {
     displayName: 'Private display name', trainingGoal: 'Private training goal',
     trainingPreferences: { intake: 'completed', trainerNotes: 'Private trainer note', experience: 'regular',
@@ -808,7 +808,7 @@ test('AI workout previews use scoped equipment and preferences, and only return 
   assert.equal((await browser.call('workouts', payload('POST', { id: randomUUID(), name: 'Private workout name',
     date: '2026-11-15', time: '08:00', status: 'completed', exercises: [{ exerciseId: 'goblet-squat', sets: 2, reps: 8 }] }))).status, 200);
   const path = 'workouts/recommendation?today=2026-11-15&now=10:00';
-  assert.equal((await browser.call(path, { method: 'POST', headers: { 'X-Liftmorrow-Profile': randomUUID() } })).status, 409);
+  assert.equal((await browser.call(path, { method: 'POST', headers: { 'X-Trainer-Plus-Profile': randomUUID() } })).status, 409);
   const response = await browser.call(path, { method: 'POST', headers });
   assert.equal(response.status, 200);
   const preview = await response.json();
@@ -839,7 +839,13 @@ test('OpenAI responses request disables storage and upstream errors do not expos
   } });
   await assert.rejects(() => respond({
     name: 'test', schema: {}, instructions: '', content: [],
-  }), (error) => error instanceof AiError && error.status === 503 && !error.message.includes('Internal provider details'));
+  }), (error) => {
+    assert.ok(error instanceof AiError);
+    assert.equal(error.status, 503);
+    assert.equal(error.diagnostic, 401);
+    assert.equal(error.message, 'The service is currently unavailable.');
+    return true;
+  });
   assert.equal(request.store, false);
   assert.equal(request.text.format.strict, true);
 });
@@ -1202,7 +1208,7 @@ test('clip mutation deltas include the public review state and leave unrelated p
 });
 
 test('a server restart leaves an interrupted background review available to retry', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'liftmorrow-api-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-api-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const database = join(directory, 'workspace.sqlite');
   const initial = await start(t, {
@@ -1305,14 +1311,14 @@ test('the local server rejects unconfigured hosts before accepting sign-up', asy
 });
 
 test('the web server contains symlinks, validates shell freshness, and compresses fingerprinted assets', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'liftmorrow-static-'));
+  const root = await mkdtemp(join(tmpdir(), 'trainer-plus-static-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const dist = join(root, 'dist');
   await mkdir(dist);
-  const body = 'console.log("liftmorrow");\n'.repeat(600);
+  const body = 'console.log("trainer-plus");\n'.repeat(600);
   const asset = 'entry-0123456789abcdef0123456789abcdef.js';
   await Promise.all([
-    writeFile(join(dist, 'index.html'), '<!doctype html><title>Liftmorrow</title>'),
+    writeFile(join(dist, 'index.html'), '<!doctype html><title>Trainer Plus</title>'),
     writeFile(join(dist, asset), body),
     writeFile(join(root, 'canary.txt'), 'should not be served'),
   ]);

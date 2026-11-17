@@ -22,7 +22,7 @@ test('a fresh profile can start, resume, and save a suggested session without ch
   await guide.getByRole('combobox', { name: 'Perceived effort (optional)' }).selectOption('8');
   await guide.getByRole('textbox', { name: 'Session notes' }).fill('Keep it lighter next time.');
   await guide.getByRole('button', { name: 'Save session', exact: true }).click();
-  await expect(page.getByText('Liftmorrow suggestion', { exact: true })).toBeVisible();
+  await expect(page.getByText('Trainer Plus suggestion', { exact: true })).toBeVisible();
   await expect(page.getByText('Perceived effort · 8/10')).toBeVisible();
   await expect(page.getByText('Used a slow descent.')).toBeVisible();
   await expect(page.getByText('Keep it lighter next time.')).toBeVisible();
@@ -38,13 +38,16 @@ test('a narrow screen can keep trainer preferences and log check-ins with or wit
   await page.getByRole('button', { name: 'Set up training' }).click();
   await page.getByRole('textbox', { name: 'Training goal' }).fill('Stronger upper body');
   await page.getByRole('textbox', { name: 'What has your trainer asked you to work on between sessions?' }).fill('Keep a controlled pace.');
+  await expect(page.getByRole('combobox', { name: 'Trainer-preferred exercises' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Exercises to leave out' })).toBeVisible();
   await page.getByRole('button', { name: 'Upper body', exact: true }).click();
   await page.getByRole('button', { name: 'Save profile', exact: true }).click();
   await expect(page.getByText('Profile details saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Show profile history' }).click();
   const revisions = page.getByRole('list', { name: 'Saved training profile revisions' });
   await expect(revisions.getByText('Keep a controlled pace.', { exact: true })).toBeVisible();
-  await page.goto('/');
+  await page.getByRole('button', { name: 'See today’s suggestion' }).click();
+  await page.getByRole('button', { name: 'Workout details' }).click();
   await expect(page.getByText('Includes work for your saved muscle priorities.')).toBeVisible();
   await page.getByRole('button', { name: 'Training check-in', exact: true }).focus();
   await page.keyboard.press('Enter');
@@ -54,7 +57,7 @@ test('a narrow screen can keep trainer preferences and log check-ins with or wit
   await checkIn.getByRole('button', { name: 'Rest today', exact: true }).click();
   await checkIn.getByRole('button', { name: 'Save without reply' }).click();
   await expect(checkIn.getByText('Check-in saved privately.')).toBeVisible();
-  await expect(checkIn.getByText('Liftmorrow', { exact: true })).toHaveCount(0);
+  await expect(checkIn.getByText('Trainer Plus', { exact: true })).toHaveCount(0);
   await checkIn.getByRole('button', { name: 'Close dialog' }).click();
   await expect(page.getByText('You asked to rest today.')).toBeVisible();
   await page.reload();
@@ -83,6 +86,7 @@ test('logging yesterday’s trainer session makes today lighter and keeps the ha
   await expect(page.getByText('Trainer session', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
   await expect(page.getByText('A lighter strength session')).toBeVisible();
+  await page.getByRole('button', { name: 'Workout details' }).click();
   await expect(page.getByText('Yesterday’s trainer session keeps today shorter.')).toBeVisible();
   await expect(page.getByText('Keep the descent controlled.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Start suggested session' })).toBeVisible();

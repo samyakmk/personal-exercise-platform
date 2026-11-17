@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { type Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { ArrowRight, MessageCircle, Timer, Volume2 } from 'lucide-react-native';
 import { StyleSheet, View } from 'react-native';
 import { workoutSafetyReply } from '../../shared/session-safety.mjs';
 import { useCoachVoice } from '../platform/useCoachVoice';
-import { color } from '../theme';
+import { color, radius } from '../theme';
 import type { Exercise, ExerciseSet, SessionCoachQuestion } from '../types';
-import { useRestTimer } from '../useRestTimer';
+import { performedSetSummary } from '../trainingProgress';
 import { useWorkspace } from '../workspace';
 import { formatCountdown } from './Countdown';
 import { Button, Copy, Input } from './ui';
@@ -19,7 +19,9 @@ type Props = {
   target?: ExerciseSet;
   setNumber: number;
   setCount: number;
-  restUntil?: number;
+  restSeconds: number;
+  lastRecorded?: ExerciseSet;
+  docked: boolean;
   nextName?: string;
   canFinish: boolean;
   onContinue: () => void;
@@ -28,7 +30,7 @@ type Props = {
   onReport: (amount: number) => string;
 };
 
-function guidance({ phase, exercise, name, target, setNumber, setCount, nextName, canFinish }: Props, seconds: number) {
+function guidance({ phase, exercise, name, target, setNumber, setCount, nextName, canFinish, lastRecorded }: Props, seconds: number) {
   const reps = target?.reps;
   const amount = reps === undefined ? '' : exercise?.unit === 'seconds' ? `${reps}-second hold`
     : `${reps} ${reps === 1 ? 'rep' : 'reps'}`;
@@ -36,6 +38,7 @@ function guidance({ phase, exercise, name, target, setNumber, setCount, nextName
   const load = weight ? `${weight.value} ${weight.unit}${exercise?.loadType === 'per-dumbbell' ? ' per dumbbell' : ''}` : '';
   const equipment = exercise?.equipment.map((item) => item.toLowerCase()).join(' and ');
   const gear = [equipment ? `Get your ${equipment} ready.` : 'Get into position.', load ? `Planned load is ${load}.` : ''].filter(Boolean).join(' ');
+  const recorded = lastRecorded ? `Recorded ${performedSetSummary(exercise, lastRecorded)}. ` : '';
 
   switch (phase) {
     case 'setup':
@@ -50,24 +53,27 @@ function guidance({ phase, exercise, name, target, setNumber, setCount, nextName
     }
     case 'rest':
       return seconds > 0
-        ? { title: 'Take a break', prompt: `Set ${setNumber - 1} is logged. Take a breather and get some water if you need it.` }
+        ? { title: 'Take a break', prompt: recorded + 'Take a breather and get some water if you need it.' }
         : { title: 'Rest complete', prompt: nextName ? `Up next is ${nextName}. Tell me when you’re ready to move on.`
           : `Set ${setNumber} is next. Take more time if you need it.` };
     case 'complete':
       return nextName
-        ? { title: 'Ready to move on?', prompt: `Next up is ${nextName}.` }
-        : { title: 'Lineup complete', prompt: canFinish ? 'Review the sets you logged when you’re ready to finish.'
+        ? { title: 'Ready to move on?', prompt: recorded + `Next up is ${nextName}.` }
+        : { title: 'Lineup complete', prompt: canFinish ? recorded + 'Review the sets you logged when you’re ready to finish.'
           : 'Pick an exercise from the lineup to keep going or pause here.' };
   }
 }
 
-export function SessionCoach(props: Props) {
-  const { phase, restUntil, nextName, onContinue, onExtendRest, onSkip } = props;
-  const rest = useRestTimer(restUntil ?? null);
-  const seconds = Math.min(rest.seconds, rest.remaining());
+export function SessionCoach(props: Props & {
+  messageRef: Ref<(question?: string) => void>;
+  readbackRef: Ref<(reply: string) => void>;
+  setSpeaking: (value: boolean) => void;
+}) {
+  const { phase, restSeconds: seconds, nextName, docked, onContinue, onExtendRest, onSkip } = props;
   const canExtendRest = seconds <= 270;
   const { title, prompt } = guidance(props, seconds);
-  const voice = useCoachVoice(`${title}. ${prompt}`);
+  const voice = useCoachVoice(`${title}. ${prompt}`, props.setSpeaking);
+  useImperativeHandle(props.readbackRef, () => voice.say);
   const continuing = phase === 'setup' ? 'I’m ready'
     : phase === 'rest' && seconds > 0 ? 'Skip rest'
     : nextName ? 'Next exercise' : 'I’m ready';
@@ -75,32 +81,38 @@ export function SessionCoach(props: Props) {
   return <View style={styles.coach}>
     <View style={styles.header}>
       <View style={styles.heading}>
-        <View style={styles.icon}><MessageCircle size={16} color={color.plum} aria-hidden /></View>
-        <Copy weight="bold" size={13} tone={color.plum}>Workout coach</Copy>
+        <View style={styles.icon}><MessageCircle size={16} color={color.forest} aria-hidden /></View>
+        <Copy weight="bold" size={13} tone={color.forest}>Workout coach</Copy>
       </View>
       {voice.available && <Button compact kind="quiet" icon={Volume2} aria-pressed={voice.enabled}
-        onPress={voice.toggle}>{voice.enabled ? 'Voice on' : 'Voice off'}</Button>}
+        onPress={voice.toggle}>{voice.enabled ? 'Coach audio on' : 'Coach audio off'}</Button>}
     </View>
     <View role="status" accessibilityLiveRegion="polite" style={{ gap: 3 }}>
       <Copy size={19} weight="bold">{title}</Copy>
       <Copy size={14}>{prompt}</Copy>
     </View>
-    {phase === 'rest' && <View style={styles.heading}>
-      <Timer size={18} color={color.plum} aria-hidden />
-      <Copy role="timer" size={28} weight="extra" tone={color.plum} style={{ fontVariant: ['tabular-nums'] }}>{formatCountdown(seconds)}</Copy>
+    {phase === 'rest' && !docked && <View style={styles.heading}>
+      <Timer size={18} color={color.forest} aria-hidden />
+      <Copy role="timer" size={28} weight="extra" tone={color.forest} style={{ fontVariant: ['tabular-nums'] }}>{formatCountdown(seconds)}</Copy>
     </View>}
     <View style={styles.actions}>
-      {(phase === 'setup' || phase === 'rest' || phase === 'complete' && nextName) &&
+      {!docked && (phase === 'setup' || phase === 'rest' || phase === 'complete' && nextName) &&
         <Button kind={phase === 'rest' && seconds > 0 ? 'outline' : 'primary'} end={ArrowRight} onPress={onContinue}>{continuing}</Button>}
       {phase === 'rest' && <Button disabled={!canExtendRest} onPress={onExtendRest}>Add 30 seconds</Button>}
       {(phase === 'setup' || phase === 'set') && <Button compact kind="quiet" onPress={onSkip}>Skip exercise</Button>}
     </View>
     <CoachMessages key={`${props.exercise?.id ?? props.name}:${phase}:${props.setNumber}`}
-      {...props} restRemaining={seconds} canExtendRest={canExtendRest} prompt={prompt} />
+      {...props} restRemaining={seconds} canExtendRest={canExtendRest} prompt={prompt} speakReply={voice.say} />
   </View>;
 }
 
-function CoachMessages(props: Props & { restRemaining: number; canExtendRest: boolean; prompt: string }) {
+function CoachMessages(props: Props & {
+  restRemaining: number;
+  canExtendRest: boolean;
+  prompt: string;
+  messageRef: Ref<(question?: string) => void>;
+  speakReply: (text: string) => void;
+}) {
   const { phase, exercise, target, setNumber, onContinue, onExtendRest, onSkip, onReport, canExtendRest, restRemaining, prompt } = props;
   const { data, api } = useWorkspace();
   const [open, setOpen] = useState(false);
@@ -110,14 +122,22 @@ function CoachMessages(props: Props & { restRemaining: number; canExtendRest: bo
   const busy = Boolean(exchange && exchange.reply === undefined);
   useEffect(() => () => request.current?.abort(), []);
 
-  async function send() {
-    const question = text.trim();
+  useImperativeHandle(props.messageRef, () => (question?: string) => {
+    setOpen(true);
+    if (question) void send(question, true);
+  });
+
+  async function send(message = text, spoken = false) {
+    const question = message.trim().slice(0, 280);
     if (!question || request.current) return;
     const command = question.toLowerCase().replace(/[.!?]+$/, '').replace(/’/g, "'");
     const ready = /^(?:(?:ok(?:ay)?|yes)[, ]+)?(?:i(?:'m| am) )?ready$/.test(command);
     const moreTime = /^(?:more time|(?:i )?need more time|wait|add 30 seconds)$/.test(command);
-    const reply = (reply: string) => setExchange({ question, reply });
-    setText('');
+    const reply = (reply: string) => {
+      setExchange({ question, reply });
+      if (spoken) props.speakReply(reply);
+    };
+    if (!spoken) setText('');
 
     const safety = workoutSafetyReply(question);
     if (safety) { reply(safety); return; }
@@ -165,7 +185,7 @@ function CoachMessages(props: Props & { restRemaining: number; canExtendRest: bo
       }, controller.signal);
       if (!controller.signal.aborted) reply(answer);
     } catch {
-      if (!controller.signal.aborted) reply(`AI reply unavailable. ${local}`);
+      if (!controller.signal.aborted) reply(`Coach reply unavailable. ${local}`);
     } finally {
       if (request.current === controller) request.current = null;
     }
@@ -181,9 +201,9 @@ function CoachMessages(props: Props & { restRemaining: number; canExtendRest: bo
           maxLength={280} value={text} onChangeText={setText} onSubmitEditing={() => void send()} />
         <Button compact disabled={!text.trim() || busy} onPress={() => void send()}>Send</Button>
       </View>
-      {data?.aiAvailable && <Copy size={12} tone={color.muted}>Questions that need AI are sent to OpenAI.</Copy>}
+      {data?.aiAvailable && <Copy size={12} tone={color.muted}>Some questions are sent to OpenAI for a reply.</Copy>}
       {exchange && <View style={styles.exchange}>
-        <Copy size={12} weight="semibold" tone={color.plum}>You · {exchange.question}</Copy>
+        <Copy size={12} weight="semibold" tone={color.forest}>You · {exchange.question}</Copy>
         <Copy size={13} role="status" accessibilityLiveRegion="polite">{exchange.reply ?? 'Coach is replying…'}</Copy>
       </View>}
     </>}
@@ -191,11 +211,11 @@ function CoachMessages(props: Props & { restRemaining: number; canExtendRest: bo
 }
 
 const styles = StyleSheet.create({
-  coach: { borderRadius: 10, backgroundColor: color.tint, borderWidth: 1, borderColor: color.line, padding: 13, gap: 9 },
+  coach: { borderRadius: radius.panel, backgroundColor: color.tint, borderWidth: 1, borderColor: color.line, padding: 13, gap: 9 },
   icon: { backgroundColor: color.surface, width: 29, height: 29, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 },
   heading: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   message: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  exchange: { gap: 4, padding: 9, backgroundColor: color.surface, borderRadius: 7 },
+  exchange: { gap: 4, padding: 9, backgroundColor: color.surface, borderRadius: radius.control },
 });

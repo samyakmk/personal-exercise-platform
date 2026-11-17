@@ -12,7 +12,6 @@ export function RestTimer({ deadline, onDeadlineChange, expanded: controlledExpa
 } = {}) {
   const timer = useRestTimer(deadline, onDeadlineChange);
   const [localExpanded, setLocalExpanded] = useState(false);
-  const [custom, setCustom] = useState(false);
   const [minutes, setMinutes] = useState('');
   const [seconds, setSeconds] = useState('');
   const expanded = controlledExpanded ?? localExpanded;
@@ -25,7 +24,6 @@ export function RestTimer({ deadline, onDeadlineChange, expanded: controlledExpa
 
   function start(duration: number) {
     timer.start(duration);
-    setCustom(false);
     setExpanded(true);
   }
 
@@ -40,7 +38,7 @@ export function RestTimer({ deadline, onDeadlineChange, expanded: controlledExpa
 
   return <View style={{ gap: 6, borderTopWidth: 1, borderColor: color.line, paddingTop: 8 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7 }}>
-      <Timer size={16} color={color.plum} aria-hidden />
+      <Timer size={16} color={color.forest} aria-hidden />
       <Copy size={13} weight="semibold">Rest timer</Copy>
       {!expanded && timer.active && !running && <Copy role="status" accessibilityLiveRegion="polite" size={13}>Rest complete</Copy>}
     </View>
@@ -52,21 +50,24 @@ export function RestTimer({ deadline, onDeadlineChange, expanded: controlledExpa
         {[30, 60, 90].map((duration) => <Button key={duration} compact
           accessibilityLabel={`${duration}s · Start rest timer`}
           onPress={() => start(duration)}>{`${duration}s`}</Button>)}
-        <Button compact accessibilityLabel="Custom rest duration" aria-expanded={custom}
-          onPress={() => setCustom(!custom)}>Custom</Button>
       </>}
     </View>
-    {custom && <View style={{ gap: 7 }}>
-      <View style={{ flexDirection: 'row', gap: 7 }}>
-        <Input label="Rest minutes" visibleLabel="Minutes" placeholder="0" value={minutes} inputMode="numeric"
-          onChangeText={setMinutes} onSubmitEditing={startCustom} />
-        <Input label="Rest seconds" visibleLabel="Seconds" placeholder="0" value={seconds} inputMode="numeric"
-          onChangeText={setSeconds} onSubmitEditing={startCustom} />
+    {!running && <View role="group" accessibilityLabel="Custom rest duration" style={{ gap: 7, maxWidth: 360 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: 7 }}>
+        <View style={{ flex: 1, minWidth: 60 }}>
+          <Input label="Rest minutes" visibleLabel="Minutes" placeholder="0" value={minutes} inputMode="numeric"
+            onChangeText={setMinutes} onSubmitEditing={startCustom} />
+        </View>
+        <View style={{ flex: 1, minWidth: 60 }}>
+          <Input label="Rest seconds" visibleLabel="Seconds" placeholder="0" value={seconds} inputMode="numeric"
+            onChangeText={setSeconds} onSubmitEditing={startCustom} />
+        </View>
+        <Button compact disabled={!validDuration} style={{ alignSelf: 'flex-end', minHeight: 43 }}
+          onPress={startCustom}>Start custom timer</Button>
       </View>
       {(!wholeNumbers || !durationFits) && <Copy size={12} tone={color.danger} role="status">
         {wholeNumbers ? 'Enter a shorter duration.' : 'Use whole numbers for minutes and seconds.'}
       </Copy>}
-      <Button compact kind="primary" disabled={!validDuration} onPress={startCustom}>Start custom timer</Button>
     </View>}
     {expanded && timer.active && <Countdown kind="Rest" seconds={timer.seconds}
       onMinimize={() => setExpanded(false)} onStop={stop} onDone={stop} />}
