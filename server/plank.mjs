@@ -50,12 +50,19 @@ export function assessPlank(poses) {
   const hold = runs.sort((a, b) => b.length - a.length)[0];
   if (!hold) return { coverage: 'limited', evidence: [] };
   const anchors = [hold[Math.floor(hold.length * 0.25)], hold[Math.floor(hold.length * 0.75)]];
-  const fault = [['plank_hip_sag', 1], ['plank_raised_hips', -1]].map(([check, direction]) => ({
-    check, direction, frames: hold.filter(({ hipOffset }) => direction * hipOffset >= 0.078),
-  })).find(({ frames }) => frames.length >= Math.max(6, Math.ceil(hold.length * 0.65))
-    && frames.at(-1).timestamp - frames[0].timestamp >= 1.25);
   const verificationTimes = anchors.map(({ timestamp }) => timestamp);
-  if (!fault) return { coverage: 'measured', evidence: [], verificationTimes };
+  // A few hidden joints can change which side has the longest track. Check other
+  // substantial runs on their own instead of switching sides or lowering the offset threshold.
+  const faults = runs.filter((run) => run.length >= hold.length * 0.75).flatMap((run) => (
+    [['plank_hip_sag', 1], ['plank_raised_hips', -1]].map(([check, direction]) => ({
+      check, direction, frames: run.filter(({ hipOffset }) => direction * hipOffset >= 0.078),
+    })).filter(({ frames }) => frames.length >= Math.max(6, Math.ceil(run.length * 0.65))
+      && frames.at(-1).timestamp - frames[0].timestamp >= 1.25)
+  ));
+  const fault = faults.sort((a, b) => b.frames.length - a.frames.length)[0];
+  if (!fault || faults.some(({ direction }) => direction !== fault.direction)) {
+    return { coverage: 'measured', evidence: [], verificationTimes };
+  }
   const first = fault.frames[0];
   const last = fault.frames.at(-1);
   const sag = fault.direction === 1;
@@ -65,7 +72,7 @@ export function assessPlank(poses) {
       check: fault.check, timestamp: last.timestamp, comparisonTimestamp: first.timestamp,
       observation: `Your hips appear ${sag ? 'below' : 'above'} the shoulder-to-ankle line in several visible moments of the hold.`,
       cue: sag ? 'Brace your abdomen and lift your hips slightly so your shoulders, hips, and heels line up.'
-        : 'Lower your hips slightly while keeping your abdomen braced and your forearms planted.',
+        : 'Lower your hips slightly so your shoulders, hips, and ankles line up. Keep your abdomen braced and your forearms planted.',
     }],
   };
 }

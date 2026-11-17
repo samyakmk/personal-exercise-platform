@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReactNode } from 'react';
 import { createId, RequestError } from './api';
 import { videoMime } from './platform/videoTypes';
-import type { SelectedVideo, TrainingSessionMovementContext } from './types';
+import type { ReviewRange, SelectedVideo, TrainingSessionMovementContext } from './types';
 import { useWorkspace } from './workspace';
 
 type Draft = { id: string; clip: SelectedVideo; trainingContext?: TrainingSessionMovementContext };
@@ -56,7 +56,7 @@ function useUploadState() {
     setUploadFailed(false);
   }
 
-  async function upload(reviewStart?: number) {
+  async function upload(reviewRange?: ReviewRange) {
     if (!draft || request.current) return;
     const controller = new AbortController();
     request.current = controller;
@@ -75,8 +75,8 @@ function useUploadState() {
       }
       setExercise('');
       announce('Video saved to your workspace.');
-      if (data?.aiAvailable && reviewStart !== undefined) {
-        void startReview(draft.id, reviewStart).catch((failure: Error) => {
+      if (data?.aiAvailable && reviewRange) {
+        void startReview(draft.id, reviewRange).catch((failure: Error) => {
           announce('Video saved. ' + failure.message);
         });
       }

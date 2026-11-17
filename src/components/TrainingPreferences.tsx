@@ -47,10 +47,10 @@ export function PreferenceFields({ value, onChange, disabled }: {
       ]} />
     <Input label="What has your trainer asked you to work on between sessions?" visibleLabel="What has your trainer asked you to work on?"
       value={value.trainerNotes} editable={!disabled} onChangeText={(trainerNotes) => edit({ trainerNotes })}
-      multiline maxLength={1200} placeholder="Optional · Cues or things to practice" style={styles.textarea} />
+      multiline maxLength={1200} placeholder="Cues or things to practice" style={styles.textarea} />
     <View role="group" accessibilityLabel="Muscle priorities" style={styles.stack}>
-      <Copy size={13} weight="semibold">Muscle priorities (optional)</Copy>
-      <Copy size={12} tone={color.muted}>Leave blank for balanced training.</Copy>
+      <Copy size={13} weight="semibold">Muscle priorities</Copy>
+      <Copy size={12} tone={color.muted}>Balanced training is the default.</Copy>
       {muscleChips(commonPriorities)}
       <Copy size={12} weight="semibold" tone={color.muted}>Specific muscles</Copy>
       {muscleChips(specificMuscles)}

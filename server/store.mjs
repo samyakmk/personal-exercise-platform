@@ -10,10 +10,20 @@ import { maxSeriesOccurrences, seriesWorkoutId } from './workout-series.mjs';
 
 const chunkSize = 256 * 1024;
 const reviewHistoryLimit = 10;
+const reviewHistorySchema = `CREATE TABLE IF NOT EXISTS clip_review_history (
+  workspace_id TEXT NOT NULL,
+  clip_id TEXT NOT NULL,
+  start_seconds INTEGER NOT NULL,
+  end_seconds INTEGER NOT NULL DEFAULT 0,
+  sequence INTEGER NOT NULL,
+  review TEXT NOT NULL,
+  PRIMARY KEY (workspace_id, clip_id, start_seconds, end_seconds),
+  FOREIGN KEY (workspace_id, clip_id) REFERENCES clip(workspace_id, id) ON DELETE CASCADE
+);`;
 const leaseClock = "CAST(unixepoch('subsec') * 1000 AS INTEGER)";
 const reviewColumns = `json_remove(clip_review.review, '$.reviewStill') AS review, attempt.version AS attemptVersion, attempt.sequence AS attemptSequence,
   attempt.error AS attemptError, attempt.error_status AS attemptErrorStatus, attempt.start_seconds AS attemptStart,
-  attempt.lease_owner AS attemptOwner, attempt.lease_until AS attemptUntil`;
+  attempt.end_seconds AS attemptEnd, attempt.lease_owner AS attemptOwner, attempt.lease_until AS attemptUntil`;
 const clipReviewQuery = `FROM clip LEFT JOIN clip_review ON clip.workspace_id = clip_review.workspace_id AND clip.id = clip_review.clip_id
   LEFT JOIN clip_review_attempt AS attempt ON clip.workspace_id = attempt.workspace_id AND clip.id = attempt.clip_id`;
 const clipColumns = `clip.id, exerciseId, filename, mime, size, uploadedAt, training_context, ${reviewColumns}`;
@@ -42,11 +52,11 @@ function workspaceRevisionTriggers() {
   `).join('\n');
 }
 
-function reviewFields({ review, attemptVersion, attemptSequence, attemptError, attemptErrorStatus, attemptStart, attemptOwner, attemptUntil }) {
+function reviewFields({ review, attemptVersion, attemptSequence, attemptError, attemptErrorStatus, attemptStart, attemptEnd, attemptOwner, attemptUntil }) {
   return {
     review: JSON.parse(review),
     attempt: { version: attemptVersion, sequence: attemptSequence, error: attemptError, errorStatus: attemptErrorStatus,
-      startSeconds: attemptStart, owner: attemptOwner, until: attemptUntil },
+      startSeconds: attemptStart, endSeconds: attemptEnd ?? undefined, owner: attemptOwner, until: attemptUntil },
   };
 }
 
@@ -145,15 +155,7 @@ export function createStore(path) {
       id TEXT NOT NULL,
       PRIMARY KEY (workspace_id, id)
     );
-    CREATE TABLE IF NOT EXISTS clip_review_history (
-      workspace_id TEXT NOT NULL,
-      clip_id TEXT NOT NULL,
-      start_seconds INTEGER NOT NULL,
-      sequence INTEGER NOT NULL,
-      review TEXT NOT NULL,
-      PRIMARY KEY (workspace_id, clip_id, start_seconds),
-      FOREIGN KEY (workspace_id, clip_id) REFERENCES clip(workspace_id, id) ON DELETE CASCADE
-    );
+    ${reviewHistorySchema}
     CREATE TABLE IF NOT EXISTS clip_payload (
       workspace_id TEXT NOT NULL,
       clip_id TEXT NOT NULL,
@@ -168,6 +170,7 @@ export function createStore(path) {
       version INTEGER NOT NULL,
       sequence INTEGER NOT NULL,
       start_seconds INTEGER NOT NULL DEFAULT 0,
+      end_seconds INTEGER,
       error TEXT,
       error_status INTEGER,
       lease_owner TEXT,
@@ -188,6 +191,7 @@ export function createStore(path) {
     ['clip', 'digest', 'TEXT'],
     ['clip', 'training_context', 'TEXT'],
     ['clip_review_attempt', 'start_seconds', 'INTEGER NOT NULL DEFAULT 0'],
+    ['clip_review_attempt', 'end_seconds', 'INTEGER'],
     ['clip_review_attempt', 'error_status', 'INTEGER'],
     ['clip_review_attempt', 'lease_owner', 'TEXT'],
     ['clip_review_attempt', 'lease_until', 'INTEGER'],
@@ -204,6 +208,15 @@ export function createStore(path) {
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
         if (column === 'series_id') addedSeries = true;
       }
+    }
+    if (!db.prepare('PRAGMA table_info(clip_review_history)').all().some(({ name }) => name === 'end_seconds')) {
+      db.exec(`
+        ALTER TABLE clip_review_history RENAME TO previous_clip_review_history;
+        ${reviewHistorySchema}
+        INSERT INTO clip_review_history (workspace_id, clip_id, start_seconds, sequence, review)
+          SELECT workspace_id, clip_id, start_seconds, sequence, review FROM previous_clip_review_history;
+        DROP TABLE previous_clip_review_history;
+      `);
     }
     if (addedSeries) {
       const series = db.prepare('SELECT workspace_id, id FROM workout_series_receipt').all();
@@ -323,10 +336,10 @@ export function createStore(path) {
     reviewState: db.prepare(`SELECT ${reviewColumns} ${clipReviewQuery} WHERE clip.workspace_id = ? AND clip.id = ?`),
     activeReviewCount: db.prepare(`SELECT count(*) AS count FROM clip_review_attempt WHERE lease_until > ${leaseClock}`),
     startReviewAttempt: db.prepare(`
-      INSERT INTO clip_review_attempt (workspace_id, clip_id, version, sequence, start_seconds, lease_owner, lease_until)
-      VALUES (?, ?, ?, 1, ?, ?, ${leaseClock} + ?)
+      INSERT INTO clip_review_attempt (workspace_id, clip_id, version, sequence, start_seconds, end_seconds, lease_owner, lease_until)
+      VALUES (?, ?, ?, 1, ?, ?, ?, ${leaseClock} + ?)
       ON CONFLICT (workspace_id, clip_id) DO UPDATE SET version = excluded.version,
-        sequence = sequence + 1, start_seconds = excluded.start_seconds, error = NULL, error_status = NULL,
+        sequence = sequence + 1, start_seconds = excluded.start_seconds, end_seconds = excluded.end_seconds, error = NULL, error_status = NULL,
         lease_owner = excluded.lease_owner, lease_until = excluded.lease_until
       RETURNING sequence
     `),
@@ -340,7 +353,7 @@ export function createStore(path) {
     resetReviewAttempt: db.prepare(`
       INSERT INTO clip_review_attempt (workspace_id, clip_id, version, sequence) VALUES (?, ?, 0, 1)
       ON CONFLICT (workspace_id, clip_id) DO UPDATE SET version = 0,
-        sequence = sequence + 1, start_seconds = 0, error = NULL, error_status = NULL, lease_owner = NULL, lease_until = NULL
+        sequence = sequence + 1, start_seconds = 0, end_seconds = NULL, error = NULL, error_status = NULL, lease_owner = NULL, lease_until = NULL
     `),
     removeReview: db.prepare('DELETE FROM clip_review WHERE workspace_id = ? AND clip_id = ?'),
     saveReview: db.prepare(`
@@ -357,7 +370,8 @@ export function createStore(path) {
       UNION ALL
       SELECT json_remove(history.review, '$.reviewStill'), 1 AS priority, history.sequence FROM clip_review_history AS history CROSS JOIN current
       WHERE history.workspace_id = ? AND history.clip_id = ?
-        AND history.start_seconds IS NOT CASE WHEN current.review IS NOT NULL THEN COALESCE(json_extract(current.review, '$.startSeconds'), 0) END
+        AND (current.review IS NULL OR (history.start_seconds, history.end_seconds)
+          <> (COALESCE(json_extract(current.review, '$.startSeconds'), 0), COALESCE(json_extract(current.review, '$.endSeconds'), 0)))
       ORDER BY priority, sequence DESC LIMIT ${reviewHistoryLimit}
     `),
     reviewStill: db.prepare(`
@@ -369,15 +383,17 @@ export function createStore(path) {
       LIMIT 1
     `),
     archivePreviousReview: db.prepare(`
-      INSERT INTO clip_review_history (workspace_id, clip_id, start_seconds, sequence, review)
-      SELECT workspace_id, clip_id, COALESCE(json_extract(review, '$.startSeconds'), 0), COALESCE(json_extract(review, '$.sequence'), 0), review
-      FROM clip_review WHERE workspace_id = ? AND clip_id = ? AND COALESCE(json_extract(review, '$.startSeconds'), 0) <> ?
-      ON CONFLICT (workspace_id, clip_id, start_seconds) DO UPDATE SET sequence = excluded.sequence, review = excluded.review
+      INSERT INTO clip_review_history (workspace_id, clip_id, start_seconds, end_seconds, sequence, review)
+      SELECT workspace_id, clip_id, COALESCE(json_extract(review, '$.startSeconds'), 0),
+        COALESCE(json_extract(review, '$.endSeconds'), 0), COALESCE(json_extract(review, '$.sequence'), 0), review
+      FROM clip_review WHERE workspace_id = ? AND clip_id = ?
+        AND (COALESCE(json_extract(review, '$.startSeconds'), 0), COALESCE(json_extract(review, '$.endSeconds'), 0)) <> (?, ?)
+      ON CONFLICT (workspace_id, clip_id, start_seconds, end_seconds) DO UPDATE SET sequence = excluded.sequence, review = excluded.review
     `),
-    removeArchivedSection: db.prepare('DELETE FROM clip_review_history WHERE workspace_id = ? AND clip_id = ? AND start_seconds = ?'),
-    trimReviewHistory: db.prepare(`DELETE FROM clip_review_history WHERE workspace_id = ? AND clip_id = ? AND start_seconds IN (
-      SELECT start_seconds FROM clip_review_history WHERE workspace_id = ? AND clip_id = ?
-      ORDER BY sequence DESC, start_seconds DESC LIMIT -1 OFFSET ${reviewHistoryLimit - 1}
+    removeArchivedSection: db.prepare('DELETE FROM clip_review_history WHERE workspace_id = ? AND clip_id = ? AND start_seconds = ? AND end_seconds = ?'),
+    trimReviewHistory: db.prepare(`DELETE FROM clip_review_history WHERE workspace_id = ? AND clip_id = ? AND (start_seconds, end_seconds) IN (
+      SELECT start_seconds, end_seconds FROM clip_review_history WHERE workspace_id = ? AND clip_id = ?
+      ORDER BY sequence DESC, start_seconds DESC, end_seconds DESC LIMIT -1 OFFSET ${reviewHistoryLimit - 1}
     )`),
     removeReviewHistory: db.prepare('DELETE FROM clip_review_history WHERE workspace_id = ? AND clip_id = ?'),
     removeClip: db.prepare('DELETE FROM clip WHERE workspace_id = ? AND id = ?'),
@@ -741,7 +757,7 @@ export function createStore(path) {
       const still = statements.reviewStill.get(workspace, id, sequence)?.still;
       return still ? Buffer.from(still, 'base64') : null;
     },
-    claimReview(workspace, id, { version, startSeconds, refresh, owner, leaseMs, maxActive, admit }) {
+    claimReview(workspace, id, { version, startSeconds, endSeconds, refresh, owner, leaseMs, maxActive, admit }) {
       db.exec('BEGIN IMMEDIATE');
       try {
         const clip = statements.clip.get(workspace, id);
@@ -751,12 +767,13 @@ export function createStore(path) {
           // Claim, limit check, and exercise read share the same SQLite write lock.
           if (attempt.until > Date.now()) claim = { state: 'running', review, attempt };
           else if (!refresh && !attempt.error && attempt.until == null && review?.version === version && (review.startSeconds ?? 0) === startSeconds
+            && review.endSeconds === endSeconds
             && (attempt.sequence == null || (review.sequence ?? attempt.sequence) === attempt.sequence)) claim = { state: 'complete', review, attempt };
           else if (statements.activeReviewCount.get().count >= maxActive) claim = { state: 'busy' };
           else {
             const recordStart = admit();
-            const attempt = statements.startReviewAttempt.get(workspace, id, version, startSeconds, owner, leaseMs);
-            claim = { state: 'claimed', clip, review, attempt: { ...attempt, startSeconds, owner }, recordStart };
+            const attempt = statements.startReviewAttempt.get(workspace, id, version, startSeconds, endSeconds ?? null, owner, leaseMs);
+            claim = { state: 'claimed', clip, review, attempt: { ...attempt, startSeconds, endSeconds, owner }, recordStart };
           }
         }
         db.exec('COMMIT');
@@ -780,8 +797,8 @@ export function createStore(path) {
       try {
         const saved = statements.finishReviewAttempt.run(null, null, workspace, id, attempt.sequence, attempt.owner);
         if (saved.changes) {
-          statements.archivePreviousReview.run(workspace, id, review.startSeconds);
-          statements.removeArchivedSection.run(workspace, id, review.startSeconds);
+          statements.archivePreviousReview.run(workspace, id, review.startSeconds, review.endSeconds ?? 0);
+          statements.removeArchivedSection.run(workspace, id, review.startSeconds, review.endSeconds ?? 0);
           statements.trimReviewHistory.run(workspace, id, workspace, id);
           statements.saveReview.run(workspace, id, JSON.stringify(review));
         }

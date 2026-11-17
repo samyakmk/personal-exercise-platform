@@ -9,7 +9,7 @@ import { Loading } from '../src/components/ui';
 import { TrainingNavigation } from '../src/navigation';
 import { registerOfflineShell } from '../src/platform/offline';
 import { ProfilesProvider, useProfiles } from '../src/profiles';
-import { ProfileGate } from '../src/screens/Profile';
+import { ProfileGate, ProfileSetup } from '../src/screens/Profile';
 import { color } from '../src/theme';
 import { WorkspaceProvider } from '../src/workspace';
 import { VideoUploadProvider } from '../src/videoUpload';
@@ -31,8 +31,12 @@ function WorkspaceLayout() {
   });
   if (!loaded && !error) return <View style={styles.loading}><Loading label="Loading Trainer Plus…" /></View>;
 
-  if (!state?.active) return <ProfileGate />;
-  const key = state.active.workspaceKey;
+  const profile = state?.active;
+  if (!profile) return <ProfileGate />;
+  const key = profile.workspaceKey;
+  if (profile.setupPending) return <WorkspaceProvider key={`${key}:setup`} workspaceKey={key} refreshProfile={reload}>
+    <ProfileSetup profile={profile} />
+  </WorkspaceProvider>;
   return <WorkspaceProvider key={key} workspaceKey={key} refreshProfile={reload}>
     <TrainingNavigation><ActiveSessionProvider><VideoUploadProvider><ChatProvider>
       <Shell><Navigator.Slot /></Shell>

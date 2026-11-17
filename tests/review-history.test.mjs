@@ -14,10 +14,10 @@ import { activeWorkspaceId, createTestProfile } from './test-profile.mjs';
 
 const feedback = (summary) => ({ verdict: 'insufficient_visibility', summary, limitations: 'Single frame.', observations: [] });
 
-async function setup(t, respond, database = ':memory:') {
-  const server = createTrainerPlusServer({ database, respond, sampleFrames: async (_, { startSeconds }) => [
+async function setup(t, respond, database = ':memory:', sampleFrames = async (_, { startSeconds }) => [
     { timestamp: startSeconds, image: Buffer.from('synthetic') },
-  ] });
+  ]) {
+  const server = createTrainerPlusServer({ database, respond, sampleFrames });
   t.after(async () => {
     const closed = once(server, 'close');
     server.close();
@@ -116,7 +116,10 @@ test('review history includes a pre-migration review, stores only ten sections, 
   const database = join(directory, 'workspace.sqlite');
   const old = new DatabaseSync(database);
   old.exec(`CREATE TABLE clip_review (workspace_id TEXT NOT NULL, clip_id TEXT NOT NULL, review TEXT NOT NULL,
-    PRIMARY KEY (workspace_id, clip_id), FOREIGN KEY (workspace_id, clip_id) REFERENCES clip(workspace_id, id) ON DELETE CASCADE)`);
+    PRIMARY KEY (workspace_id, clip_id), FOREIGN KEY (workspace_id, clip_id) REFERENCES clip(workspace_id, id) ON DELETE CASCADE);
+    CREATE TABLE clip_review_history (workspace_id TEXT NOT NULL, clip_id TEXT NOT NULL, start_seconds INTEGER NOT NULL,
+      sequence INTEGER NOT NULL, review TEXT NOT NULL, PRIMARY KEY (workspace_id, clip_id, start_seconds),
+      FOREIGN KEY (workspace_id, clip_id) REFERENCES clip(workspace_id, id) ON DELETE CASCADE)`);
   old.close();
   const { owner, id, clip, review, history } = await setup(t, async () => feedback('Visible section.'), database);
   const legacy = { ...feedback('Pre-migration result.'), framesReviewed: 1, windowSeconds: 20, reviewedAt: '2026-11-13T00:00:00Z', version: reviewVersion - 1 };
@@ -142,4 +145,32 @@ test('review history includes a pre-migration review, stores only ten sections, 
   assert.equal((await owner.call(clip, { method: 'DELETE' })).status, 200);
   assert.equal((await sameWorkspace.call(history)).status, 404);
   assert.equal(archived.get(id).size, 0);
+});
+
+test('an explicit end time identifies the review and reaches the sampler', async (t) => {
+  const sampled = [];
+  let unblock;
+  const gate = new Promise((resolve) => { unblock = resolve; });
+  const { owner, review, history } = await setup(t, async () => feedback('Visible section.'), ':memory:',
+    async (_, { startSeconds, endSeconds, signal }) => {
+      sampled.push({ startSeconds, endSeconds });
+      if (endSeconds === 8 && !signal.aborted) await Promise.race([gate, once(signal, 'abort')]);
+      return [{ timestamp: startSeconds, image: Buffer.from('synthetic') }];
+    });
+  const request = (end) => owner.call(review + '?background=1&start=2&end=' + end, { method: 'POST' });
+  for (const invalid of ['1', '2', '3.5', '86401']) assert.equal((await request(invalid)).status, 400);
+  const started = await request(8);
+  assert.equal(started.status, 202);
+  assert.deepEqual((await started.json()).reviewStatus, { state: 'running', sequence: 1, startSeconds: 2, endSeconds: 8 });
+  assert.equal((await request(8)).status, 202);
+  assert.equal((await request(12)).status, 409);
+  unblock();
+  const first = (await waitForStatus(owner, review, 'complete')).review;
+  assert.equal(first.windowSeconds, 6);
+  assert.equal((await request(8)).status, 200);
+  assert.equal((await request(12)).status, 202);
+  const second = (await waitForStatus(owner, review, 'complete')).review;
+  assert.equal(second.windowSeconds, 10);
+  assert.deepEqual(await reviews(owner, history), [second, first]);
+  assert.deepEqual(sampled, [{ startSeconds: 2, endSeconds: 8 }, { startSeconds: 2, endSeconds: 12 }]);
 });

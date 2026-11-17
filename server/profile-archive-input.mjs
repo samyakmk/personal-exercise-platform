@@ -26,15 +26,18 @@ function validReference(reference) {
 function validateReview(value, require) {
   if (value === null) return null;
   require(isObject(value) && verdicts.has(value.verdict) && text(value.summary, 4000) && text(value.limitations, 4000)
-    && dateTime(value.reviewedAt) && integer(value.framesReviewed, 0, 120) && number(value.windowSeconds, 0, 120), 'A saved form review has invalid details.');
+    && dateTime(value.reviewedAt) && integer(value.framesReviewed, 0, 120), 'A saved form review has invalid details.');
   const { verdict, summary, limitations, reviewedAt, framesReviewed, windowSeconds, observations,
-    startSeconds, sequence, version, detectedExerciseId, observationFrame, reviewStill, coverage, modelConfiguration } = value;
+    startSeconds, endSeconds, sequence, version, detectedExerciseId, observationFrame, reviewStill, coverage, modelConfiguration } = value;
   require(Array.isArray(observations) && observations.length <= 20 && observations.every((item) => isObject(item)
     && ['strength', 'adjustment'].includes(item.kind) && number(item.timestamp, 0, 86_520)
     && optional(item.comparisonTimestamp, (time) => number(time, 0, 86_520)) && text(item.observation, 4000) && text(item.cue, 4000)),
   'A saved form review has invalid cue timestamps or text.');
   require(optional(startSeconds, (start) => integer(start, 0, 86_400)) && optional(sequence, (seq) => integer(seq, 0, 1_000_000_000))
-    && optional(version, (ver) => integer(ver, 0, 1_000_000_000)) && optional(detectedExerciseId, exerciseId), 'A saved review has an invalid section.');
+    && optional(version, (ver) => integer(ver, 0, 1_000_000_000)) && optional(detectedExerciseId, exerciseId)
+    && (endSeconds === undefined ? number(windowSeconds, 0, 120)
+      : integer(endSeconds, (startSeconds ?? 0) + 1, 86_400) && windowSeconds === endSeconds - (startSeconds ?? 0)),
+  'A saved review has an invalid section.');
   require(optional(observationFrame, (frame) => isObject(frame) && optional(frame.reference, validReference)), 'A review reference is invalid.');
   if (reviewStill !== undefined) {
     require(text(reviewStill, 3 * 1024 * 1024), 'A saved review image is too large.');
@@ -56,7 +59,7 @@ function validateReview(value, require) {
   const cleanConfiguration = modelConfiguration && { critique: modelConfiguration.critique,
     detection: modelConfiguration.detection, reference: modelConfiguration.reference };
   return Object.fromEntries(Object.entries({ verdict, summary, limitations, reviewedAt, framesReviewed, windowSeconds, observations: points,
-    startSeconds, sequence, version, detectedExerciseId, observationFrame: cleanFrame, reviewStill,
+    startSeconds, endSeconds, sequence, version, detectedExerciseId, observationFrame: cleanFrame, reviewStill,
     coverage: cleanCoverage, modelConfiguration: cleanConfiguration }).filter(([, field]) => field !== undefined));
 }
 
@@ -113,8 +116,9 @@ export function profileArchiveInput(body, {
         'A saved review section does not match its timestamps.');
       return { startSeconds: section.startSeconds, sequence: section.sequence, review: reviewed };
     });
-    const starts = new Set(sections.map(({ startSeconds }) => startSeconds));
-    require(starts.size === sections.length && (!review || !starts.has(review.startSeconds ?? 0)), 'The archive has duplicate review sections.');
+    const allReviews = [...sections.map((section) => section.review), ...(review ? [review] : [])];
+    const ranges = new Set(allReviews.map(({ startSeconds, endSeconds }) => (startSeconds ?? 0) + ':' + (endSeconds ?? '')));
+    require(ranges.size === allReviews.length, 'The archive has duplicate review sections.');
     let bytes;
     if (data !== undefined) {
       require(size > 0 && typeof data === 'string' && data.length === 4 * Math.ceil(size / 3) && sha(digest), 'The archive contains invalid video data.');

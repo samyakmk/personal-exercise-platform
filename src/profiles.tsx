@@ -5,7 +5,7 @@ import { readOfflineProfile, writeOfflineProfile, writeOfflineWorkspace } from '
 import { removeTrainingSessionData } from './platform/trainingSession';
 import { removeWorkoutDraft } from './platform/workoutDraft';
 import { signalWorkspaceUpdate, watchWorkspaceUpdates } from './platform/workspaceUpdates';
-import type { ProfileEdit, ProfileState } from './types';
+import type { ProfileEdit, ProfileSetupInput, ProfileState } from './types';
 
 type ProfilesContext = {
   state: ProfileState | null;
@@ -17,6 +17,7 @@ type ProfilesContext = {
   signIn: (username: string) => Promise<void>;
   signOut: (key: string) => Promise<void>;
   save: (key: string, details: ProfileEdit) => Promise<void>;
+  completeSetup: (key: string, details: ProfileSetupInput) => Promise<void>;
   delete: (key: string) => Promise<void>;
 };
 
@@ -102,6 +103,7 @@ export function ProfilesProvider({ children }: { children: ReactNode }) {
     signIn: (username) => change(() => profilesApi.signIn(username)),
     signOut: (key) => change(() => profilesApi.signOut(key)),
     save: (key, details) => change(() => profilesApi.save(key, details)),
+    completeSetup: (key, details) => change(() => profilesApi.completeSetup(key, details)),
     delete: (key) => change(() => profilesApi.delete(key), 'Account deleted.'),
   }}>{children}</Context.Provider>;
 }

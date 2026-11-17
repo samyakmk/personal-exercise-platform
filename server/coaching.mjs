@@ -8,7 +8,7 @@ import { reviewWindowSeconds } from './frames.mjs';
 import { answerSessionQuestion } from './session-coach.mjs';
 import { answerTrainingChat } from './training-chat.mjs';
 
-export const reviewVersion = 30;
+export const reviewVersion = 32;
 
 const interrupted = 'Analysis was interrupted. Try again when you’re ready.';
 const busy = 'The service is busy. Try again shortly.';
@@ -64,19 +64,19 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
 
   function reviewStatus(review, attempt, now = Date.now()) {
     const sequence = attempt?.sequence ?? 0;
-    const startSeconds = attempt?.startSeconds ?? 0;
-    if (attempt.until > now) return { state: 'running', sequence, startSeconds };
-    if (attempt.until != null) return { state: 'failed', sequence, startSeconds, error: interrupted };
+    const range = { startSeconds: attempt?.startSeconds ?? 0, endSeconds: attempt?.endSeconds ?? undefined };
+    if (attempt.until > now) return { state: 'running', sequence, ...range };
+    if (attempt.until != null) return { state: 'failed', sequence, ...range, error: interrupted };
     if (attempt.owner && attempt.error) return attempt.error === cancelled
-      ? { state: 'cancelled', sequence, startSeconds }
-      : { state: 'failed', sequence, startSeconds, error: reviewError(attempt) };
+      ? { state: 'cancelled', sequence, ...range }
+      : { state: 'failed', sequence, ...range, error: reviewError(attempt) };
     if (attempt?.version === reviewVersion) {
-      if (attempt.error === cancelled) return { state: 'cancelled', sequence, startSeconds };
+      if (attempt.error === cancelled) return { state: 'cancelled', sequence, ...range };
       if (!review || review.version !== reviewVersion || (review.sequence ?? sequence) !== sequence) {
-        return { state: 'failed', sequence, startSeconds, error: reviewError(attempt) };
+        return { state: 'failed', sequence, ...range, error: reviewError(attempt) };
       }
     }
-    if (review) return { state: 'complete', sequence, startSeconds: review.startSeconds ?? 0 };
+    if (review) return { state: 'complete', sequence, startSeconds: review.startSeconds ?? 0, endSeconds: review.endSeconds };
     return { state: 'idle', sequence };
   }
 
@@ -117,20 +117,20 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
     throw new AiError(503, interrupted);
   }
 
-  function requestReview(workspace, id, startSeconds, refresh) {
+  function requestReview(workspace, id, { startSeconds, endSeconds }, refresh) {
     if (shutdown) throw new AiError(503, interrupted);
     if (store.clip(workspace, id)?.size === 0) throw new AiError(422, 'Import the original video before analyzing another section.');
     const claim = store.claimReview(workspace, id, {
-      version: reviewVersion, startSeconds, refresh, owner: randomUUID(), leaseMs: reviewLeaseMs,
+      version: reviewVersion, startSeconds, endSeconds, refresh, owner: randomUUID(), leaseMs: reviewLeaseMs,
       maxActive: maxActiveReviews, admit: () => admit(workspace),
     });
     if (claim.state === 'missing') throw new AiError(404, 'Video not found.');
     if (claim.state === 'busy') throw new AiError(429, busy, undefined, 2);
     const { review, attempt } = claim;
     if (claim.state === 'complete') return { review, reviewStatus: reviewStatus(review, attempt) };
-    if (attempt.startSeconds !== startSeconds) throw new AiError(409, reviewConflict);
+    if (attempt.startSeconds !== startSeconds || attempt.endSeconds !== endSeconds) throw new AiError(409, reviewConflict);
     const key = 'review:' + attempt.owner;
-    const status = { state: 'running', sequence: attempt.sequence, startSeconds };
+    const status = { state: 'running', sequence: attempt.sequence, startSeconds, endSeconds };
     if (claim.state === 'running') return { review, reviewStatus: status, attempt, result: pending.get(key)?.result };
 
     claim.recordStart();
@@ -154,11 +154,12 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
         const exercise = exercisesById.get(clip.exerciseId);
         if (clip.exerciseId && !exercise) throw new AiError(422, 'Choose an exercise from the library before reviewing this video.');
         const { reviewStill, ...result } = await analyzeClip(respond, store.clipChunks(workspace, id, clip, 0, clip.size), {
-          exercise, mime: clip.mime, signal, sampleFrames, estimate, startSeconds,
+          exercise, mime: clip.mime, signal, sampleFrames, estimate, startSeconds, endSeconds,
         });
         signal.throwIfAborted();
         const review = {
-          ...result, version: reviewVersion, sequence: attempt.sequence, startSeconds, windowSeconds: reviewWindowSeconds,
+          ...result, version: reviewVersion, sequence: attempt.sequence, startSeconds, endSeconds,
+          windowSeconds: endSeconds === undefined ? reviewWindowSeconds : endSeconds - startSeconds,
           reviewedAt: new Date().toISOString(),
         };
         if (!store.saveReview(workspace, id, attempt, reviewStill ? { ...review, reviewStill } : review)) {
@@ -263,11 +264,11 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
       });
     },
     review(workspace, id, signal) {
-      const { review, reviewStatus, attempt, result } = requestReview(workspace, id, 0, false);
+      const { review, reviewStatus, attempt, result } = requestReview(workspace, id, { startSeconds: 0 }, false);
       return reviewStatus.state === 'complete' ? review : result ?? waitForReview(workspace, id, attempt, signal);
     },
-    startReview(workspace, id, startSeconds, refresh) {
-      const { review, reviewStatus, result, started } = requestReview(workspace, id, startSeconds, refresh);
+    startReview(workspace, id, range, refresh) {
+      const { review, reviewStatus, result, started } = requestReview(workspace, id, range, refresh);
       if (started) void result.catch((error) => {
         if (error instanceof AiError && error.diagnostic) console.warn('Trainer Plus AI request failed:', error.diagnostic);
         else if (!(error instanceof AiError)) console.error('Trainer Plus review failed:', error.name);

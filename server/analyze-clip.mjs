@@ -1,5 +1,5 @@
 import { detectExercise, reviewExercise } from './ai.mjs';
-import { extractFrames, movementPhaseTimes, selectReviewFrames } from './frames.mjs';
+import { extractFrames, movementPhaseTimes, reviewWindowSeconds, selectReviewFrames } from './frames.mjs';
 import { matchReferenceStill } from './reference-stills.mjs';
 import { estimatePoses } from './pose.mjs';
 import { assessBirdTurn, assessCoreMotion } from './core-motion.mjs';
@@ -51,29 +51,37 @@ function reviewSampleRate(exerciseId) {
     || exerciseId === 'reverse-lunge' || exerciseId === 'dead-bug' ? 4 : 2;
 }
 
-export async function prepareClipReview(source, {
-  exercise, mime, signal, sampleFrames = extractFrames, estimate, startSeconds = 0,
-}) {
-  const samples = await sampleFrames(source, { mime, signal, startSeconds, sampleRate: reviewSampleRate(exercise.id) });
-  return prepareSampledReview(samples, { exercise, signal, estimate, startSeconds });
+function canTrackRange(startSeconds, endSeconds) {
+  // Local movement checks are calibrated for the regular sampling cadence.
+  return endSeconds === undefined || endSeconds - startSeconds <= reviewWindowSeconds;
 }
 
-async function prepareSampledReview(samples, { exercise, signal, estimate = estimatePoses, startSeconds = 0 }) {
+async function trackSamples(samples, estimate = estimatePoses, signal) {
+  try {
+    return (await estimate(samples, signal)) ?? null;
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    console.warn('Trainer Plus pose estimates unavailable for this clip.');
+    return null;
+  }
+}
+
+export async function prepareClipReview(source, {
+  exercise, mime, signal, sampleFrames = extractFrames, estimate, startSeconds = 0, endSeconds,
+}) {
+  const samples = await sampleFrames(source, { mime, signal, startSeconds, endSeconds, sampleRate: reviewSampleRate(exercise.id) });
+  return prepareSampledReview(samples, { exercise, signal, estimate, startSeconds, endSeconds });
+}
+
+async function prepareSampledReview(samples, { exercise, signal, estimate, startSeconds = 0, endSeconds, trackedPoses }) {
   const assess = assessments[exercise.id];
   const lunge = exercise.id === 'reverse-lunge';
   const core = exercise.id === 'dead-bug';
-  const trackPose = reviewSampleRate(exercise.id) === 4;
+  const trackPose = reviewSampleRate(exercise.id) === 4 && canTrackRange(startSeconds, endSeconds);
   let poses = null;
   if (trackPose && samples.length >= (exercise.id === 'pull-up' ? 5 : 8)) {
-    try {
-      poses = (await estimate(samples, signal))?.map((pose) => ({
-        ...pose, timestamp: pose.timestamp - startSeconds,
-      }));
-    }
-    catch (error) {
-      if (signal?.aborted) throw error;
-      console.warn('Trainer Plus pose estimates unavailable for this clip.');
-    }
+    const tracked = trackedPoses === undefined ? await trackSamples(samples, estimate, signal) : trackedPoses;
+    poses = tracked?.map((pose) => ({ ...pose, timestamp: pose.timestamp - startSeconds }));
   }
   signal?.throwIfAborted();
   const result = poses && assess ? assess(poses) : { coverage: 'unavailable', evidence: [] };
@@ -91,15 +99,21 @@ async function prepareSampledReview(samples, { exercise, signal, estimate = esti
   const phaseTimes = poses && joints ? movementPhaseTimes(poses, joints) : [];
   const verificationFrames = [...verificationTimes, ...phaseTimes].map((time) => ({ timestamp: absoluteTime(time) }));
   return { exercise, frames: selectReviewFrames(samples, [...evidence, ...verificationFrames]), signal,
-    evidence, coverage: localCoverage, lungeMotion: lungeMotion?.variant, coreMotion: coreMotion?.variant };
+    evidence, coverage: localCoverage, assessed: result.assessed, lungeMotion: lungeMotion?.variant, coreMotion: coreMotion?.variant };
 }
 
 async function prepareDetectedReview(respond, source, options) {
-  const { mime, signal, sampleFrames = extractFrames, startSeconds = 0 } = options;
-  const samples = await sampleFrames(source, { mime, signal, startSeconds, sampleRate: 4 });
-  const exercise = await detectExercise(respond, { frames: selectReviewFrames(samples), signal });
+  const { mime, signal, sampleFrames = extractFrames, estimate, startSeconds = 0, endSeconds } = options;
+  const samples = await sampleFrames(source, { mime, signal, startSeconds, endSeconds, sampleRate: 4 });
+  const trackedPoses = samples.length >= 5 && canTrackRange(startSeconds, endSeconds) ? await trackSamples(samples, estimate, signal) : null;
+  const phasePairs = trackedPoses ? [phaseJoints['bodyweight-squat'], phaseJoints['dumbbell-bench-press']]
+    .map((joints) => movementPhaseTimes(trackedPoses, joints)).filter(({ length }) => length) : [];
+  // Leave half the image budget available for the rest of the window, including static holds.
+  const phaseFrames = phasePairs.flatMap((times) => times.slice(0, phasePairs.length === 2 ? 2 : 4))
+    .map((timestamp) => ({ timestamp }));
+  const exercise = await detectExercise(respond, { frames: selectReviewFrames(samples, phaseFrames), signal });
   const reviewSamples = reviewSampleRate(exercise.id) === 4 ? samples : samples.filter((_, index) => index % 2 === 0);
-  return prepareSampledReview(reviewSamples, { ...options, exercise });
+  return prepareSampledReview(reviewSamples, { ...options, exercise, trackedPoses });
 }
 
 export async function analyzeClip(respond, source, options) {
@@ -141,7 +155,7 @@ function describeReviewCoverage(prepared, result, visuallyReviewed) {
   const assessments = [];
   if (result.verdict === 'different_exercise') assessments.push('Visible movement and exercise identity');
   else if (result.verdict !== 'insufficient_visibility') {
-    if (tracked) assessments.push(tracked);
+    if (tracked) assessments.push(...(prepared.assessed ?? [tracked]));
     if (lungeMotion === 'reverse_lunge') assessments.push('Step direction through the visible lunge');
     if (visuallyReviewed && result.observations.length && !assessments.length) assessments.push('The visible positions cited with the cue');
   }

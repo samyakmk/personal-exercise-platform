@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Archive, Download, Upload } from 'lucide-react-native';
 import { StyleSheet, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import { RequestError } from '../api';
 import { BackupPicker } from '../platform/BackupPicker';
 import type { BackupFile } from '../platform/BackupPicker';
@@ -21,9 +22,9 @@ const names: Record<keyof ProfileArchiveSummary, string> = {
   checkIns: 'Private check-ins', clips: 'Clip details and saved form reviews', videos: 'Video files',
 };
 
-export function ProfileArchive() {
+export function ProfileArchive({ style }: { style: StyleProp<ViewStyle> }) {
   const [open, setOpen] = useState(false);
-  return <Panel style={styles.section}>
+  return <Panel style={style}>
     <SectionTitle title="Data & privacy" summary="This profile is tied to this browser. Export a copy to recover or move your training history." />
     <Button icon={Archive} style={{ alignSelf: 'flex-start' }} onPress={() => setOpen(true)}>Export or restore profile</Button>
     {open && <ProfileArchiveSheet onClose={() => setOpen(false)} />}

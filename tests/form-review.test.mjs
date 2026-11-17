@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { reviewExercise } from '../server/ai.mjs';
-import { prepareClipReview } from '../server/analyze-clip.mjs';
+import { detectExercise, reviewExercise } from '../server/ai.mjs';
+import { analyzeClip, prepareClipReview } from '../server/analyze-clip.mjs';
 import { exercisesById } from '../server/catalog.mjs';
 import { selectReviewFrames } from '../server/frames.mjs';
 import { assessBirdTurn, assessCoreMotion } from '../server/core-motion.mjs';
@@ -218,11 +218,32 @@ test('squat review uses visible knee tracking from a front view when side-view m
   const review = await reviewExercise(async ({ instructions }) => {
     assert.match(instructions, /front or diagonal view can show knees drifting/);
     return { verdict: 'observations', summary: '', observations: [
-      { frame: 2, comparisonFrame: 3, kind: 'adjustment', observation, cue },
+      { frame: 2, comparisonFrame: 3, kind: 'adjustment', check: 'squat_knee_tracking', observation, cue },
     ] };
   }, { exercise, frames, coverage: 'limited' });
   assert.equal(review.verdict, 'observations');
-  assert.deepEqual(review.observations, [{ timestamp: 4, comparisonTimestamp: 6, kind: 'adjustment', observation, cue }]);
+  assert.deepEqual(review.observations, [{ timestamp: 4, comparisonTimestamp: 6, kind: 'adjustment', check: 'squat_knee_tracking', observation, cue }]);
+});
+
+test('squat feedback preserves distinct measured cues and adds at most one supported refinement', async () => {
+  const exercise = exercisesById.get('bodyweight-squat');
+  const frames = [2, 3, 3.25, 5].map((timestamp) => ({ timestamp, image: Buffer.from('frame') }));
+  const evidence = [
+    { check: 'squat_narrow_stance', timestamp: 2, comparisonTimestamp: 5, observation: 'Your feet stay close together.', cue: 'Try a wider stance.' },
+    { check: 'squat_short_depth', timestamp: 3, comparisonTimestamp: 5, observation: 'Your hips stay high at the bottom.', cue: 'Try bending a little farther.' },
+  ];
+  const visual = { frame: 2, comparisonFrame: 4, kind: 'adjustment', observation: 'Your right heel lifts.', cue: 'Keep your whole foot planted.' };
+  const options = { exercise, frames, coverage: 'measured', evidence };
+  const result = await reviewExercise(async () => ({ verdict: 'observations', summary: '', observations: [
+    { ...visual, check: 'squat_narrow_stance' },
+    { ...visual, check: 'squat_weight_shift', comparisonFrame: 3 },
+    { ...visual, check: 'squat_foot_contact' },
+  ] }), options);
+  assert.equal(result.verdict, 'observations');
+  assert.deepEqual(result.observations.map(({ check }) => check), ['squat_narrow_stance', 'squat_short_depth', 'squat_foot_contact']);
+  const mismatch = await reviewExercise(async () => ({ verdict: 'different_exercise', summary: 'This is a lunge.', observations: [] }), options);
+  assert.equal(mismatch.verdict, 'different_exercise');
+  assert.deepEqual(mismatch.observations, []);
 });
 
 test('bench press sampling retains the loaded position in each half even without a local fault rule', async () => {
@@ -247,6 +268,56 @@ test('bench press sampling retains the loaded position in each half even without
   assert.equal(prepared.coverage, 'unavailable');
   assert.equal(prepared.frames.length, 8);
   assert.ok(loaded.every((timestamp) => prepared.frames.some((frame) => frame.timestamp === timestamp)));
+});
+
+test('auto detection sees fleeting low positions and corrects an unsupported dumbbell label before review', async () => {
+  const samples = Array.from({ length: 40 }, (_, index) => ({ timestamp: 10 + index / 4, image: Buffer.from('frame') }));
+  const lows = [11, 17];
+  assert.ok(lows.every((timestamp) => !selectReviewFrames(samples).some((frame) => frame.timestamp === timestamp)));
+  let estimates = 0;
+  const calls = [];
+  const result = await analyzeClip(async ({ name, content }) => {
+    calls.push(name);
+    if (name === 'exercise_detection') {
+      const labels = content.filter(({ type }) => type === 'input_text').slice(1).map(({ text }) => text);
+      assert.equal(labels.length, 8);
+      assert.ok(lows.every((timestamp) => labels.some((label) => label.includes(` ${timestamp} seconds `))));
+      return { exerciseId: 'fedb-dumbbell-squat' };
+    }
+    if (name === 'exercise_squat_load') return { load: 'bodyweight', frame: 2, comparisonFrame: 7 };
+    assert.equal(JSON.parse(content[0].text).exercise, 'Bodyweight Squat');
+    return { verdict: 'observations', summary: '', observations: [] };
+  }, null, {
+    startSeconds: 10,
+    sampleFrames: async () => samples,
+    estimate: async () => {
+      estimates += 1;
+      return samples.map(({ timestamp }) => {
+        const points = Array.from({ length: 17 }, () => ({ x: 0, y: 0, confidence: 0 }));
+        points[11] = { x: 80, y: 120, confidence: 0.9 };
+        points[13] = { x: 80, y: 160, confidence: 0.9 };
+        const lowered = lows.includes(timestamp);
+        points[15] = { x: lowered ? 120 : 80, y: lowered ? 160 : 200, confidence: 0.9 };
+        return { points, timestamp };
+      });
+    },
+  });
+  assert.equal(estimates, 1);
+  assert.equal(result.detectedExerciseId, 'bodyweight-squat');
+  assert.deepEqual(calls, ['exercise_detection', 'exercise_squat_load', 'exercise_form_review']);
+});
+
+test('squat detection keeps confirmed weights and asks for a selection when the load is obscured', async () => {
+  const frames = [0, 0.25, 2].map((timestamp) => ({ timestamp, image: Buffer.from('fixture') }));
+  const detect = (confirmation) => detectExercise(async ({ name }) => name === 'exercise_detection'
+    ? { exerciseId: 'fedb-dumbbell-squat' } : confirmation, { frames });
+  for (const [load, id] of [['dumbbells', 'fedb-dumbbell-squat'], ['goblet', 'goblet-squat']]) {
+    assert.equal((await detect({ load, frame: 1, comparisonFrame: 3 })).id, id);
+  }
+  for (const confirmation of [{ load: 'unclear', frame: null, comparisonFrame: null },
+    { load: 'bodyweight', frame: 1, comparisonFrame: 2 }]) {
+    await assert.rejects(detect(confirmation), { status: 422, diagnostic: 'exercise_detection_unclear' });
+  }
 });
 
 test('core reviews require a supported correction category and comparison', async () => {
@@ -584,6 +655,20 @@ test('a sustained forearm plank deviation keeps its direction in a mirrored came
   });
   assert.equal(assessPlank(diagonal).coverage, 'measured');
   assert.deepEqual(assessPlank(diagonal).evidence, []);
+
+  const steady = poses(100);
+  const raised = poses(75);
+  function combine(count, other = steady) {
+    return other.map(({ timestamp, points }, index) => {
+      const both = [...points];
+      if (index < count) for (const joint of [5, 7, 9, 11, 13, 15]) both[joint + 1] = raised[index].points[joint];
+      return { timestamp, points: both };
+    });
+  }
+  // A brief loss of tracking on one side must not hide a sustained fault on that side.
+  assert.equal(assessPlank(combine(13)).evidence[0].check, 'plank_raised_hips');
+  assert.deepEqual(assessPlank(combine(7)).evidence, []);
+  assert.deepEqual(assessPlank(combine(13, poses(135))).evidence, []);
 });
 
 test('a standing press range cue needs repeated overhead troughs and yields to deeper evidence', () => {
@@ -655,6 +740,35 @@ test('squat depth requires repeated visible lows and withholds a cue for mixed o
   assert.ok(Math.abs(shallow.evidence[0].timestamp - shallow.evidence[0].comparisonTimestamp) >= 0.9);
   assert.deepEqual(assessSquat(sequence({ mixed: true })).evidence, []);
   assert.deepEqual(assessSquat(sequence({ front: true })), { coverage: 'limited', evidence: [] });
+});
+
+test('frontal squats assess stance and a clearly short descent independently', () => {
+  function sequence({ width, depth, obscured = false, mirrored = false, count = 3 }) {
+    return Array.from({ length: count * 10 + 1 }, (_, index) => {
+      const phase = (1 - Math.cos(2 * Math.PI * (index % 10) / 10)) / 2;
+      const points = Array.from({ length: 17 }, () => ({ x: 0, y: 0, confidence: 0 }));
+      for (const side of [0, 1]) {
+        const sign = side ? 1 : -1;
+        const hipY = 200 + depth * phase;
+        const locations = {
+          5: [50, hipY - 125], 11: [31, hipY], 13: [width / 2 + 12 * phase, 295 + 50 * phase], 15: [width / 2, 405],
+        };
+        for (const [id, [x, y]] of Object.entries(locations)) {
+          points[Number(id) + side] = { x: 250 + x * sign * (mirrored ? -1 : 1), y,
+            confidence: obscured && side && Number(id) === 15 ? 0.1 : 0.9 };
+        }
+      }
+      return { timestamp: index / 4, points };
+    });
+  }
+  const checks = (params) => assessSquat(sequence(params)).evidence.map(({ check }) => check);
+  assert.deepEqual(checks({ width: 55, depth: 60 }), ['squat_narrow_stance', 'squat_short_depth']);
+  assert.deepEqual(checks({ width: 55, depth: 60, mirrored: true }), ['squat_narrow_stance', 'squat_short_depth']);
+  assert.deepEqual(checks({ width: 105, depth: 60 }), ['squat_short_depth']);
+  assert.deepEqual(checks({ width: 55, depth: 140 }), ['squat_narrow_stance']);
+  assert.deepEqual(checks({ width: 105, depth: 140 }), []);
+  assert.deepEqual(checks({ width: 55, depth: 60, obscured: true }), []);
+  assert.deepEqual(checks({ width: 55, depth: 60, count: 1 }), []);
 });
 
 test('lunge identification compares the step with standing positions on both sides of a rep', () => {

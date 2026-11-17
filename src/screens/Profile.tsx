@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, ArrowRight, Dumbbell, LogOut, Plus, Trash2 } from 'lucide-react-native';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { EquipmentSheet } from '../components/EquipmentSheet';
+import { EquipmentFields, EquipmentSheet } from '../components/EquipmentSheet';
 import { ProfileArchive } from '../components/ProfileArchive';
 import { Sheet } from '../components/Sheet';
 import { TrainingNotes } from '../components/TrainingNotes';
@@ -13,8 +14,19 @@ import { Button, Copy, Display, EditorialTitle, Input, Notice, PageTitle, Panel,
 import { useProfiles } from '../profiles';
 import { color, radius } from '../theme';
 import type { Profile, ProfileEdit } from '../types';
+import { useWorkspace } from '../workspace';
 
 const profileColors = [color.accent, color.tint, '#c9d7b8', '#e9d7bf', '#c4d4ce'];
+
+function ProfileFrame({ compact, children }: { compact: boolean; children: ReactNode }) {
+  return <ScrollView nativeID="trainer-plus-profile-gate" style={styles.canvas} contentContainerStyle={styles.entry} keyboardShouldPersistTaps="handled">
+    <TrainingDial compact={compact} />
+    <View role="banner" accessibilityLabel="Trainer Plus" style={[styles.brand, compact && styles.brandCompact]}>
+      <Wordmark />
+    </View>
+    {children}
+  </ScrollView>;
+}
 
 export function ProfileGate() {
   const { state, loadError, notice, reload, busy, create, signIn } = useProfiles();
@@ -54,11 +66,7 @@ export function ProfileGate() {
     }, 'create');
   }
 
-  return <ScrollView nativeID="trainer-plus-profile-gate" style={styles.canvas} contentContainerStyle={styles.entry} keyboardShouldPersistTaps="handled">
-    <TrainingDial compact={compact} />
-    <View role="banner" accessibilityLabel="Trainer Plus" style={[styles.brand, compact && styles.brandCompact]}>
-      <Wordmark />
-    </View>
+  return <ProfileFrame compact={compact}>
     <View role="main" nativeID="trainer-plus-main" ref={main} tabIndex={-1} style={[styles.picker, compact && styles.pickerCompact]}>
       <EditorialTitle accessibilityRole="header" aria-level={1} size={compact ? 46 : 76} tone={color.surface} emphasisTone={color.accent}
         title="Choose a profile" style={styles.centered} />
@@ -75,7 +83,10 @@ export function ProfileGate() {
               const tileColor = profileColors[parseInt(workspaceKey.slice(0, 2), 16) % profileColors.length];
               return <Pressable key={workspaceKey} accessibilityRole="button" accessibilityLabel={'Sign in as ' + saved}
                 accessibilityState={{ busy: working === workspaceKey }} disabled={busy}
-                onPress={() => void submit(() => signIn(saved), workspaceKey)}
+                onPress={() => void submit(async () => {
+                  await signIn(saved);
+                  router.replace('/');
+                }, workspaceKey)}
                 style={({ hovered, pressed }) => [styles.tile, { width: tileSize, opacity: busy && working !== workspaceKey ? 0.6 : 1 },
                   (hovered || pressed) && styles.tileHighlighted]}>
                 <View aria-hidden style={[styles.tileSquare, { backgroundColor: tileColor }]}>
@@ -113,7 +124,90 @@ export function ProfileGate() {
           </Sheet>}
         </>}
     </View>
-  </ScrollView>;
+  </ProfileFrame>;
+}
+
+type ProfileFormValues = Required<ProfileEdit>;
+
+function profileFormValues(profile: Profile): ProfileFormValues {
+  return {
+    displayName: profile.details.displayName ?? '',
+    trainingGoal: profile.details.trainingGoal ?? '',
+    trainingPreferences: profile.details.trainingPreferences ?? emptyPreferences,
+  };
+}
+
+function ProfileFields({ value, onChange, disabled }: {
+  value: ProfileFormValues; onChange: (value: ProfileFormValues) => void; disabled: boolean;
+}) {
+  return <>
+    <View style={styles.fieldRow}>
+      <Input label="Display name" value={value.displayName} onChangeText={(displayName) => onChange({ ...value, displayName })}
+        maxLength={60} editable={!disabled} />
+    </View>
+    <View style={styles.fieldRow}>
+      <Input label="Training goal" value={value.trainingGoal} onChangeText={(trainingGoal) => onChange({ ...value, trainingGoal })}
+        maxLength={240} editable={!disabled} multiline placeholder="What would you like to get better at?" style={styles.goal} />
+    </View>
+    <PreferenceFields value={value.trainingPreferences} onChange={(trainingPreferences) => onChange({ ...value, trainingPreferences })}
+      disabled={disabled} />
+  </>;
+}
+
+export function ProfileSetup({ profile }: { profile: Profile }) {
+  const { busy, completeSetup, signOut } = useProfiles();
+  const { data, error: workspaceError, reload } = useWorkspace();
+  const router = useRouter();
+  const compact = useWindowDimensions().width < 620;
+  const [details, setDetails] = useState(() => profileFormValues(profile));
+  const [equipment, setEquipment] = useState<string[] | null>();
+  const [equipmentOpen, setEquipmentOpen] = useState(false);
+  const [error, setError] = useState('');
+  const main = useRef<View>(null);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') document.title = 'Set up your profile · Trainer Plus';
+    (main.current as unknown as HTMLElement | null)?.focus?.({ preventScroll: true });
+  }, []);
+
+  async function submit() {
+    if (busy) return;
+    setError('');
+    try {
+      await completeSetup(profile.workspaceKey, { ...details, equipment });
+      router.replace('/');
+    } catch (failure) { setError((failure as Error).message); }
+  }
+
+  return <ProfileFrame compact={compact}>
+    <View role="main" nativeID="trainer-plus-main" ref={main} tabIndex={-1} style={[styles.setup, compact && styles.setupCompact]}>
+      <Panel style={[styles.setupPanel, compact && styles.setupPanelCompact]}>
+        <View style={styles.setupIntro}>
+          <EditorialTitle accessibilityRole="header" aria-level={1} size={compact ? 38 : 51} title="Set up your profile" />
+          <Copy tone={color.muted}>All fields are optional.</Copy>
+        </View>
+        <ProfileFields value={details} onChange={setDetails} disabled={busy} />
+        <View style={styles.setupEquipment}>
+          <Button icon={Dumbbell} aria-expanded={equipmentOpen} disabled={busy || !data} onPress={() => setEquipmentOpen(!equipmentOpen)}>
+            My equipment
+          </Button>
+          {equipmentOpen && data && <EquipmentFields value={equipment === undefined ? data.equipment : equipment} options={data.equipmentOptions}
+            onChange={setEquipment} disabled={busy} />}
+        </View>
+        {workspaceError && !data && <Notice error action={<Button compact onPress={reload}>Retry</Button>}>
+          Equipment and exercise choices could not load.
+        </Notice>}
+        {error && <Notice error>{error}</Notice>}
+        <View style={styles.setupActions}>
+          <Button kind="primary" end={ArrowRight} disabled={busy} onPress={() => void submit()}>Save profile</Button>
+          <Button kind="quiet" disabled={busy} onPress={() => {
+            setError('');
+            void signOut(profile.workspaceKey).catch((failure: Error) => setError(failure.message));
+          }}>Sign out</Button>
+        </View>
+      </Panel>
+    </View>
+  </ProfileFrame>;
 }
 
 export function ProfileScreen() {
@@ -138,19 +232,17 @@ function ProfileSettings({ profile, busy, save, signOut, remove }: {
   const { from } = useLocalSearchParams<{ from?: string }>();
   const comingFromOverview = from === 'overview';
   const savedName = profile.details.displayName ?? '';
-  const savedGoal = profile.details.trainingGoal ?? '';
-  const savedPreferences = JSON.stringify(profile.details.trainingPreferences ?? emptyPreferences);
-  const [preferences, setPreferences] = useState(profile.details.trainingPreferences ?? emptyPreferences);
-  const [displayName, setDisplayName] = useState(savedName);
-  const [trainingGoal, setTrainingGoal] = useState(savedGoal);
+  const savedDetails = JSON.stringify(profileFormValues(profile));
+  const [details, setDetails] = useState(() => profileFormValues(profile));
   const [deleting, setDeleting] = useState(false);
   const [equipment, setEquipment] = useState(false);
   const [confirmation, setConfirmation] = useState('');
   const [status, setStatus] = useState<{ error: boolean; message: string }>();
   const [deleteError, setDeleteError] = useState('');
 
-  useEffect(() => { setDisplayName(savedName); setTrainingGoal(savedGoal); }, [savedName, savedGoal]);
-  useEffect(() => { setPreferences(JSON.parse(savedPreferences)); }, [savedPreferences]);
+  useEffect(() => { setDetails(JSON.parse(savedDetails)); }, [savedDetails]);
+
+  const editedDetails = { ...details, displayName: details.displayName.trim(), trainingGoal: details.trainingGoal.trim() };
 
   async function submit(action: () => Promise<void>, success?: string) {
     setStatus(undefined);
@@ -179,18 +271,10 @@ function ProfileSettings({ profile, busy, save, signOut, remove }: {
           <Copy size={13} tone={color.muted}>@{profile.username}</Copy>
         </View>
       </View>
-      <SectionTitle title="Training preferences" summary="Optional details that shape your workout suggestions." />
-      <View style={styles.fieldRow}>
-        <Input label="Display name" value={displayName} onChangeText={setDisplayName} maxLength={60} editable={!busy} />
-      </View>
-      <View style={styles.fieldRow}>
-        <Input label="Training goal" value={trainingGoal} onChangeText={setTrainingGoal} maxLength={240} editable={!busy}
-          multiline placeholder="What would you like to get better at?" style={{ minHeight: 84, paddingVertical: 10 }} />
-      </View>
-      <PreferenceFields value={preferences} onChange={setPreferences} disabled={busy} />
-      <Button kind="primary" disabled={busy || (displayName.trim() === savedName && trainingGoal.trim() === savedGoal
-        && JSON.stringify(preferences) === savedPreferences && profile.details.trainingPreferences?.intake === 'completed')}
-        onPress={() => void submit(() => save({ displayName, trainingGoal, trainingPreferences: { ...preferences, intake: 'completed' } }), 'Profile details saved.')} style={styles.action}>
+      <SectionTitle title="Training preferences" summary="Choose what shapes your workout suggestions." />
+      <ProfileFields value={details} onChange={setDetails} disabled={busy} />
+      <Button kind="primary" disabled={busy || (JSON.stringify(editedDetails) === savedDetails && profile.details.trainingPreferences?.intake === 'completed')}
+        onPress={() => void submit(() => save({ ...editedDetails, trainingPreferences: { ...details.trainingPreferences, intake: 'completed' } }), 'Profile details saved.')} style={styles.action}>
         Save profile
       </Button>
       {status && <Notice error={status.error}
@@ -201,7 +285,7 @@ function ProfileSettings({ profile, busy, save, signOut, remove }: {
     {equipment && <EquipmentSheet onClose={() => setEquipment(false)} />}
     <TrainingNotes />
     <TrainingProfileHistory key={JSON.stringify(profile.details)} />
-    <ProfileArchive />
+    <ProfileArchive style={styles.settingsPanel} />
     <Panel style={styles.settingsPanel}>
       <SectionTitle title="Switch profiles" summary="Sign out to choose another profile or create one. Your training data stays with this profile." />
       <Button icon={LogOut} disabled={busy} onPress={() => void submit(signOut)} style={styles.action}>Sign out</Button>
@@ -245,11 +329,19 @@ const styles = StyleSheet.create({
   addSquare: { backgroundColor: color.inkHover, borderWidth: 1, borderColor: color.control, borderStyle: 'dashed' },
   firstTile: { backgroundColor: color.accent },
   tileLabel: { textAlign: 'center', paddingBottom: 3 },
+  setup: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingVertical: 36 },
+  setupCompact: { paddingHorizontal: 14, paddingVertical: 20 },
+  setupPanel: { width: '100%', maxWidth: 700, padding: 26, gap: 16 },
+  setupPanelCompact: { padding: 17 },
+  setupIntro: { gap: 6, borderBottomWidth: 1, borderColor: color.line, paddingBottom: 14 },
+  setupEquipment: { gap: 12, borderTopWidth: 1, borderColor: color.line, paddingTop: 14 },
+  setupActions: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 9 },
   settings: { width: '100%', maxWidth: 720, gap: 15 },
   settingsPanel: { gap: 14, padding: 19 },
   identity: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingBottom: 14, borderBottomWidth: 1, borderColor: color.line },
   avatar: { width: 49, height: 49, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: color.tint },
   fieldRow: { flexDirection: 'row' },
+  goal: { minHeight: 84, paddingVertical: 10 },
   action: { alignSelf: 'flex-start' },
   deleteActions: { flexDirection: 'row', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 },
 });

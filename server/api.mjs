@@ -450,12 +450,13 @@ export function createApi(store, {
           return json(res, 200, store.profiles.state(browserId, legacy));
         }
         if (!id && method === 'POST') {
-          const { username: entered } = await readJson(req, res, 2048);
+          const { username: entered, setup = false } = await readJson(req, res, 2048);
           const username = usernameField(entered);
+          requireValue(typeof setup === 'boolean', 'Invalid profile setup option.');
           const knownBrowser = store.profiles.hasBrowser(browserId);
           const token = knownBrowser ? rawToken : randomBytes(32).toString('hex');
           const owner = knownBrowser ? browserId : hashBrowserToken(token);
-          const result = store.profiles.create(owner, username, legacy);
+          const result = store.profiles.create(owner, username, legacy, setup);
           requireValue(result !== 'active', 'Sign out before creating another profile.', 409);
           requireValue(result !== 'duplicate', 'That username already has a profile in this browser.', 409);
           const updates = knownBrowser && currentToken !== undefined ? [] : [setBrowserCookie(token)];
@@ -471,6 +472,15 @@ export function createApi(store, {
           const result = browserId ? store.profiles.signIn(browserId, username) : 'missing';
           requireValue(result !== 'active', 'Sign out before switching profiles.', 409);
           requireValue(result === 'selected', 'This profile was not found in this browser.', 404);
+          return json(res, 200, store.profiles.state(browserId, null));
+        }
+        if (id === 'setup' && method === 'POST') {
+          requireValue(workspace && expected === workspaceKey, profileChanged, 409);
+          const body = await readJson(req, res, 16 * 1024);
+          const details = profileDetails(body);
+          const selected = body.equipment;
+          requireValue(selected === undefined || selected === null || optionList(selected, equipment), 'Choose equipment from the available options.');
+          requireValue(store.profiles.completeSetup(browserId, workspace, details, selected), profileChanged, 409);
           return json(res, 200, store.profiles.state(browserId, null));
         }
         if ((id === 'current' && ['PUT', 'DELETE'].includes(method)) || (id === 'logout' && method === 'POST')) {
@@ -972,8 +982,12 @@ export function createApi(store, {
           }
           if (url.searchParams.get('background') === '1') {
             const offset = url.searchParams.get('start') ?? '0';
+            const end = url.searchParams.get('end');
             requireValue(/^\d{1,5}$/.test(offset) && Number(offset) <= 86400, 'Choose a valid video start time.');
-            const result = coaching.startReview(workspace, id, Number(offset), url.searchParams.get('refresh') === '1');
+            requireValue(end === null || (/^\d{1,5}$/.test(end) && Number(end) <= 86400 && Number(end) > Number(offset)),
+              'Choose a valid end time after the start time.');
+            const range = { startSeconds: Number(offset), endSeconds: end === null ? undefined : Number(end) };
+            const result = coaching.startReview(workspace, id, range, url.searchParams.get('refresh') === '1');
             return json(res, result.reviewStatus.state === 'running' ? 202 : 200, result);
           }
           const controller = new AbortController();

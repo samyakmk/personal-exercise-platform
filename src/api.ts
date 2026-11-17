@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { dateKey, workoutTime } from './dates';
 import { uploadVideo } from './platform/uploadVideo';
-import type { ProfileArchiveSummary } from './types';
+import type { ProfileArchiveSummary, ProfileSetupInput, ReviewRange } from './types';
 import type { ChatAnswer, ChatMessage, HistoryLookup, HistoryResult, TrainingNoteInput, TrainingNotesChange, TrainingSessionMovementContext } from './types';
 import type { CheckInState, CheckInInput, Clip, ClipReview, Exercise, ExerciseFilters, ExerciseRefinement, FormFeedback, ProfileEdit, ProfileRevision, ProfileState, Recommendation, SelectedVideo, SessionCoachQuestion, Snapshot, Workout, WorkoutDelta, WorkoutSuggestion, Workspace, WorkspaceChange } from './types';
 
@@ -82,10 +82,11 @@ function forProfile(workspaceKey: string, init?: RequestInit): RequestInit {
 
 export const profilesApi = {
   state: () => request<ProfileState>('profiles'),
-  create: (username: string) => request<ProfileState>('profiles', json('POST', { username })),
+  create: (username: string) => request<ProfileState>('profiles', json('POST', { username, setup: true })),
   signIn: (username: string) => request<ProfileState>('profiles/login', json('POST', { username })),
   signOut: (key: string) => request<ProfileState>('profiles/logout', forProfile(key, { method: 'POST' })),
   save: (key: string, details: ProfileEdit) => request<ProfileState>('profiles/current', forProfile(key, json('PUT', details))),
+  completeSetup: (key: string, details: ProfileSetupInput) => request<ProfileState>('profiles/setup', forProfile(key, json('POST', details))),
   delete: (key: string) => request<ProfileState>('profiles/current', forProfile(key, { method: 'DELETE' })),
 };
 
@@ -157,8 +158,9 @@ export function createWorkspaceApi(workspaceKey: string) {
       }
       return scoped<WorkoutSuggestion>('workouts/recommendation?' + params, { method: 'POST', signal }, 55_000);
     },
-    startClipReview: (id: string, startSeconds: number, refresh = false) => scoped<ClipReview>(
-      'clips/' + id + '/review?background=1' + (startSeconds ? '&start=' + startSeconds : '') + (refresh ? '&refresh=1' : ''),
+    startClipReview: (id: string, { startSeconds, endSeconds }: ReviewRange, refresh = false) => scoped<ClipReview>(
+      'clips/' + id + '/review?background=1' + (startSeconds ? '&start=' + startSeconds : '')
+        + (endSeconds === undefined ? '' : '&end=' + endSeconds) + (refresh ? '&refresh=1' : ''),
       { method: 'POST' },
     ),
     clipReview: (id: string, signal: AbortSignal) => scoped<ClipReview>('clips/' + id + '/review', { signal }),

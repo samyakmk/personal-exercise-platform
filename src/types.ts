@@ -16,6 +16,7 @@ export type TrainingPreferences = {
 };
 export type ProfileDetails = { displayName?: string; trainingGoal?: string; trainingPreferences?: TrainingPreferences };
 export type ProfileEdit = Required<Pick<ProfileDetails, 'displayName' | 'trainingGoal'>> & Pick<ProfileDetails, 'trainingPreferences'>;
+export type ProfileSetupInput = ProfileEdit & { equipment?: string[] | null };
 export type ProfileRevision = { id: number; savedAt: string; details: ProfileDetails };
 export type CheckInChoice = 'easier' | 'rest' | 'usual';
 export type TrainingCheckIn = {
@@ -29,7 +30,7 @@ export type TrainingCheckIn = {
 export type CheckInState = { entries: TrainingCheckIn[]; day: string; adjustment: CheckInChoice | null };
 export type CheckInInput = Pick<TrainingCheckIn, 'id' | 'text' | 'adjustment'> & { time: string; wantsReply: boolean };
 export type ProfileSummary = { username: string; workspaceKey: string };
-export type Profile = ProfileSummary & { details: ProfileDetails };
+export type Profile = ProfileSummary & { details: ProfileDetails; setupPending?: true };
 export type ProfileState = { active: Profile | null; profiles: ProfileSummary[]; canImportLegacy: boolean };
 export type ProfileArchiveSummary = Record<'profile' | 'revisions' | 'equipment' | 'bookmarks' | 'workouts' |
   'trainingNotes' | 'checkIns' | 'clips' | 'videos', { add: number; same: number; conflict: number }>;
@@ -159,6 +160,8 @@ export type HistoryLookup = { kind: 'week'; week: 'this' | 'last' }
 
 export type HistoryResult = { reply: string; sources: Pick<Workout, 'id' | 'name' | 'date' | 'time'>[]; week?: string };
 
+export type ReviewRange = { startSeconds: number; endSeconds?: number };
+
 export type FormFeedback = {
   verdict: 'observations' | 'no_clear_issue' | 'insufficient_visibility' | 'different_exercise';
   summary: string;
@@ -169,6 +172,7 @@ export type FormFeedback = {
   version?: number;
   sequence?: number;
   startSeconds?: number;
+  endSeconds?: number;
   windowSeconds: number;
   reviewedAt: string;
   detectedExerciseId?: string;
@@ -184,8 +188,8 @@ export type WorkoutSuggestionContext = Pick<Workout, 'date' | 'time'> & { minute
 
 export type ReviewStatus =
   | { state: 'idle'; sequence: number }
-  | { state: 'running' | 'complete' | 'cancelled'; sequence: number; startSeconds: number }
-  | { state: 'failed'; sequence: number; startSeconds: number; error: string };
+  | ({ state: 'running' | 'complete' | 'cancelled'; sequence: number } & ReviewRange)
+  | ({ state: 'failed'; sequence: number; error: string } & ReviewRange);
 
 export type ClipReview = { review: FormFeedback | null; reviewStatus: ReviewStatus };
 
@@ -239,6 +243,7 @@ export type SelectedVideo = {
   mime: string;
   size: number;
   uri: string;
+  recorded?: boolean;
   read: () => Promise<Blob>;
   dispose: () => void;
 };

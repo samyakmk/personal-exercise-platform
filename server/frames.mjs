@@ -14,19 +14,23 @@ export const reviewWindowSeconds = 20;
 export const maxReviewFrames = 8;
 
 export async function extractFrames(source, {
-  binary = trainerPlusEnv('FFMPEG') || 'ffmpeg', mime, signal, sampleRate = 2, startSeconds = 0,
+  binary = trainerPlusEnv('FFMPEG') || 'ffmpeg', mime, signal, sampleRate = 2, startSeconds = 0, endSeconds,
 } = {}) {
+  const duration = endSeconds === undefined ? reviewWindowSeconds : endSeconds - startSeconds;
+  const frameLimit = Math.min(duration, reviewWindowSeconds) * sampleRate;
+  const fps = frameLimit / duration;
   const directory = await mkdtemp(join(tmpdir(), 'trainer-plus-frames-'));
   try {
     const input = join(directory, 'clip');
     await pipeline(Readable.from(source, { objectMode: false }), createWriteStream(input, { mode: 0o600 }), { signal });
     const filters = [
+      ...(endSeconds === undefined ? [] : [`trim=end=${duration}`]),
       // Capture the actual first decoded presentation time before resetting the sample grid.
       'metadata=mode=add:key=trainer-plus:value=1',
       'metadata=mode=print:key=trainer-plus:file=source-times.txt',
       'setpts=PTS-STARTPTS',
-      `trim=duration=${reviewWindowSeconds}`,
-      `fps=${sampleRate}:start_time=0`,
+      `trim=duration=${duration}`,
+      `fps=${duration > reviewWindowSeconds ? frameLimit + '/' + duration : sampleRate}:start_time=0`,
       'scale=640:640:force_original_aspect_ratio=decrease:force_divisible_by=2',
     ].join(',');
     try {
@@ -34,9 +38,9 @@ export async function extractFrames(source, {
         '-nostdin', '-v', 'error', '-protocol_whitelist', 'file', '-threads', '2',
         ...(startSeconds ? ['-ss', String(startSeconds)] : []),
         '-f', mime === 'video/webm' ? 'matroska' : 'mov', '-i', input, '-map', '0:V:0',
-        '-an', '-sn', '-dn', '-t', String(reviewWindowSeconds),
+        '-an', '-sn', '-dn', '-t', String(duration),
         '-filter_threads', '1', '-vf', filters,
-        '-threads', '1', '-q:v', '4', '-frames:v', String(reviewWindowSeconds * sampleRate),
+        '-threads', '1', '-q:v', '4', '-frames:v', String(frameLimit),
         join(directory, 'frame-%03d.jpg'),
       ], { cwd: directory, timeout: 18_000, maxBuffer: 64 * 1024, signal, env: { PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT } });
     } catch (error) {
@@ -47,13 +51,14 @@ export async function extractFrames(source, {
     }
 
     const names = (await readdir(directory)).filter((name) => /^frame-\d{3}\.jpg$/.test(name)).sort();
-    if (names.length >= sampleRate) {
+    const minimumFrames = Math.ceil(fps);
+    if (names.length >= minimumFrames) {
       const sourceTimes = await readFile(join(directory, 'source-times.txt'), { encoding: 'utf8', signal });
       const first = Number(sourceTimes.match(/\bpts_time:(\S+)/)?.[1]);
       const offset = Number.isFinite(first) ? Math.round(Math.max(0, first) * 1000) / 1000 : 0;
-      const window = names.slice(0, Math.max(0, Math.ceil((reviewWindowSeconds - offset) * sampleRate)));
-      if (window.length >= sampleRate) return await Promise.all(window.map(async (name, index) => ({
-        timestamp: Math.round((startSeconds + offset + index / sampleRate) * 1000) / 1000,
+      const window = names.slice(0, Math.max(0, Math.ceil((duration - offset) * fps)));
+      if (window.length >= minimumFrames) return await Promise.all(window.map(async (name, index) => ({
+        timestamp: Math.round((startSeconds + offset + index / fps) * 1000) / 1000,
         image: await readFile(join(directory, name), { signal }),
       })));
     }

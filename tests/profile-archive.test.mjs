@@ -73,8 +73,8 @@ test('profile archive previews conflicts, keeps review timestamps and restores o
     method: 'PUT', headers: { 'Content-Type': 'video/quicktime', 'X-Clip-Name': 'practice.mov' }, body: original,
   }));
   const reviews = [];
-  for (const start of [0, 1]) {
-    await ok(await owner.call(`${clip}/review?background=1&start=${start}`, { method: 'POST' }));
+  for (const end of [1, 2]) {
+    await ok(await owner.call(`${clip}/review?background=1&end=${end}`, { method: 'POST' }));
     for (let attempt = 0; attempt < 80; attempt += 1) {
       const state = await ok(await owner.call(clip + '/review'));
       if (state.reviewStatus.state === 'complete') {
@@ -86,6 +86,7 @@ test('profile archive previews conflicts, keeps review timestamps and restores o
     }
   }
   assert.equal(reviews.length, 2);
+  assert.deepEqual(reviews.map(({ endSeconds }) => endSeconds), [1, 2]);
   const archivePath = 'workspace/profile-archive';
   const metadata = await ok(await owner.call(archivePath));
   assert.equal(metadata.clips[0].history.length, 1);

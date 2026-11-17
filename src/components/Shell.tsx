@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, usePathname, useRouter } from 'expo-router';
-import { CalendarDays, ChartNoAxesColumnIncreasing, CircleUserRound, ClipboardList, Dumbbell, Ellipsis, House, LockKeyhole, MessageCircle, ScanLine } from 'lucide-react-native';
+import { CalendarDays, ChartNoAxesColumnIncreasing, CircleUserRound, ClipboardList, Dumbbell, Ellipsis, House, MessageCircle, ScanLine } from 'lucide-react-native';
 import { Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useProfiles } from '../profiles';
 import { useActiveSession } from '../activeSession';
@@ -91,7 +91,7 @@ export function Shell({ children }: { children: ReactNode }) {
         {profileName && <View style={styles.sideBottom}>
           <Link href="/profile" asChild>
             <Pressable accessibilityRole="link" accessibilityLabel={profileName} style={styles.profileLink}>
-              <LockKeyhole aria-hidden size={14} color={color.onInk} />
+              <CircleUserRound aria-hidden size={14} color={color.onInk} />
               <Copy size={12} tone={color.onInk} numberOfLines={1} style={styles.profileName}>{profileName}</Copy>
             </Pressable>
           </Link>

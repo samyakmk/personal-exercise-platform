@@ -1,6 +1,7 @@
 import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ChevronRight, Film, LockKeyhole, Pencil, Play, Search, SearchX, Sparkles, Trash2, Upload, X } from 'lucide-react-native';
+import type { RefObject } from 'react';
+import { ChevronDown, ChevronRight, ChevronUp, Film, LockKeyhole, Pencil, Play, Search, SearchX, Sparkles, Trash2, Upload, X } from 'lucide-react-native';
 import { Image, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useActiveSession } from '../activeSession';
 import { mediaUrl, RequestError } from '../api';
@@ -18,11 +19,70 @@ import type { VideoPlayerHandle } from '../platform/videoTypes';
 import { useTrainingNavigation } from '../navigation';
 import { color, radius } from '../theme';
 import { completedWorkouts } from '../trainingProgress';
-import type { Clip, Exercise, FormCue, FormFeedback, TrainingSessionMovementContext } from '../types';
+import type { Clip, Exercise, FormCue, FormFeedback, ReviewRange, TrainingSessionMovementContext } from '../types';
 import { useVideoUpload } from '../videoUpload';
 import { useWorkspace } from '../workspace';
 
-const maxReviewStartSeconds = 24 * 60 * 60;
+const maxReviewTime = 24 * 60 * 60;
+const automaticRange = { start: '0', end: '' };
+
+function reviewRange({ start, end }: typeof automaticRange, duration?: number): { value: ReviewRange; error?: string } {
+  const startSeconds = /^\d{1,5}$/.test(start) ? Number(start) : NaN;
+  const endSeconds = end === '' ? undefined : /^\d{1,5}$/.test(end) ? Number(end) : NaN;
+  const value = { startSeconds, endSeconds };
+  if (!Number.isFinite(startSeconds) || startSeconds > maxReviewTime
+    || (endSeconds !== undefined && (!Number.isFinite(endSeconds) || endSeconds > maxReviewTime))) {
+    return { value, error: 'Enter times in whole seconds.' };
+  }
+  if (endSeconds !== undefined && endSeconds <= startSeconds) {
+    return { value, error: 'End time must be after start time.' };
+  }
+  if (duration && Number.isFinite(duration) && (startSeconds + 1 > duration || (endSeconds ?? 0) > duration)) {
+    return { value, error: 'Choose a range within the video with at least one second of footage.' };
+  }
+  return { value };
+}
+
+function rangeKey({ startSeconds = 0, endSeconds }: Partial<ReviewRange>) {
+  return startSeconds + ':' + (endSeconds ?? '');
+}
+
+function rangeLabel({ startSeconds = 0, endSeconds }: Partial<ReviewRange>) {
+  return formatTimestamp(startSeconds) + (endSeconds === undefined ? '' : '–' + formatTimestamp(endSeconds));
+}
+
+function TimeRangeOptions({ times, onChange, player, ready, error, errorId }: {
+  times: typeof automaticRange; onChange: (times: typeof automaticRange) => void;
+  player: RefObject<VideoPlayerHandle | null>; ready: boolean; error?: string; errorId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const custom = times.start !== '0' || times.end !== '';
+  const range = reviewRange(times).value;
+  function usePlayhead(field: keyof typeof automaticRange) {
+    const position = Math.max(0, Math.min(maxReviewTime, Math.floor(player.current?.position() ?? 0)));
+    onChange({ ...times, [field]: String(position) });
+  }
+  return <View style={styles.rangeOptions}>
+    <Button compact kind="quiet" end={open ? ChevronUp : ChevronDown} aria-expanded={open}
+      style={{ alignSelf: 'flex-start' }} onPress={() => setOpen(!open)}>
+      {custom && !error ? 'Time range · ' + rangeLabel(range) : 'Choose time range'}
+    </Button>
+    {open && <View style={styles.window}>
+      <View style={styles.rangeFields}>
+        {(['start', 'end'] as const).map((field) => <View key={field} style={styles.rangeField}>
+          <Input label={field === 'start' ? 'Start time (seconds)' : 'End time (seconds)'}
+            value={times[field]} placeholder={field === 'end' ? 'Automatic' : undefined}
+            onChangeText={(text) => onChange({ ...times, [field]: text })}
+            inputMode="numeric" autoComplete="off" autoCorrect={false} spellCheck={false} maxLength={5}
+            aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} />
+          <Button compact kind="quiet" disabled={!ready} onPress={() => usePlayhead(field)}>{'Use playhead for ' + field}</Button>
+        </View>)}
+      </View>
+      {custom && <Button compact kind="quiet" style={{ alignSelf: 'flex-start' }} onPress={() => onChange(automaticRange)}>Clear time range</Button>}
+    </View>}
+    {error && <Copy nativeID={errorId} size={12} tone={color.danger}>{error}</Copy>}
+  </View>;
+}
 
 function clipSize(bytes: number) {
   return bytes >= 1024 * 1024 ? (bytes / (1024 * 1024)).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB';
@@ -36,7 +96,7 @@ export function FormReview() {
   const router = useRouter();
   const { clip: requested, at } = useLocalSearchParams<{ clip?: string; at?: string }>();
   const [preview, setPreview] = useState<{ id: string; state: 'ready' | 'failed' }>();
-  const [draftStart, setDraftStart] = useState<{ id: string; text: string }>();
+  const [draftRange, setDraftRange] = useState<{ id: string; times: typeof automaticRange }>();
   const [clipSearch, setClipSearch] = useState('');
   const [clipLimit, setClipLimit] = useState(10);
   const mounted = useRef(false);
@@ -67,12 +127,9 @@ export function FormReview() {
   const previewStatus = preview?.id === draft?.id ? preview?.state : undefined;
   const canUpload = converting || previewStatus === 'ready';
   const canAnalyzeUpload = data.aiAvailable && previewStatus === 'ready';
-  const startText = draftStart?.id === draft?.id ? draftStart?.text ?? '0' : '0';
-  const startSeconds = /^\d{1,5}$/.test(startText) ? Number(startText) : NaN;
+  const draftTimes = draftRange?.id === draft?.id ? draftRange?.times ?? automaticRange : automaticRange;
   const previewDuration = previewStatus === 'ready' ? previewPlayer.current?.duration() : undefined;
-  const validStart = Number.isSafeInteger(startSeconds) && startSeconds <= maxReviewStartSeconds
-    && (!Number.isFinite(previewDuration) || startSeconds <= (previewDuration ?? 0) - 1);
-  const setStartText = (text: string) => { if (draft) setDraftStart({ id: draft.id, text }); };
+  const previewRange = reviewRange(draftTimes, previewDuration);
   const resumeWorkout = session ? () => open({ type: 'resume-session' }) : undefined;
   const recent = new Set(completedWorkouts(data.workouts, workoutTime(), 5)
     .flatMap((workout) => workout.exercises.map((entry) => entry.exerciseId)));
@@ -85,9 +142,9 @@ export function FormReview() {
     return terms.every((term) => searchText.includes(term));
   });
 
-  async function saveVideo(reviewStart?: number) {
+  async function saveVideo(range?: ReviewRange) {
     if (!canUpload) return;
-    const id = await upload(reviewStart);
+    const id = await upload(range);
     if (id && mounted.current) {
       router.setParams({ clip: id, at: undefined });
       setClipSearch('');
@@ -113,7 +170,7 @@ export function FormReview() {
         </View>
         <VideoPlayer key={draft.id} ref={previewPlayer} uri={draft.clip.uri} label="Video preview"
           onReady={() => setPreview({ id: draft.id, state: 'ready' })} onError={() => setPreview({ id: draft.id, state: 'failed' })} />
-        {converting && <Copy size={13} tone={color.muted}>Trainer Plus converts this MOV to MP4 on upload. If the preview is unavailable, upload first to choose a section.</Copy>}
+        {converting && previewStatus === 'failed' && <Copy size={13} tone={color.muted}>Upload this video to preview it.</Copy>}
         {previewStatus === 'failed' && !converting && <Notice error>Choose a video your browser can play.</Notice>}
       </View> : <>
         <VideoPicker onSelect={pick} disabled={busy} />
@@ -123,22 +180,16 @@ export function FormReview() {
         options={[autoDetectOption, ...ordered.map((item) => ({ value: item.id, label: item.name, detail: recent.has(item.id) ? 'Recent' : undefined }))]} />
       {error && <Notice error>{error}</Notice>}
       {draft && (progress === null ? <>
-        {canAnalyzeUpload && <View style={styles.window}>
-          <Copy size={13} weight="semibold">{validStart ? `Analyze up to 20 seconds from ${formatTimestamp(startSeconds)}` : 'Choose a valid start with at least one second of footage left'}</Copy>
-          <View style={styles.startOptions}>
-            <View style={styles.startField}><Input label="Preview review start in seconds" visibleLabel="Review start in seconds"
-              inputMode="numeric" autoComplete="off" autoCorrect={false} spellCheck={false} maxLength={5}
-              value={startText} onChangeText={setStartText} aria-invalid={!validStart} /></View>
-            <Button compact kind="quiet" onPress={() => setStartText(String(Math.floor(previewPlayer.current?.position() ?? 0)))}>Use preview time</Button>
-          </View>
-          <AnalysisDisclosure selectedExercise={Boolean(exercise)} />
-        </View>}
         <View style={styles.uploadActions}>
+          {canAnalyzeUpload && <Button icon={Sparkles} kind="primary" disabled={Boolean(previewRange.error)}
+            onPress={() => saveVideo(previewRange.value)}>Upload and analyze</Button>}
           <Button icon={Upload} kind={canAnalyzeUpload ? 'outline' : 'primary'} disabled={!canUpload}
             onPress={() => saveVideo()}>Upload video</Button>
-          {canAnalyzeUpload && <Button icon={Sparkles} kind="primary" disabled={!validStart}
-            onPress={() => saveVideo(startSeconds)}>Upload and analyze</Button>}
         </View>
+        {canAnalyzeUpload && !draft.clip.recorded && <TimeRangeOptions key={draft.id} times={draftTimes}
+          onChange={(times) => setDraftRange({ id: draft.id, times })} player={previewPlayer} ready
+          error={previewRange.error} errorId="preview-range-error" />}
+        {draft.clip.recorded && canAnalyzeUpload && previewRange.error && <Notice error>{previewRange.error}</Notice>}
       </> : <>
         <View accessibilityRole="progressbar" accessibilityLabel="Video upload"
           accessibilityValue={{ min: 0, max: 100, now: progress }}
@@ -207,7 +258,7 @@ export function FormReview() {
         closeVideo();
         if (Platform.OS === 'web') requestAnimationFrame(() => document.getElementById('trainer-plus-add-clip')?.scrollIntoView({ block: 'start' }));
       }}
-      onReview={(start, refresh) => startReview(selected.id, start, refresh)}
+      onReview={(range, refresh) => startReview(selected.id, range, refresh)}
       onCancelReview={(sequence) => cancelReview(selected.id, sequence)}
       onChangeExercise={async (exerciseId) => {
         await mutate(() => api.changeClipExercise(selected.id, exerciseId, selected.exerciseId));
@@ -219,14 +270,6 @@ export function FormReview() {
         announce('Video deleted.');
       }} />}
   </View>;
-}
-
-function AnalysisDisclosure({ selectedExercise }: { selectedExercise: boolean }) {
-  return <Copy size={12} tone={color.muted}>
-    {selectedExercise ? 'Analysis sends OpenAI up to eight still frames from the selected section.'
-      : 'Analysis sends OpenAI up to eight still frames per step for exercise detection and form feedback.'}
-    {' A cited frame can also help select a reference image. The video and its audio stay in your workspace.'}
-  </Copy>;
 }
 
 function Feedback({ review, detectedExercise, stillUrl, onSeek, onCarryCue, onRecordAgain }: {
@@ -259,20 +302,15 @@ function Feedback({ review, detectedExercise, stillUrl, onSeek, onCarryCue, onRe
         </View>
         <Copy size={13}>{observation}</Copy>
         <Copy size={13} tone={color.muted}>{cue}</Copy>
-        {kind === 'adjustment' && stillUrl && <AdjustmentFrames key={stillUrl} stillUrl={stillUrl} timestamp={timestamp}
+        {index === 0 && kind === 'adjustment' && stillUrl && <AdjustmentFrames key={stillUrl} stillUrl={stillUrl} timestamp={timestamp}
           reference={review.observationFrame?.reference} />}
         {kind === 'adjustment' && onCarryCue && <Button compact icon={Play} onPress={() => onCarryCue(cue, timestamp)}>Try this cue next set</Button>}
       </View>
     ))}
-    <View style={styles.reviewContext}>
-      {coverage && <>
-        <Copy size={12} weight="semibold">{{ measured: 'Joint tracking', visual: 'Visual assessment', combined: 'Joint tracking and visual assessment' }[coverage.source]}</Copy>
-        {coverage.assessed.map((item) => <Copy size={12} key={item}>{item}</Copy>)}
-        {coverage.limits.map((limit) => <Copy size={12} tone={color.muted} key={limit}>{limit}</Copy>)}
-      </>}
+    {(Boolean(coverage?.assessed.length) || review.limitations) && <View style={styles.reviewContext}>
+      {coverage?.assessed.map((item) => <Copy size={12} key={item}>{item}</Copy>)}
       {review.limitations && <Copy size={12} tone={color.muted}>{review.limitations}</Copy>}
-      <Copy size={12} tone={color.muted}>Reviewed {review.framesReviewed} frames from up to {review.windowSeconds} seconds of video, starting at {formatTimestamp(review.startSeconds ?? 0)}.</Copy>
-    </View>
+    </View>}
   </View>;
 }
 
@@ -318,7 +356,7 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
   initialPosition, activeSessionId, onApplyCue, onRecordAgain, onOpenClip }: {
   clip: Clip; title: string; catalog: Exercise[]; autoDetectOption: { value: string; label: string };
   canReview: boolean; reviewVersion: number; onClose: () => void; onResumeWorkout?: () => void;
-  onReview: (startSeconds: number, refresh?: boolean) => Promise<void>; onCancelReview: (sequence: number) => Promise<void>;
+  onReview: (range: ReviewRange, refresh?: boolean) => Promise<void>; onCancelReview: (sequence: number) => Promise<void>;
   onChangeExercise: (exerciseId: string) => Promise<void>; onDelete: () => Promise<void>;
   initialPosition?: number; activeSessionId?: string;
   onApplyCue: (context: TrainingSessionMovementContext, cue: FormCue) => boolean;
@@ -342,25 +380,25 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
   const [pastReviews, setPastReviews] = useState<FormFeedback[]>([]);
   const [pastReviewError, setPastReviewError] = useState('');
   const [historyAttempt, setHistoryAttempt] = useState(0);
-  const [selectedReviewStart, setSelectedReviewStart] = useState<number | null>(null);
-  const [startText, setStartText] = useState(() => String(
-    (clip.reviewStatus.state === 'idle' ? undefined : clip.reviewStatus.startSeconds) ?? clip.review?.startSeconds ?? 0,
-  ));
+  const [selectedReviewRange, setSelectedReviewRange] = useState('');
+  const [times, setTimes] = useState(() => {
+    const range = clip.reviewStatus.state === 'idle' ? clip.review : clip.reviewStatus;
+    return { start: String(range?.startSeconds ?? 0), end: String(range?.endSeconds ?? '') };
+  });
   const [duration, setDuration] = useState(0);
   const split = useWindowDimensions().width >= 960;
   const analyzing = starting || clip.reviewStatus.state === 'running';
-  const latestStart = clip.review?.startSeconds ?? 0;
+  const latestRange = rangeKey(clip.review ?? {});
   const latestReviewTime = clip.review?.reviewedAt;
   const latestSequence = clip.review?.sequence;
-  const startSeconds = /^\d{1,5}$/.test(startText) ? Number(startText) : NaN;
-  const validStart = Number.isSafeInteger(startSeconds) && startSeconds <= maxReviewStartSeconds;
-  const pastSections = pastReviews.filter((review) => (review.startSeconds ?? 0) !== latestStart);
+  const range = reviewRange(times, ready ? duration : undefined);
+  const activeRange = rangeKey(range.value);
+  const pastSections = pastReviews.filter((review) => rangeKey(review) !== latestRange);
   const sections = clip.review ? [clip.review, ...pastSections] : [];
   const failure = clip.reviewStatus.state === 'failed' ? clip.reviewStatus : null;
   const cancellation = clip.reviewStatus.state === 'cancelled' ? clip.reviewStatus : null;
-  const savedHere = sections.find((review) => (review.startSeconds ?? 0) === startSeconds);
-  const viewedReview = selectedReviewStart === null ? clip.review
-    : sections.find((review) => (review.startSeconds ?? 0) === selectedReviewStart) ?? clip.review;
+  const savedHere = sections.find((review) => rangeKey(review) === activeRange);
+  const viewedReview = pastSections.find((review) => rangeKey(review) === selectedReviewRange) ?? clip.review;
   const reviewedExercise = clip.exerciseId || viewedReview?.detectedExerciseId || '';
   const trainingContext = clip.trainingContext;
   const carriesCue = trainingContext?.sessionId === activeSessionId && trainingContext?.exerciseId === reviewedExercise;
@@ -368,15 +406,13 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
     || trainingContext?.workoutId && data?.workouts.find(({ id, status, exercises }) => id === trainingContext.workoutId && status === 'completed'
       && exercises.some(({ exerciseId }) => exerciseId === trainingContext.exerciseId));
   const reviewedHere = savedHere?.version === reviewVersion;
-  const failedHere = failure?.startSeconds === startSeconds;
-  const cancelledHere = cancellation?.startSeconds === startSeconds;
+  const failedHere = Boolean(failure && rangeKey(failure) === activeRange);
+  const cancelledHere = Boolean(cancellation && rangeKey(cancellation) === activeRange);
   const canAnalyzeSection = !reviewedHere || savedHere?.verdict === 'insufficient_visibility'
     || savedHere?.verdict === 'different_exercise' || failedHere || cancelledHere;
-  const latestPossibleStart = Number.isFinite(duration) && duration > 0
-    ? Math.max(0, Math.min(maxReviewStartSeconds, Math.floor(duration - 1))) : maxReviewStartSeconds;
-  const tooLate = validStart && ready && (startSeconds > latestPossibleStart || (duration > 0 && duration < 1));
-  const changeStart = (value: string) => { setStartText(value); setError(''); };
-  const selectStart = (value: number) => changeStart(String(value));
+  const changeTimes = (value: typeof automaticRange) => { setTimes(value); setError(''); };
+  const selectRange = ({ startSeconds = 0, endSeconds }: Partial<ReviewRange>) =>
+    changeTimes({ start: String(startSeconds), end: String(endSeconds ?? '') });
 
   useEffect(() => {
     if (ready && initialPosition !== undefined && Number.isFinite(initialPosition) && initialPosition >= 0 && initialPosition < duration) {
@@ -405,12 +441,12 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
   }, [clip.id, latestReviewTime, latestSequence, historyAttempt]);
 
   async function analyze(refresh = false) {
-    if (analysisLock.current || !validStart || tooLate || retryAt !== null) return;
+    if (analysisLock.current || range.error || retryAt !== null) return;
     analysisLock.current = true;
     setStarting(true);
     setError('');
-    setSelectedReviewStart(null);
-    try { await onReview(startSeconds, refresh); }
+    setSelectedReviewRange('');
+    try { await onReview(range.value, refresh); }
     catch (failure) {
       setError((failure as Error).message);
       if (failure instanceof RequestError && failure.retryAfter) setRetryAt(Date.now() + Math.min(failure.retryAfter, 300) * 1000);
@@ -495,14 +531,13 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
       <View style={[styles.reviewColumn, split && { flex: 1 }]}>
         {clip.review && <>
           {pastSections.length > 0 && <SelectField label="Saved review section"
-            value={viewedReview === clip.review ? '' : String(viewedReview?.startSeconds ?? 0)}
-            options={[{ value: '', label: `Latest · ${formatTimestamp(latestStart)}` }, ...pastSections.map((review) => ({
-              value: String(review.startSeconds ?? 0), label: formatTimestamp(review.startSeconds ?? 0),
+            value={viewedReview === clip.review ? '' : selectedReviewRange}
+            options={[{ value: '', label: `Latest · ${rangeLabel(clip.review)}` }, ...pastSections.map((review) => ({
+              value: rangeKey(review), label: rangeLabel(review),
             }))]}
             onChange={(value) => {
-              const start = value === '' ? latestStart : Number(value);
-              setSelectedReviewStart(value === '' ? null : start);
-              selectStart(start);
+              setSelectedReviewRange(value);
+              selectRange(pastSections.find((review) => rangeKey(review) === value) ?? clip.review ?? {});
             }} />}
           {pastReviewError && <Notice error action={<Button compact onPress={() => setHistoryAttempt((value) => value + 1)}>Retry loading sections</Button>}>
             Saved review sections could not be loaded.
@@ -528,41 +563,21 @@ function SavedClip({ clip, title, catalog, autoDetectOption, canReview, reviewVe
             </Button>
           </View> : <>
             {failure && !error && <Notice error action={!failedHere
-              ? <Button compact kind="quiet" onPress={() => selectStart(failure.startSeconds)}>Open failed section</Button>
+              ? <Button compact kind="quiet" onPress={() => selectRange(failure)}>Open failed section</Button>
               : undefined}>{failure.error}</Notice>}
             {!clip.exerciseId && (failure || viewedReview?.verdict === 'different_exercise') &&
               <Button icon={Pencil} compact onPress={() => { setExercise(''); setEditExercise(true); setError(''); }}>Choose exercise</Button>}
             {cancellation && <Notice action={!cancelledHere
-              ? <Button compact kind="quiet" onPress={() => selectStart(cancellation.startSeconds)}>Open cancelled section</Button>
+              ? <Button compact kind="quiet" onPress={() => selectRange(cancellation)}>Open cancelled section</Button>
               : undefined}>Analysis cancelled. Your video is still saved.</Notice>}
-            <View style={[styles.window, clip.review && styles.windowAfterReview]}>
-              <Copy size={13} weight="semibold">{validStart ? `Review starts at ${formatTimestamp(startSeconds)}` : 'Choose a valid start time'}</Copy>
-              <View style={styles.startOptions}>
-                <View style={styles.startField}>
-                  <Input label="Review start in seconds" value={startText} onChangeText={changeStart}
-                    inputMode="numeric" autoComplete="off" autoCorrect={false} spellCheck={false} maxLength={12}
-                    aria-invalid={!validStart || tooLate}
-                    aria-describedby={!validStart || tooLate ? 'review-start-error' : undefined} />
-                </View>
-                <View style={styles.uploadActions}>
-                  <Button compact kind="quiet" disabled={!ready} onPress={() => {
-                    selectStart(Math.min(maxReviewStartSeconds, Math.max(0, Math.floor(player.current?.position() ?? 0))));
-                  }}>Use current video time</Button>
-                  {startText !== '0' && <Button compact kind="quiet" onPress={() => selectStart(0)}>Start at 0:00</Button>}
-                </View>
-              </View>
-              {canAnalyzeSection ? <>
-                {!validStart && <Copy nativeID="review-start-error" size={12} tone={color.danger}>{`Enter a whole number of seconds from 0 to ${maxReviewStartSeconds}.`}</Copy>}
-                {tooLate && <View nativeID="review-start-error">
-                  <Notice error>Choose a starting point with at least one second of exercise footage remaining.</Notice>
-                </View>}
-                <AnalysisDisclosure selectedExercise={Boolean(clip.exerciseId)} />
-                <Button kind="primary" icon={Sparkles} disabled={!validStart || tooLate || retryAt !== null} onPress={() => analyze(reviewedHere)}>
-                  {retryAt !== null ? 'Retry shortly' : error || failedHere || cancelledHere
-                    ? 'Retry analysis' : reviewedHere ? 'Review this section again' : clip.review ? 'Analyze this section' : 'Analyze form'}
-                </Button>
-              </> : null}
-            </View>
+            {canAnalyzeSection && <View style={styles.uploadActions}>
+              <Button kind="primary" icon={Sparkles} disabled={Boolean(range.error) || retryAt !== null} onPress={() => analyze(reviewedHere)}>
+                {retryAt !== null ? 'Retry shortly' : error || failedHere || cancelledHere
+                  ? 'Retry analysis' : reviewedHere ? 'Review this section again' : clip.review ? 'Analyze this section' : 'Analyze form'}
+              </Button>
+            </View>}
+            <TimeRangeOptions times={times} onChange={changeTimes} player={player} ready={ready}
+              error={range.error} errorId="saved-range-error" />
           </>}
         </>}
         {!canReview && clip.size > 0 && !clip.review && <Copy size={13} tone={color.muted}>Form feedback is unavailable.</Copy>}
@@ -643,7 +658,7 @@ const styles = StyleSheet.create({
   frameColumn: { flex: 1, minWidth: 0, gap: 4 },
   still: { width: '100%', aspectRatio: 4 / 3, maxHeight: 250, borderRadius: 7, backgroundColor: color.ink },
   window: { gap: 9, padding: 13, borderColor: color.line, borderWidth: 1, borderRadius: radius.panel },
-  windowAfterReview: { backgroundColor: color.canvas, borderColor: 'transparent' },
-  startOptions: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: 7 },
-  startField: { flexGrow: 1, minWidth: 150, maxWidth: 220 },
+  rangeOptions: { gap: 5 },
+  rangeFields: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  rangeField: { flexGrow: 1, minWidth: 140, maxWidth: 220, gap: 3, alignItems: 'stretch' },
 });

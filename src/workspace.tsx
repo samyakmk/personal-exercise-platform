@@ -5,7 +5,7 @@ import { compareWorkoutTime, workoutTime } from './dates';
 import { readCachedCatalog, readOfflineWorkspace, writeCachedCatalog, writeOfflineWorkspace } from './platform/offline';
 import { signalWorkspaceUpdate, watchWorkspaceUpdates } from './platform/workspaceUpdates';
 import { completedWorkouts } from './trainingProgress';
-import type { Clip, ClipReview, Exercise, Snapshot, Workspace, WorkspaceChange } from './types';
+import type { Clip, ClipReview, Exercise, ReviewRange, Snapshot, Workspace, WorkspaceChange } from './types';
 import { useLocalClock } from './useLocalClock';
 
 type WorkspaceState = {
@@ -18,7 +18,7 @@ type WorkspaceState = {
   transferClip: (id: string, signal: AbortSignal, operation: () => Promise<void>) => Promise<boolean>;
   refreshAfterRestore: (changed: boolean) => void;
   recommendationContext: string;
-  startReview: (id: string, startSeconds: number, refresh?: boolean) => Promise<void>;
+  startReview: (id: string, range: ReviewRange, refresh?: boolean) => Promise<void>;
   cancelReview: (id: string, sequence: number) => Promise<void>;
   notice: string;
   announce: (message: string) => void;
@@ -207,9 +207,9 @@ export function WorkspaceProvider({ workspaceKey, refreshProfile, children }: {
     });
   }, []);
 
-  const startReview = useCallback(async (id: string, startSeconds: number, refresh?: boolean) => {
+  const startReview = useCallback(async (id: string, range: ReviewRange, refresh?: boolean) => {
     try {
-      updateReview(id, await api.startClipReview(id, startSeconds, refresh));
+      updateReview(id, await api.startClipReview(id, range, refresh));
       signalWorkspaceUpdate();
     } catch (failure) {
       if (!(failure instanceof RequestError) || [404, 408, 409].includes(failure.status)) reload();

@@ -244,7 +244,7 @@ export function CameraRecorder({ onSelect, disabled, filmingTip, selectionLabel 
     const clip = capture.clip;
     capture.clip = undefined;
     close();
-    onSelect(clip);
+    onSelect({ ...clip, recorded: true });
   }
 
   const closed = state.phase === 'closed';

@@ -46,7 +46,7 @@ export function TrainerInstructions({ items, onChange, disabled }: {
         onChange={(kind) => setDraft({ ...draft, kind: kind as TrainerInstruction['kind'] })} />
       <ExercisePicker label="Exercise for this instruction" value={draft.exerciseId} disabled={disabled} onChange={(exerciseId) => setDraft({ ...draft, exerciseId })}
         options={exercises.map(({ id, name }) => ({ value: id, label: name }))} />
-      <Input label={draft.kind === 'cue' ? 'Cue to show during training' : 'Reason for this instruction (optional)'} value={draft.text}
+      <Input label={draft.kind === 'cue' ? 'Cue to show during training' : 'Reason for this instruction'} value={draft.text}
         maxLength={300} multiline editable={!disabled} onChangeText={(text) => setDraft({ ...draft, text })} />
       {duplicate && <Notice error>Edit the existing instruction for this exercise first.</Notice>}
       <View style={styles.row}>

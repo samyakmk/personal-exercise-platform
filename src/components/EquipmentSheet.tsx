@@ -41,16 +41,21 @@ export function EquipmentSheet({ onClose, temporary }: {
     detail={temporary ? 'Choose the gear available for this suggestion. Your saved equipment stays available for next time.'
       : 'Set your usual gear. With equipment unset, workout suggestions use bodyweight and the library shows all equipment.'}
     onClose={() => { if (!saving.current) onClose(); }}>
-    <View style={styles.chips} aria-disabled={busy}>
-      <Chip label={temporary ? 'Use saved equipment' : 'Equipment not set'} selected={value === null} disabled={busy}
-        onPress={() => setValue(null)} />
-      <Chip label="Bodyweight only" selected={value?.length === 0} disabled={busy} onPress={() => setValue([])} />
-      {options.map((item) => <Chip key={item} label={item} selected={Boolean(value?.includes(item))} disabled={busy}
-        onPress={() => setValue((current) => current?.includes(item) ? current.filter((option) => option !== item) : [...(current ?? []), item])} />)}
-    </View>
+    <EquipmentFields value={value} options={options} onChange={setValue} disabled={busy} unsetLabel={temporary ? 'Use saved equipment' : undefined} />
     {error !== '' && <Notice error>{error}</Notice>}
     <Button kind="primary" disabled={busy} onPress={submit}>{busy ? 'Saving…' : temporary ? 'Use this equipment' : 'Save equipment'}</Button>
   </Sheet>;
+}
+
+export function EquipmentFields({ value, options, onChange, disabled, unsetLabel = 'Equipment not set' }: {
+  value: string[] | null; options: string[]; onChange: (value: string[] | null) => void; disabled: boolean; unsetLabel?: string;
+}) {
+  return <View style={styles.chips} role="group" accessibilityLabel="Available equipment" aria-disabled={disabled}>
+    <Chip label={unsetLabel} selected={value === null} disabled={disabled} onPress={() => onChange(null)} />
+    <Chip label="Bodyweight only" selected={value?.length === 0} disabled={disabled} onPress={() => onChange([])} />
+    {options.map((item) => <Chip key={item} label={item} selected={Boolean(value?.includes(item))} disabled={disabled}
+      onPress={() => onChange(value?.includes(item) ? value.filter((option) => option !== item) : [...(value ?? []), item])} />)}
+  </View>;
 }
 
 const styles = StyleSheet.create({

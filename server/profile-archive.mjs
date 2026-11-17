@@ -17,7 +17,7 @@ export function createProfileArchive(db, store) {
     FROM clip LEFT JOIN clip_review ON clip_review.workspace_id = clip.workspace_id AND clip_review.clip_id = clip.id
     WHERE clip.workspace_id = ? ORDER BY uploadedAt, clip.id`);
   const history = db.prepare(`SELECT start_seconds AS startSeconds, sequence, review FROM clip_review_history
-    WHERE workspace_id = ? AND clip_id = ? ORDER BY start_seconds`);
+    WHERE workspace_id = ? AND clip_id = ? ORDER BY start_seconds, end_seconds`);
   const writeProfile = db.prepare('UPDATE local_profile SET details = ? WHERE workspace_id = ?');
   const addRevision = db.prepare('INSERT INTO profile_revision (workspace_id, saved_at, details) VALUES (?, ?, ?)');
   const writeEquipment = db.prepare('UPDATE workspace SET equipment = ? WHERE id = ?');
@@ -28,11 +28,11 @@ export function createProfileArchive(db, store) {
   const attachMedia = db.prepare(`UPDATE clip SET size = ?, digest = ?, representation = lower(hex(randomblob(16)))
     WHERE workspace_id = ? AND id = ? AND size = 0`);
   const clearDeletion = db.prepare('DELETE FROM clip_deletion WHERE workspace_id = ? AND id = ?');
-  const addHistory = db.prepare(`INSERT INTO clip_review_history (workspace_id, clip_id, start_seconds, sequence, review)
-    VALUES (?, ?, ?, ?, ?)`);
-  const addAttempt = db.prepare(`INSERT INTO clip_review_attempt (workspace_id, clip_id, version, sequence, start_seconds)
-    VALUES (?, ?, 0, ?, ?) ON CONFLICT (workspace_id, clip_id) DO UPDATE SET version = 0,
-    sequence = max(sequence + 1, excluded.sequence), start_seconds = excluded.start_seconds,
+  const addHistory = db.prepare(`INSERT INTO clip_review_history (workspace_id, clip_id, start_seconds, end_seconds, sequence, review)
+    VALUES (?, ?, ?, ?, ?, ?)`);
+  const addAttempt = db.prepare(`INSERT INTO clip_review_attempt (workspace_id, clip_id, version, sequence, start_seconds, end_seconds)
+    VALUES (?, ?, 0, ?, ?, ?) ON CONFLICT (workspace_id, clip_id) DO UPDATE SET version = 0,
+    sequence = max(sequence + 1, excluded.sequence), start_seconds = excluded.start_seconds, end_seconds = excluded.end_seconds,
     error = NULL, error_status = NULL, lease_until = NULL, lease_owner = NULL`);
 
   function transaction(write, operation) {
@@ -65,9 +65,11 @@ export function createProfileArchive(db, store) {
   function saveReviews(workspace, clip) {
     const { id, review, history: sections } = clip;
     if (review) store.saveReview(workspace, id, JSON.stringify(review));
-    for (const section of sections) addHistory.run(workspace, id, section.startSeconds, section.sequence, JSON.stringify(section.review));
+    for (const section of sections) {
+      addHistory.run(workspace, id, section.startSeconds, section.review.endSeconds ?? 0, section.sequence, JSON.stringify(section.review));
+    }
     const sequence = Math.max(review?.sequence ?? 0, ...sections.map((section) => section.sequence));
-    if (sequence > 0 && review) addAttempt.run(workspace, id, sequence, review.startSeconds ?? 0);
+    if (sequence > 0 && review) addAttempt.run(workspace, id, sequence, review.startSeconds ?? 0, review.endSeconds ?? null);
   }
 
   return {

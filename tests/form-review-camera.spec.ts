@@ -34,6 +34,7 @@ test('records a clip in Form Review and shows the matched stills on a narrow scr
   await page.getByRole('button', { name: 'Stop recording' }).click();
   await page.getByRole('button', { name: 'Use recording' }).click();
   await expect(page.getByLabel('Video preview', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Choose time range' })).toHaveCount(0);
   expect((await (await page.request.get('/api/workspace')).json()).clips).toEqual([]);
 
   await page.getByRole('button', { name: 'Upload and analyze' }).click();
