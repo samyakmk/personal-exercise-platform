@@ -1,5 +1,4 @@
-export function createCheckIns(db) {
-  db.exec(`
+export const checkInSchema = `
     CREATE TABLE IF NOT EXISTS training_check_in (
       workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
       id TEXT NOT NULL,
@@ -14,9 +13,10 @@ export function createCheckIns(db) {
     CREATE INDEX IF NOT EXISTS training_check_in_recent ON training_check_in (workspace_id, saved_at DESC);
     CREATE INDEX IF NOT EXISTS training_check_in_day ON training_check_in (workspace_id, day, saved_at DESC)
       WHERE adjustment IS NOT NULL;
-  `);
+`;
 
-  const fields = 'id, day, text, adjustment, reply, saved_at AS savedAt';
+export function createCheckIns(db) {
+  const fields = 'id, day, text, adjustment, reply, saved_at AS "savedAt"';
   const list = db.prepare(`SELECT ${fields} FROM training_check_in WHERE workspace_id = ? ORDER BY saved_at DESC, rowid DESC LIMIT 30`);
   const onDay = db.prepare(`SELECT adjustment FROM training_check_in WHERE workspace_id = ? AND day = ?
     AND adjustment IS NOT NULL ORDER BY saved_at DESC, rowid DESC LIMIT 1`);
@@ -25,33 +25,28 @@ export function createCheckIns(db) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   const remove = db.prepare('DELETE FROM training_check_in WHERE workspace_id = ? AND id = ?');
 
-  function state(workspace, day) {
-    const entries = list.all(workspace).map(({ adjustment, reply, ...row }) => ({
+  async function state(workspace, day) {
+    const entries = (await list.all(workspace)).map(({ adjustment, reply, ...row }) => ({
       ...row, ...(adjustment && { adjustment }), ...(reply && { reply }),
     }));
-    return { entries, day, adjustment: onDay.get(workspace, day)?.adjustment ?? null };
+    return { entries, day, adjustment: (await onDay.get(workspace, day))?.adjustment ?? null };
   }
   return {
     state,
     save(workspace, entry, makeReply) {
       const { id, day, text, adjustment, wantsReply } = entry;
-      db.exec('BEGIN IMMEDIATE');
-      try {
-        const previous = byId.get(workspace, id);
+      return db.transaction(true, async () => {
+        const previous = await byId.get(workspace, id);
         const value = previous
           ? previous.day === day && previous.text === text && previous.adjustment === adjustment && previous.wants_reply === Number(wantsReply)
-          : Boolean(add.run(workspace, id, day, text, adjustment, Number(wantsReply), wantsReply ? makeReply() : null, new Date().toISOString()).changes);
-        const result = value ? state(workspace, day) : null;
-        db.exec('COMMIT');
+          : Boolean((await add.run(workspace, id, day, text, adjustment, Number(wantsReply), wantsReply ? await makeReply() : null, new Date().toISOString())).changes);
+        const result = value ? await state(workspace, day) : null;
         return result;
-      } catch (error) {
-        db.exec('ROLLBACK');
-        throw error;
-      }
+      });
     },
-    remove(workspace, id, day) {
-      remove.run(workspace, id);
-      return state(workspace, day);
+    async remove(workspace, id, day) {
+      await remove.run(workspace, id);
+      return await state(workspace, day);
     },
   };
 }

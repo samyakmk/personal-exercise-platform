@@ -82,6 +82,8 @@ function forProfile(workspaceKey: string, init?: RequestInit): RequestInit {
 
 export const profilesApi = {
   state: () => request<ProfileState>('profiles'),
+  googleChallenge: () => request<{ nonce: string }>('profiles/google-challenge', { method: 'POST' }),
+  googleSignIn: (credential: string, nonce: string) => request<ProfileState>('profiles/google', json('POST', { credential, nonce })),
   create: (username: string) => request<ProfileState>('profiles', json('POST', { username, setup: true })),
   signIn: (username: string) => request<ProfileState>('profiles/login', json('POST', { username })),
   signOut: (key: string) => request<ProfileState>('profiles/logout', forProfile(key, { method: 'POST' })),

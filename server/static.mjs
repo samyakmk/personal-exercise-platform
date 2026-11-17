@@ -20,19 +20,19 @@ const maxCachedAsset = 4 * 1024 * 1024;
 const maxEncodedAssets = 8;
 const brotliOptions = { params: { [constants.BROTLI_PARAM_QUALITY]: 6 } };
 const gzipOptions = { level: 5 };
-const browserPolicy = [
+const browserPolicy = (google) => [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self'" + (google ? ' https://accounts.google.com/gsi/client' : ''),
+  "style-src 'self' 'unsafe-inline'" + (google ? ' https://accounts.google.com/gsi/style' : ''),
   "img-src 'self' data: blob: https://i.ytimg.com https://i.vimeocdn.com",
   "font-src 'self' data:",
   "media-src 'self' blob:",
-  'frame-src https://www.youtube-nocookie.com https://player.vimeo.com',
-  "connect-src 'self'",
+  'frame-src https://www.youtube-nocookie.com https://player.vimeo.com' + (google ? ' https://accounts.google.com/gsi/' : ''),
+  "connect-src 'self'" + (google ? ' https://accounts.google.com/gsi/' : ''),
 ].join('; ');
 
 async function locate(dist, pathname) {
@@ -48,7 +48,7 @@ async function locate(dist, pathname) {
   return info.isFile() ? { file, info } : null;
 }
 
-export function createStaticHandler(directory) {
+export function createStaticHandler(directory, { google = false } = {}) {
   const dist = resolve(directory);
   const encoded = new Map();
   function compressedAsset(file, tag, coding) {
@@ -94,7 +94,8 @@ export function createStaticHandler(directory) {
       'X-Content-Type-Options': 'nosniff',
     };
     if (ext === '.html') {
-      headers['Content-Security-Policy'] = browserPolicy;
+      headers['Content-Security-Policy'] = browserPolicy(google);
+      if (google) headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups';
       headers['Referrer-Policy'] = 'strict-origin-when-cross-origin';
     }
     if (canCompress) headers.Vary = 'Accept-Encoding';

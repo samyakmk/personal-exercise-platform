@@ -38,40 +38,40 @@ test('date-specific suggestions honor nearby sessions, available gear, and the t
   assert.deepEqual(input.workouts, [saved]);
 });
 
-test('series updates reject stale edits, preserve a skipped occurrence, and leave completed logs alone', (t) => {
+test('series updates reject stale edits, preserve a skipped occurrence, and leave completed logs alone', async (t) => {
   const store = createStore(':memory:');
   t.after(() => store.close());
   const browser = randomUUID();
-  assert.equal(store.profiles.create(browser, 'series-test'), 'created');
-  const workspace = store.profiles.active(browser);
+  assert.equal(await store.profiles.create(browser, 'series-test'), 'created');
+  const workspace = await store.profiles.active(browser);
   const seriesId = randomUUID();
   const series = Array.from({ length: 4 }, (_, index) => ({
     id: seriesWorkoutId(seriesId, index), date: `2026-11-${String(2 + index * 7).padStart(2, '0')}`,
     time: '12:00', name: 'Weekly strength', status: 'planned', exercises: sets('bodyweight-squat'),
   }));
-  assert.equal(store.insertWorkoutSeries(workspace, series), true);
-  const before = store.workouts(workspace);
+  assert.equal(await store.insertWorkoutSeries(workspace, series), true);
+  const before = await store.workouts(workspace);
   assert.deepEqual(before.map(({ seriesId: id, seriesIndex }) => [id, seriesIndex]), [0, 1, 2, 3].map((index) => [seriesId, index]));
   const [first, anchor, skip, last] = before;
-  assert.equal(store.updateWorkout(workspace, first.id, { ...first, status: 'completed', skippedExerciseIds: ['push-up'] }, first.revision), 'saved');
-  assert.equal(store.removeWorkout(workspace, skip.id, skip.revision).changes, 1);
+  assert.equal(await store.updateWorkout(workspace, first.id, { ...first, status: 'completed', skippedExerciseIds: ['push-up'] }, first.revision), 'saved');
+  assert.equal((await store.removeWorkout(workspace, skip.id, skip.revision)).changes, 1);
   const expected = [anchor, last].map(({ id, revision }) => ({ id, revision }));
   const kept = { ...last, date: '2026-11-24' };
-  assert.equal(store.updateWorkout(workspace, last.id, kept, last.revision), 'saved');
+  assert.equal(await store.updateWorkout(workspace, last.id, kept, last.revision), 'saved');
   const update = { ...anchor, date: '2026-11-10', time: '10:00', exercises: sets('push-up') };
   const operation = randomUUID();
-  assert.deepEqual(store.updateWorkoutSeries(workspace, anchor.id, update, expected, operation), { error: 'conflict' });
-  assert.equal(store.workoutChanges(workspace, [anchor.id]).upsert[0].date, anchor.date);
+  assert.deepEqual(await store.updateWorkoutSeries(workspace, anchor.id, update, expected, operation), { error: 'conflict' });
+  assert.equal((await store.workoutChanges(workspace, [anchor.id])).upsert[0].date, anchor.date);
   expected[1].revision += 1;
   const saved = { ids: [anchor.id, last.id] };
-  assert.deepEqual(store.updateWorkoutSeries(workspace, anchor.id, update, expected, operation), saved);
-  assert.deepEqual(store.updateWorkoutSeries(workspace, anchor.id, update, expected, operation), saved);
-  const after = store.workouts(workspace);
+  assert.deepEqual(await store.updateWorkoutSeries(workspace, anchor.id, update, expected, operation), saved);
+  assert.deepEqual(await store.updateWorkoutSeries(workspace, anchor.id, update, expected, operation), saved);
+  const after = await store.workouts(workspace);
   assert.deepEqual(after.map(({ date, time, seriesIndex }) => [date, time, seriesIndex]), [
     ['2026-11-02', '12:00', 0], ['2026-11-10', '10:00', 1], ['2026-11-25', '10:00', 3],
   ]);
   assert.deepEqual(after[0].skippedExerciseIds, ['push-up']);
-  const backup = JSON.parse(store.trainingBackup(workspace, { from: '2026-01-01', before: '2027-01-01', maxBytes: 100_000, maxWorkouts: 10 }));
+  const backup = JSON.parse(await store.trainingBackup(workspace, { from: '2026-01-01', before: '2027-01-01', maxBytes: 100_000, maxWorkouts: 10 }));
   assert.deepEqual(backup.workouts.map(({ seriesId: id, seriesIndex }) => [id, seriesIndex]), [0, 1, 3].map((index) => [seriesId, index]));
   assert.deepEqual(backup.workouts[0].skippedExerciseIds, ['push-up']);
 });

@@ -11,6 +11,7 @@ import { emptyPreferences, PreferenceFields, TrainingProfileHistory } from '../c
 import { TrainingDial } from '../components/TrainingDial';
 import { Wordmark } from '../components/Wordmark';
 import { Button, Copy, Display, EditorialTitle, Input, Notice, PageTitle, Panel, SectionTitle } from '../components/ui';
+import { GoogleSignIn } from '../platform/GoogleSignIn';
 import { useProfiles } from '../profiles';
 import { color, radius } from '../theme';
 import type { Profile, ProfileEdit } from '../types';
@@ -29,7 +30,7 @@ function ProfileFrame({ compact, children }: { compact: boolean; children: React
 }
 
 export function ProfileGate() {
-  const { state, loadError, notice, reload, busy, create, signIn } = useProfiles();
+  const { state, loadError, notice, reload, busy, create, signIn, googleSignIn } = useProfiles();
   const router = useRouter();
   const [adding, setAdding] = useState(false);
   const [username, setUsername] = useState('');
@@ -41,9 +42,9 @@ export function ProfileGate() {
   const tileSize = width < 360 ? 116 : compact ? 136 : 154;
 
   useEffect(() => {
-    if (Platform.OS === 'web') document.title = 'Choose a profile · Trainer Plus';
+    if (Platform.OS === 'web') document.title = state?.google ? 'Sign in · Trainer Plus' : 'Choose a profile · Trainer Plus';
     (main.current as unknown as HTMLElement | null)?.focus?.({ preventScroll: true });
-  }, []);
+  }, [state?.google?.clientId]);
 
   useEffect(() => {
     if (adding && Platform.OS === 'web') document.getElementById('trainer-plus-profile-username')?.focus();
@@ -65,6 +66,19 @@ export function ProfileGate() {
       router.replace('/');
     }, 'create');
   }
+
+  if (state?.google) return <ProfileFrame compact={compact}>
+    <View role="main" nativeID="trainer-plus-main" ref={main} tabIndex={-1} style={[styles.picker, compact && styles.pickerCompact]}>
+      <EditorialTitle accessibilityRole="header" aria-level={1} size={compact ? 46 : 76} tone={color.surface} emphasisTone={color.accent}
+        title="Sign in to Trainer Plus" style={styles.centered} />
+      <Copy size={13} tone={color.onInk} style={styles.centered}>New here? Continuing with Google creates your account.</Copy>
+      <GoogleSignIn clientId={state.google.clientId} onCredential={async (credential, nonce) => {
+        await googleSignIn(credential, nonce);
+        router.replace('/');
+      }} />
+      {notice !== '' && <Notice>{notice}</Notice>}
+    </View>
+  </ProfileFrame>;
 
   return <ProfileFrame compact={compact}>
     <View role="main" nativeID="trainer-plus-main" ref={main} tabIndex={-1} style={[styles.picker, compact && styles.pickerCompact]}>
@@ -215,15 +229,16 @@ export function ProfileScreen() {
   const profile = state?.active;
   if (!profile) return null;
   const key = profile.workspaceKey;
-  return <ProfileSettings key={key} profile={profile} busy={busy}
+  return <ProfileSettings key={key} profile={profile} busy={busy} google={Boolean(state.google)}
     save={(details) => save(key, details)} signOut={() => signOut(key)} remove={() => deleteProfile(key)} />;
 }
 
 type Details = ProfileEdit;
 
-function ProfileSettings({ profile, busy, save, signOut, remove }: {
+function ProfileSettings({ profile, busy, google, save, signOut, remove }: {
   profile: Profile;
   busy: boolean;
+  google: boolean;
   save: (details: Details) => Promise<void>;
   signOut: () => Promise<void>;
   remove: () => Promise<void>;
@@ -287,7 +302,9 @@ function ProfileSettings({ profile, busy, save, signOut, remove }: {
     <TrainingProfileHistory key={JSON.stringify(profile.details)} />
     <ProfileArchive style={styles.settingsPanel} />
     <Panel style={styles.settingsPanel}>
-      <SectionTitle title="Switch profiles" summary="Sign out to choose another profile or create one. Your training data stays with this profile." />
+      {google
+        ? <SectionTitle title="Google account" summary="Sign back in with Google to access your training data." />
+        : <SectionTitle title="Switch profiles" summary="Sign out to choose another profile or create one. Your training data stays with this profile." />}
       <Button icon={LogOut} disabled={busy} onPress={() => void submit(signOut)} style={styles.action}>Sign out</Button>
     </Panel>
     <Panel style={styles.settingsPanel}>

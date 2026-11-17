@@ -19,6 +19,10 @@ export function preferredEncoding(header, supported) {
 }
 
 export function closeAfterResponse(req, res) {
+  if (req.httpVersionMajor >= 2) {
+    if (!req.complete && !req.readableEnded) req.resume();
+    return;
+  }
   if (req.complete || res.getHeader('Connection') === 'close' ||
     (!req.headers['transfer-encoding'] && !(Number(req.headers['content-length']) > 0))) return;
   if (req.headers.expect?.toLowerCase() !== '100-continue') {
@@ -40,5 +44,5 @@ export function closeAfterResponse(req, res) {
 }
 
 export function expectRequestBody(req, res) {
-  if (req.headers.expect?.toLowerCase() === '100-continue') res.writeContinue();
+  if (req.httpVersionMajor < 2 && req.headers.expect?.toLowerCase() === '100-continue') res.writeContinue();
 }

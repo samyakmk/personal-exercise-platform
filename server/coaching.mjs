@@ -80,14 +80,14 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
     return { state: 'idle', sequence };
   }
 
-  function stateFor(workspace, id) {
-    const state = store.reviewState(workspace, id);
+  async function stateFor(workspace, id) {
+    const state = await store.reviewState(workspace, id);
     if (!state) throw new AiError(404, 'Video not found.');
     return state;
   }
 
-  function clipReview(workspace, id) {
-    const { review, attempt } = stateFor(workspace, id);
+  async function clipReview(workspace, id) {
+    const { review, attempt } = await stateFor(workspace, id);
     return { review, reviewStatus: reviewStatus(review, attempt) };
   }
 
@@ -104,7 +104,7 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
   async function waitForReview(workspace, id, original, signal) {
     while (!shutdown) {
       signal?.throwIfAborted();
-      const { review, attempt } = stateFor(workspace, id);
+      const { review, attempt } = await stateFor(workspace, id);
       if (attempt.owner !== original.owner || attempt.sequence !== original.sequence) {
         throw new AiError(409, 'The video or its review changed. Open it again to see the latest result.');
       }
@@ -117,10 +117,10 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
     throw new AiError(503, interrupted);
   }
 
-  function requestReview(workspace, id, { startSeconds, endSeconds }, refresh) {
+  async function requestReview(workspace, id, { startSeconds, endSeconds }, refresh) {
     if (shutdown) throw new AiError(503, interrupted);
-    if (store.clip(workspace, id)?.size === 0) throw new AiError(422, 'Import the original video before analyzing another section.');
-    const claim = store.claimReview(workspace, id, {
+    if ((await store.clip(workspace, id))?.size === 0) throw new AiError(422, 'Import the original video before analyzing another section.');
+    const claim = await store.claimReview(workspace, id, {
       version: reviewVersion, startSeconds, endSeconds, refresh, owner: randomUUID(), leaseMs: reviewLeaseMs,
       maxActive: maxActiveReviews, admit: () => admit(workspace),
     });
@@ -137,10 +137,10 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
     const { clip } = claim;
     const result = run(key, async (controller) => {
       const { signal } = controller;
-      const heartbeat = setInterval(() => {
+      const heartbeat = setInterval(async () => {
         try {
-          if (store.renewReviewLease(workspace, id, attempt, reviewLeaseMs)) return;
-          const current = store.reviewState(workspace, id);
+          if (await store.renewReviewLease(workspace, id, attempt, reviewLeaseMs)) return;
+          const current = await store.reviewState(workspace, id);
           if (!current) controller.abort(new AiError(404, 'Video not found.'));
           else if (current.attempt.owner === attempt.owner) controller.abort(attemptError(current.attempt));
           else controller.abort(new AiError(409, 'The video or its review changed.'));
@@ -162,13 +162,13 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
           windowSeconds: endSeconds === undefined ? reviewWindowSeconds : endSeconds - startSeconds,
           reviewedAt: new Date().toISOString(),
         };
-        if (!store.saveReview(workspace, id, attempt, reviewStill ? { ...review, reviewStill } : review)) {
+        if (!(await store.saveReview(workspace, id, attempt, reviewStill ? { ...review, reviewStill } : review))) {
           return await waitForReview(workspace, id, attempt, signal);
         }
         return review;
       } catch (error) {
         if (!signal.aborted) {
-          store.failReviewAttempt(workspace, id, attempt,
+          await store.failReviewAttempt(workspace, id, attempt,
             error instanceof AiError ? error.message : 'Analysis could not finish. Try again.', error instanceof AiError ? error.status : 500);
         }
         throw error;
@@ -185,7 +185,7 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
       if (reviewJob) {
         const { workspace, id, attempt } = reviewJob;
         try {
-          store.abandonReviewAttempt(workspace, id, attempt, interrupted);
+          await store.abandonReviewAttempt(workspace, id, attempt, interrupted);
         } catch {
           console.error('Trainer Plus could not release a review lease during shutdown.');
         }
@@ -197,15 +197,15 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
 
   return {
     available: Boolean(respond),
-    snapshot(workspace, now = Date.now()) {
-      const snapshot = store.snapshot(workspace);
+    async snapshot(workspace, now = Date.now()) {
+      const snapshot = await store.snapshot(workspace);
       return {
         ...snapshot,
         clips: snapshot.clips.map((clip) => publicClip(clip, now)),
       };
     },
-    clipChanges(workspace, id) {
-      const clip = store.clipRecord(workspace, id);
+    async clipChanges(workspace, id) {
+      const clip = await store.clipRecord(workspace, id);
       return clip ? { upsert: [publicClip(clip)], remove: [] } : { upsert: [], remove: [id] };
     },
     clipReview,
@@ -263,30 +263,30 @@ export function createCoaching(store, { respond, sampleFrames, estimate, reviewL
         return picks;
       });
     },
-    review(workspace, id, signal) {
-      const { review, reviewStatus, attempt, result } = requestReview(workspace, id, { startSeconds: 0 }, false);
+    async review(workspace, id, signal) {
+      const { review, reviewStatus, attempt, result } = await requestReview(workspace, id, { startSeconds: 0 }, false);
       return reviewStatus.state === 'complete' ? review : result ?? waitForReview(workspace, id, attempt, signal);
     },
-    startReview(workspace, id, range, refresh) {
-      const { review, reviewStatus, result, started } = requestReview(workspace, id, range, refresh);
+    async startReview(workspace, id, range, refresh) {
+      const { review, reviewStatus, result, started } = await requestReview(workspace, id, range, refresh);
       if (started) void result.catch((error) => {
         if (error instanceof AiError && error.diagnostic) console.warn('Trainer Plus AI request failed:', error.diagnostic);
         else if (!(error instanceof AiError)) console.error('Trainer Plus review failed:', error.name);
       });
       return { review, reviewStatus };
     },
-    cancelReview(workspace, id, expectedSequence) {
-      const { attempt } = stateFor(workspace, id);
+    async cancelReview(workspace, id, expectedSequence) {
+      const { attempt } = await stateFor(workspace, id);
       if (expectedSequence !== undefined && attempt.sequence !== expectedSequence) {
         throw new AiError(409, 'This review changed before it could be cancelled. Check the latest analysis.');
       }
-      if (attempt.until > Date.now() && store.failReviewAttempt(workspace, id, attempt, cancelled, 409)) {
+      if (attempt.until > Date.now() && await store.failReviewAttempt(workspace, id, attempt, cancelled, 409)) {
         pending.get('review:' + attempt.owner)?.controller.abort(attemptError({ error: cancelled }));
       }
-      return clipReview(workspace, id);
+      return await clipReview(workspace, id);
     },
-    deleteClip(workspace, id) {
-      const owner = store.removeClip(workspace, id);
+    async deleteClip(workspace, id) {
+      const owner = await store.removeClip(workspace, id);
       pending.get('review:' + owner)?.controller.abort(new AiError(404, 'Video not found.'));
     },
     removeWorkspace(workspace) {

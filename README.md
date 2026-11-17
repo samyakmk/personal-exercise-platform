@@ -15,11 +15,26 @@ npm start
 
 Open [the website](http://127.0.0.1:4173). For a live-reloading web development server, run `npm run dev` and open [localhost:8081](http://localhost:8081).
 
-Create a profile with a username, then enter any training details or equipment you want to save. Choose **Save profile** to open Overview, where you can start a suggested session. You can edit your details in **Profile**, sign out to switch profiles, or delete the active account and its stored data. The profile chooser is shared across tabs in the same browser. Use the same browser and site address to return to your profiles; signing in by username does not recover a profile from another browser or after its cookie is cleared. The passwordless chooser is for local testing. A public deployment needs verified accounts, such as Google sign-in.
+Create a profile with a username, then enter any training details or equipment you want to save. Choose **Save profile** to open Overview, where you can start a suggested session. You can edit your details in **Profile**, sign out to switch profiles, or delete the active account and its stored data. The profile chooser is shared across tabs in the same browser. Use the same browser and site address to return to your profiles; signing in by username does not recover a profile from another browser or after its cookie is cleared. The username chooser is available in local mode.
 
 Each profile has its own workouts, session history, saved exercises, equipment, profile history, check-ins, videos, and form reviews. Editor drafts stay in the tab. Active sessions and logs awaiting sync are saved for that profile in the browser and can be reopened on the same device. The production web build caches the app shell and a recent training snapshot after an online visit so you can finish a workout offline. New installations use `.data/trainer-plus.sqlite`. Existing installations reopen their database in place and keep their browser profiles. If this browser still has the old workspace cookie, its first profile takes ownership of the existing workspace, preserving data and drafts. Earlier training backups remain supported. New profiles start empty. **Load sample workouts** on Overview adds editable examples. They appear in training metrics once saved as personal workouts. **Remove sample workouts** clears the remaining examples.
 
 The server binds to loopback by default. `PORT` changes the port and `TRAINER_PLUS_DB` selects another SQLite file. Set `TRAINER_PLUS_ALLOWED_HOSTS` for trusted custom hostnames. Use a dedicated hostname if sharing a machine with untrusted web services, since browsers send cookies across ports on the same hostname.
+
+## Cloud Run
+
+The Docker image serves the website and API. Cloud SQL for PostgreSQL holds account sessions, training records, and review results. A private Cloud Storage bucket holds video files. Cloud Run needs end-to-end HTTP/2 to accept the app’s largest video and profile archive requests.
+
+The hosted sign-in screen uses **Continue with Google** for signup and login. The first sign-in creates one profile per Google account. The server expires each session seven days after sign-in, and signing out revokes the current browser session.
+
+Configure the Cloud Run service with:
+
+- `TRAINER_PLUS_GOOGLE_CLIENT_ID` and a comma-separated `TRAINER_PLUS_GOOGLE_ALLOWED_EMAILS` list. Register the service’s HTTPS origin in the Google web client.
+- `TRAINER_PLUS_ALLOWED_HOSTS` with the exact hostname, and `TRAINER_PLUS_HTTP2=1` with Cloud Run’s end-to-end HTTP/2 setting enabled.
+- `TRAINER_PLUS_SQL_SOCKET=/cloudsql/PROJECT:REGION:INSTANCE`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD` from Secret Manager. Attach the Cloud SQL instance to the service.
+- `TRAINER_PLUS_VIDEO_BUCKET` with a private bucket name. Grant the runtime service account Cloud SQL Client and access to the bucket’s objects and the database password secret.
+
+Use an empty Cloud SQL database for a fresh installation. The server creates its schema at startup. Back up Cloud SQL and preserve the associated bucket when replacing a revision.
 
 ## Training workflows
 
@@ -65,7 +80,7 @@ Form Review prioritizes a specific adjustment when the footage supports one. A s
 
 Local joint tracking runs in a worker in sections up to 20 seconds. Automatic detection uses contrasting working positions when tracking finds them and reuses the same measurements for supported reviews. Longer custom ranges use visual review with samples spread across the selected interval. Tracking measures push-up hip alignment and descent, squat depth and stance width when visible, standing dumbbell press descent, sustained forearm plank hip position, substantial repeated torso rocking during standing curls, visibly bent low reversals or leg swing during pull-ups, repeated high hip position during glute bridges, substantial trunk turn between bird-dog reaches, and repeated torso rotation during one-arm dumbbell rows. Reverse-lunge reviews check step direction across a visible rep. Bird-dog and dead-bug reviews also check for similar movements using visible joint trajectories. Decisive tracked mismatches can return a verdict before OpenAI is called. A visual adjustment or strength needs two supporting frames at least half a second apart and can use the visible parts of the exercise when tracking is limited. The app filters common explicit medical claims and advice before displaying new feedback. Unclear camera views, incomplete reps, or disagreement about the exercise can lead to a request for different footage.
 
-Requests use structured outputs with response storage disabled. SQLite leases share an active-review cap across processes on the same database. Start-rate limits apply per process and workspace. Public deployment requires account authentication and durable usage limits. [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create) · [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data)
+Requests use structured outputs with response storage disabled. Database leases share an active-review cap across processes on the same database. Start-rate limits apply per process and workspace. Before enabling paid AI features for a wider audience, configure durable usage limits. [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create) · [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data)
 
 ## Website checks
 
@@ -125,10 +140,10 @@ Reuse the same ledger for the entire study. The guarded commands count the actua
 - `src/platform/` contains browser-specific dialogs, form fields, demonstration players, and video handling alongside native implementations. The supported build and test target is the website.
 - `server/catalog.mjs` combines Trainer Plus's curated exercises with `server/free-exercise-db.json`. The bundled snapshot comes from [Free Exercise DB](https://github.com/yuhonas/free-exercise-db/tree/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5) ([Unlicense](https://github.com/yuhonas/free-exercise-db/blob/f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5/LICENSE.md)). Trainer Plus omits overlapping entries, normalizes equipment and muscle groups, and keeps its own demonstration videos.
 - `server/api.mjs` serves workspace data, downloads, and private media. Upload validation checks the container and video samples. Playback and form review also depend on decoder support for the source codec.
-- `server/local-profiles.mjs` owns the browser’s profile roster, active selection, and saved preferences and revisions. `server/check-ins.mjs` owns private journal entries and per-day adjustments. Deleting a profile cascades through its workspace data.
+- `server/google-profiles.mjs` verifies Google sign-in and manages hosted account sessions. `server/local-profiles.mjs` owns the local profile roster and active selection, along with profile details and revisions in both modes. `server/check-ins.mjs` owns private journal entries and per-day adjustments. Deleting a profile cascades through its workspace data.
 - `shared/today-plan.mjs` builds today’s suggestion from the workout log, gear, preferences, and check-in adjustment. The same planner informs check-in replies. `shared/muscle-work.mjs` estimates accumulated muscle exposure for Progress.
 - `server/recommendations.mjs` limits the choices for exercise refinements and builds scheduled workout previews. `src/workoutRefinement.ts` adjusts targets for both today’s and scheduled workout suggestions.
-- `server/store.mjs` owns SQLite training data, review leases, workout edit receipts, and workspace validators. The browser requests a starter workspace and loads the independently versioned catalog in the background. The service worker caches the app shell and fingerprinted static assets. Profile-scoped workout recovery uses browser storage.
+- `server/store.mjs` owns training data, review leases, workout edit receipts, and workspace validators across SQLite and PostgreSQL. `server/postgres.mjs` owns the hosted schema, and `server/cloud-media.mjs` reads and writes the hosted video files. The browser requests a starter workspace and loads the independently versioned catalog in the background. The service worker caches the app shell and fingerprinted static assets. Profile-scoped workout recovery uses browser storage.
 
 ### Demonstration videos
 

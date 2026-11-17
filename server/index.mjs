@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createServer as createHttp2Server } from 'node:http2';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,6 +11,7 @@ import { createStaticHandler } from './static.mjs';
 import { closeAfterResponse } from './http.mjs';
 import { createPosePool } from './pose-pool.mjs';
 import { trainerPlusEnv } from './config.mjs';
+import { googleIdentity } from './google-profiles.mjs';
 
 function defaultDatabase() {
   // Open the existing database in place so its WAL and active readers stay intact.
@@ -31,17 +33,19 @@ export function createTrainerPlusServer({
   uploadIdleTimeoutMs,
   legacyReadBudgetBytes,
   allowedHosts = trainerPlusEnv('ALLOWED_HOSTS')?.split(','),
+  google = googleIdentity(trainerPlusEnv('GOOGLE_CLIENT_ID'), trainerPlusEnv('GOOGLE_ALLOWED_EMAILS')),
+  http2 = false,
 } = {}) {
-  const store = createStore(database);
+  const store = typeof database === 'string' ? createStore(database) : database;
   const coaching = createCoaching(store, { respond, sampleFrames, estimate: posePool?.estimate, reviewLeaseMs, reviewHeartbeatMs });
-  const api = createApi(store, { webOrigin, secureCookies, coaching, convertVideo, uploadIdleTimeoutMs, legacyReadBudgetBytes });
-  const serve = createStaticHandler(dist);
+  const api = createApi(store, { webOrigin, secureCookies, coaching, convertVideo, uploadIdleTimeoutMs, legacyReadBudgetBytes, google });
+  const serve = createStaticHandler(dist, { google: Boolean(google) });
   const hosts = new Set(allowedHosts?.map((host) => host.trim().toLowerCase()).filter(Boolean)
     ?? ['localhost', '127.0.0.1', '[::1]']);
 
   const handle = async (req, res) => {
     try {
-      const address = req.headers.host?.toLowerCase();
+      const address = (req.headers[':authority'] ?? req.headers.host)?.toLowerCase();
       const hostname = address?.replace(/:\d+$/, '');
       if (!address || (!hosts.has(address) && !hosts.has(hostname))) {
         closeAfterResponse(req, res);
@@ -61,7 +65,14 @@ export function createTrainerPlusServer({
       }
     }
   };
-  const server = createServer({ headersTimeout: 15_000, requestTimeout: 105_000 }, handle);
+  const server = http2 ? createHttp2Server({ settings: { maxConcurrentStreams: 32 } }, handle)
+    : createServer({ headersTimeout: 15_000, requestTimeout: 105_000 }, handle);
+  const sessions = new Set();
+  if (http2) server.on('session', (session) => {
+    sessions.add(session);
+    session.on('error', () => {});
+    session.once('close', () => sessions.delete(session));
+  });
   server.on('checkContinue', (req, res) => {
     closeAfterResponse(req, res);
     return handle(req, res);
@@ -72,19 +83,35 @@ export function createTrainerPlusServer({
     return shutdown;
   };
   server.once('close', () => { void stopCoaching().then(() => store.close()); });
-  return Object.assign(server, { stopCoaching });
+  const closeConnections = () => {
+    if (http2) for (const session of sessions) session.destroy();
+    else server.closeAllConnections();
+  };
+  return Object.assign(server, { stopCoaching, closeConnections });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT ?? 4173);
   const host = process.env.HOST ?? '127.0.0.1';
-  const server = createTrainerPlusServer();
+  const socket = trainerPlusEnv('SQL_SOCKET');
+  const bucket = trainerPlusEnv('VIDEO_BUCKET');
+  if (process.env.K_SERVICE && (!socket || !bucket || !trainerPlusEnv('GOOGLE_CLIENT_ID') || !trainerPlusEnv('ALLOWED_HOSTS'))) {
+    throw new Error('Cloud Run requires Cloud SQL, a private video bucket, allowed hosts, and Google sign-in.');
+  }
+  let database;
+  if (socket) {
+    const { openPostgresStore } = await import('./postgres.mjs');
+    const { createCloudMedia } = await import('./cloud-media.mjs');
+    database = await openPostgresStore({ host: socket }, bucket ? createCloudMedia(bucket) : undefined);
+    void database.flushMedia();
+  }
+  const server = createTrainerPlusServer({ database, http2: trainerPlusEnv('HTTP2') === '1' });
   server.listen(port, host, () => console.log(`Trainer Plus is running at http://${host}:${port}`));
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.once(signal, () => {
       server.close();
       void server.stopCoaching();
-      setTimeout(() => server.closeAllConnections(), 2000).unref();
+      setTimeout(server.closeConnections, 2000).unref();
     });
   }
 }

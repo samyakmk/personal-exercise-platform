@@ -139,12 +139,12 @@ export function normalizeTrainingNote(value) {
 }
 
 export async function answerTrainingChat(respond, store, workspace, { message, history, current, signal }) {
-  const workouts = store.workouts(workspace);
+  const workouts = await store.workouts(workspace);
   const completed = workouts.filter((workout) => matchesWorkout(workout, current)).reverse();
-  const equipment = store.equipment(workspace);
-  const preferences = store.profiles.details(workspace).trainingPreferences;
-  const notes = store.trainingNotes(workspace);
-  const adjustment = store.checkIns.state(workspace, current.date).adjustment;
+  const equipment = await store.equipment(workspace);
+  const preferences = (await store.profiles.details(workspace)).trainingPreferences;
+  const notes = await store.trainingNotes(workspace);
+  const adjustment = (await store.checkIns.state(workspace, current.date)).adjustment;
   const plan = buildTodayPlan({ current, catalog, equipment, preferences, workouts, adjustment, trainingNotes: notes });
   const loggedExerciseIds = new Set();
   for (const { exercises } of completed) {

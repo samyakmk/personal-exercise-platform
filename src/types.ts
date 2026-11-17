@@ -31,7 +31,9 @@ export type CheckInState = { entries: TrainingCheckIn[]; day: string; adjustment
 export type CheckInInput = Pick<TrainingCheckIn, 'id' | 'text' | 'adjustment'> & { time: string; wantsReply: boolean };
 export type ProfileSummary = { username: string; workspaceKey: string };
 export type Profile = ProfileSummary & { details: ProfileDetails; setupPending?: true };
-export type ProfileState = { active: Profile | null; profiles: ProfileSummary[]; canImportLegacy: boolean };
+export type ProfileState = { active: Profile | null; profiles: ProfileSummary[]; canImportLegacy: boolean;
+  google?: { clientId: string; expiresAt: number | null };
+};
 export type ProfileArchiveSummary = Record<'profile' | 'revisions' | 'equipment' | 'bookmarks' | 'workouts' |
   'trainingNotes' | 'checkIns' | 'clips' | 'videos', { add: number; same: number; conflict: number }>;
 export type TrainingNoteInput = {

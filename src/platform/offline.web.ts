@@ -16,17 +16,22 @@ function write(key: string, data: unknown) {
 
 export function readOfflineProfile() {
   const state = read<ProfileState>('profile');
+  if (state?.active && state.google && (!state.google.expiresAt || state.google.expiresAt <= Date.now())) {
+    writeOfflineProfile(null);
+    return { active: null, profiles: [], canImportLegacy: false, google: { ...state.google, expiresAt: null } };
+  }
   return state?.active?.workspaceKey ? state : null;
 }
 
 export function writeOfflineProfile(state: ProfileState | null) {
-  const previous = readOfflineProfile();
+  const previous = read<ProfileState>('profile');
   const active = state?.active;
   if (previous?.active && previous.active.workspaceKey !== active?.workspaceKey) {
     writeOfflineWorkspace(previous.active.workspaceKey, null);
   }
   write('profile', active ? {
     active, canImportLegacy: false, profiles: [{ username: active.username, workspaceKey: active.workspaceKey }],
+    ...(state.google && { google: state.google }),
   } : null);
 }
 
