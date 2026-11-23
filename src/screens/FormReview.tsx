@@ -224,7 +224,7 @@ export function FormReview() {
     {data.clips.length > 0 && (matching.length === 0 ? <Empty title="No matching videos" message="Try another filename or exercise." icon={SearchX}
         action={<Button compact onPress={() => setClipSearch('')}>Clear search</Button>} />
       : <Panel style={styles.videoList}>{matching.slice(0, clipLimit).map((clip, index) => {
-        const date = dateKey(new Date(clip.uploadedAt));
+        const uploaded = formatDay(dateKey(new Date(clip.uploadedAt)), { month: 'short', day: 'numeric', year: 'numeric' });
         return <Pressable key={clip.id} accessibilityRole="button" accessibilityLabel={`Open video · ${clip.filename}`}
           onPress={() => router.setParams({ clip: clip.id, at: undefined })}
           style={({ hovered }) => [styles.videoRow, index > 0 && styles.videoRowBorder, hovered && styles.videoRowHover]}>
@@ -232,8 +232,9 @@ export function FormReview() {
           <View style={{ flex: 1, minWidth: 105, gap: 2 }}>
             <Copy weight="semibold" size={15}>{clipExerciseName(clip) ?? 'Exercise clip'}</Copy>
             <Copy size={12} tone={color.muted} numberOfLines={1}>{clip.filename}</Copy>
+            {!wide && <Copy size={12} tone={color.muted}>Uploaded {uploaded}</Copy>}
           </View>
-          {wide && <Copy size={12} tone={color.muted}>{formatDay(date, { month: 'short', day: 'numeric', year: 'numeric' })}</Copy>}
+          {wide && <Copy size={12} tone={color.muted}>{uploaded}</Copy>}
           {(clip.reviewStatus.state !== 'idle' || clip.review) && <Tag>{clip.reviewStatus.state === 'running' ? 'Analyzing'
             : clip.reviewStatus.state === 'failed' ? 'Needs retry'
             : clip.reviewStatus.state === 'cancelled' ? 'Cancelled'
